@@ -14,12 +14,6 @@ namespace F117
 	{
 		bool		simInitialized = false;
 
-		double		leading_edge_flap_integral					= 0.0;
-		double		leading_edge_flap_integrated				= 0.0;
-		double		leading_edge_flap_rate						= 0.0;
-		double		leading_edge_flap_integrated_gained			= 0.0;
-		double		leading_edge_flap_integrated_gained_biased	= 0.0;
-
 		// Control filters (general filters to easily code up when compared to report block diagrams)
 		GeneralFilter	pitchRateWashout;
 		GeneralFilter	pitchIntegrator;
@@ -43,28 +37,6 @@ namespace F117
 		double		alphaFiltered			= 0.0;
 		double		longStickForce			= 0.0;
 		double		latStickInput			= 0.0;
-
-		// Controller for the leading edge flaps
-		double leading_edge_flap_controller(double alpha_DEG, double dynamicPressure_FTLB, double staticPressure_FTLB, double frameTime)
-		{
-			double qbarOverPs = dynamicPressure_FTLB/staticPressure_FTLB;
-
-			if(!(simInitialized))
-			{
-				leading_edge_flap_integral = -alpha_DEG;
-				leading_edge_flap_integrated = leading_edge_flap_integral + 2*alpha_DEG;
-				return leading_edge_flap_integral;
-			}
-
-			leading_edge_flap_rate = (alpha_DEG - leading_edge_flap_integrated) * 7.25;
-			leading_edge_flap_integral += (leading_edge_flap_rate * frameTime);
-
-			leading_edge_flap_integrated = leading_edge_flap_integral + alpha_DEG * 2.0;
-			leading_edge_flap_integrated_gained = leading_edge_flap_integrated * 1.38;
-			leading_edge_flap_integrated_gained_biased = leading_edge_flap_integrated_gained + 1.45 - (9.05 * qbarOverPs);	
-
-			return leading_edge_flap_integrated_gained_biased; 
-		}
 
 		// Controller for yaw
 		double fcs_yaw_controller(double pedInput, double pedTrim, double yaw_rate, double roll_rate, double aoa_filtered, double aileron_commanded, double ay, double dt)
@@ -379,30 +351,6 @@ namespace F117
 			double rollActuatorCommand = rollActuatorDynamicsFilter.Filter(!(simInitialized),dt,rollCommandGained);	
 			return rollActuatorCommand;
 		}		
-
-		// Passive flap schedule for the F-16...nominal for now from flight manual comments
-		double fcs_flap_controller(double airspeed_FPS)
-		{
-			double airspeed_KTS = 0.5924838012958964 * airspeed_FPS;
-			double trailing_edge_flap_deflection = 0.0;
-
-			if(airspeed_KTS < 240.0)
-			{
-				trailing_edge_flap_deflection = 20.0;
-			}
-			else if((airspeed_KTS >= 240.0) && (airspeed_KTS <= 370.0))
-			{
-				trailing_edge_flap_deflection = (1.0 - ((airspeed_KTS - 240.0)/(370.0-240.0))) * 20.0;
-			}
-			else
-			{
-				trailing_edge_flap_deflection = (1.0 - ((airspeed_KTS - 240.0)/(370.0-240.0))) * 20.0;
-			}
-
-			trailing_edge_flap_deflection = limit(trailing_edge_flap_deflection,0.0,20.0);
-
-			return trailing_edge_flap_deflection;
-		}
 	}
 }
 #endif

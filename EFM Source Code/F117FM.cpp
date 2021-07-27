@@ -82,8 +82,6 @@ namespace F117 // I tried to convert the imperial units to metric, but it result
 	double		throttle_state			= 0.2;			// Engine power state
 	double		pedInput				= 0.0;			// Rudder pedal input command normalized (-1 to 1)
 	double		throttleInput			= 0.2;			// Throttle input command normalized (-1 to 1)
-	double		flap_DEG				= 0.0;			// Trailing edge flap deflection (deg)
-	double		flap_PCT				= 0.0;			// Trailing edge flap deflection (0 to 1)
 	double		aileron_PCT				= 0.0;			// Aileron deflection as a percent of maximum (-1 to 1)
 	double		rudder_PCT				= 0.0;			// Rudder deflection as a percent of maximum (-1 to 1)
 	double		elevator_PCT			= 0.0;			// Elevator deflection as a percent of maximum (-1 to 1)
@@ -109,8 +107,6 @@ namespace F117 // I tried to convert the imperial units to metric, but it result
 	double		airbrakes				= 0.0;			// Are the air brakes/spoilers deployed?
 	double		tailhook_CMD			= 0.0;			// Tail hook command
 	double		hook					= 0.0;			// Not sure if needed yet, but whether the hook is down or not
-	double		flap_command			= 0.0;			// flaps command
-	double		flaps					= 0.0;			// Are the flaps down?
 	float		rudder_pos				= 0.0;			//Rudder(s) deflection
 	float		misc_cmd				= 0.0;			//Misc actuator command either for tail hooks or weapon bays (F-22, Su-57, etc.)
 	float		misc_state				= 0.0;
@@ -481,7 +477,7 @@ void ed_fm_simulate(double dt)
 		/* MMMMMMMM Cm_tot MMMMMMMM */
 		F117::AERO::dMdQ = (F117::meanChord_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Cmq;
 
-		F117::AERO::Cm_total = F117::AERO::Cm * F117::AERO::eta_el + F117::AERO::Cz_total * (F117::referenceCG_PCT - F117::actualCG_PCT) + F117::AERO::Cm_delta_lef * F117::AERO::dMdQ * F117::pitchRate_RPS + F117::AERO::Cm_delta + F117::AERO::Cm_delta_ds;
+		F117::AERO::Cm_total = F117::AERO::Cm * F117::AERO::eta_el + F117::AERO::Cz_total * (F117::referenceCG_PCT - F117::actualCG_PCT) * F117::AERO::dMdQ * F117::pitchRate_RPS + F117::AERO::Cm_delta + F117::AERO::Cm_delta_ds;
 
 		/* YYYYYYYY Cy_tot YYYYYYYY */
 		F117::AERO::dYdail = F117::AERO::Cy_delta_a20;
@@ -1420,8 +1416,6 @@ void ed_fm_release()
 	F117::hook = 0.0;
 	F117::dragshute_command = 0.0;
 	F117::dragshute = 0.0;
-	F117::flap_command = 0.0;
-	F117::flaps = 0.0;
 	F117::misc_cmd = 0.0;
 	F117::misc_state = 0.0;
 	F117::misc_cmdH = 0.0;
@@ -1501,8 +1495,6 @@ void ed_fm_cold_start()
 	F117::GearCommand = 1;
 	F117::throttleInput = 0;
 	F117::WheelBrakeCommand = 0.0;
-	F117::flap_command = 0.0;
-	F117::flaps = 0.0;
 	F117::engineswitch = false;
 	F117::rolling_friction = 0.015;
 } 
@@ -1512,11 +1504,8 @@ void ed_fm_hot_start()
 {
 	F117::gearDown = 1;
 	F117::GearCommand = 1;
-	F117::flap_command = 0;
 	F117::throttleInput = 25.0;
 	F117::WheelBrakeCommand = 0.0;
-	F117::flap_command = 0.0;
-	F117::flaps = 0.0;
 	F117::engineswitch = true;
 	F117::rolling_friction = 0.015;
 }
@@ -1529,8 +1518,6 @@ void ed_fm_hot_start_in_air()
 	F117::throttleInput = 77.5;
 	F117::throttle_state = 77.5;
 	F117::WheelBrakeCommand = 0.0;
-	F117::flap_command = 0.0;
-	F117::flaps = 0.0;
 	F117::engineswitch = true;
 	F117::rolling_friction = 0.015;
 }
