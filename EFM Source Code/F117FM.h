@@ -1,4 +1,4 @@
-#include "ED_FM_TemplateAPI.h"
+#include "ED_API.h"
 #include "include/FM/wHumanCustomPhysicsAPI.h"
 
 extern "C" 
@@ -145,8 +145,7 @@ extern "C"
 	*/
 	ED_FM_TEMPLATE_API double ed_fm_get_external_fuel ();
 	
-	ED_FM_TEMPLATE_API void ed_fm_set_draw_args (EdDrawArgument * drawargs,size_t size);
-//	ED_FM_TEMPLATE_API void ed_fm_set_fc3_draw_args	(int * drawargs, size_t size);
+	ED_FM_TEMPLATE_API void ed_fm_set_draw_args_v2 (float * drawargs,size_t size);
 	ED_FM_TEMPLATE_API void ed_fm_set_fc3_cockpit_draw_args_v2(float* drawargs, size_t size);
 	ED_FM_TEMPLATE_API void ed_fm_configure		(const char * cfg_path);
 

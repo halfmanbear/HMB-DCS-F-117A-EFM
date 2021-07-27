@@ -1,5 +1,5 @@
 #include "../stdafx.h"
-#include "PlaneFMAeroData.h"
+#include "AeroData.h"
 /*
 Cx is drag
 Cd is also drag
@@ -8,7 +8,7 @@ p is atmospheric pressure
 q is dynamic pressure, like on the plane
 r is turn rate.
 */
-namespace PlaneFM
+namespace F117
 {
 	namespace AERO
 	{		

@@ -1,6 +1,6 @@
 #include "../stdafx.h"
 
-namespace PlaneFM
+namespace F117
 {
 	// Coded from the simulator study document
 	namespace ENGINE
@@ -30,7 +30,7 @@ namespace PlaneFM
 				double power2 = 0.0;
 				double power3rate = 0.0;
 
-				//if(!(PlaneFM::simInitialized))
+				//if(!(F117::simInitialized))
 				//{
 				//	power3 = power1;
 				//}

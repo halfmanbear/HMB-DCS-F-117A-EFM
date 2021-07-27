@@ -1,5 +1,5 @@
-#ifndef __PlaneFMFLIGHTCONTROLS__
-#define __PlaneFMFLIGHTCONTROLS__
+#ifndef __F117FLIGHTCONTROLS__
+#define __F117FLIGHTCONTROLS__
 
 #include "../stdafx.h"
 #include <stdio.h>
@@ -8,7 +8,7 @@
 #include "../UtilityFunctions.h"
 #include "../include/general_filter.h"
 
-namespace PlaneFM
+namespace F117
 {
 	namespace FLIGHTCONTROLS
 	{

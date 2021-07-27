@@ -1,5 +1,5 @@
-#ifndef __PlaneFMACTUATORS__
-#define __PlaneFMACTUATORS__
+#ifndef __ACTUATORS__
+#define __ACTUATORS__
 
 #include "../stdafx.h"
 #include <stdio.h>
@@ -7,7 +7,7 @@
 #include <math.h>
 #include "../UtilityFunctions.h"
 
-namespace PlaneFM
+namespace F117
 {
 	namespace ACTUATORS
 	{
@@ -23,6 +23,8 @@ namespace PlaneFM
 		double	gear_rate = 0.0;
 		double	airbrake_state = 0.0;
 		double	airbrake_rate = 0.0;
+		double	tailhook_state = 0.0;
+		double	tailhook_rate = 0.0;
 		double	dragshute_state = 0.0;
 		double	dragshute_rate = 0.0;
 		double  internal_fuel;
@@ -163,6 +165,21 @@ namespace PlaneFM
 			airbrake_state = limit(airbrake_state, 0.0, 1.0);
 
 			return airbrake_state;
+		}
+
+		double tailhook_actuator(double tailhook_CMD, double frameTime)
+		{
+			if (!simInitialized)
+			{
+				tailhook_state = tailhook_CMD;
+				return tailhook_state;
+			}
+			tailhook_rate = 20.2 * (tailhook_CMD - tailhook_state);
+			tailhook_rate = limit(tailhook_rate, -0.75, 0.75);
+			tailhook_state += (tailhook_rate * frameTime);
+			tailhook_state = limit(tailhook_state, 0.0, 1.0);
+
+			return tailhook_state;
 		}
 
 		double  dragshute_actuator(double dragshute_command, double frameTime)
