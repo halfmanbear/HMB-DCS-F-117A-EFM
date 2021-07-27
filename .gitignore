@@ -5,3 +5,10 @@ EFM Source Code/.vs/F117/v16/.suo
 *.opendb
 *.ipch
 *.db-wal
+Basic-custom-flight-model-for-DCS-World-main/.vs/Custom_FM/v16/.suo
+*.obj
+*.log
+*.tlog
+*.recipe
+*.pch
+*.pdb
