@@ -341,7 +341,7 @@ void ed_fm_simulate(double dt)
 
 		F117::airbrakes = F117::ACTUATORS::airbrake_actuator(F117::airbrake_command, dt);
 
-		F117::hook = F117::ACTUATORS::tailhook_actuator(F117::tailhook_CMD, dt);
+		//F117::hook = F117::ACTUATORS::tailhook_actuator(F117::tailhook_CMD, dt);
 
 		F117::misc_state = F117::ACTUATORS::misc_actuator(F117::misc_cmd, dt);
 
@@ -900,12 +900,12 @@ void ed_fm_set_command(int command, float value)	// Command = Command Index (See
 		F117::airbrake_command = 1.0;
 		break;
 
-	case tailhook:
+	/*case tailhook:
 		if (F117::ACTUATORS::tailhook_state < 0.25)
 			F117::tailhook_CMD = 1.0;
 		else if (F117::ACTUATORS::tailhook_state > 0.75)
 			F117::tailhook_CMD = 0.0;
-		break;
+		break;*/
 
 		//Dragshute
 	case DragShute: //toggle
@@ -1131,7 +1131,7 @@ void ed_fm_set_draw_args_v2(float* drawargs, size_t size) //The things that move
 	drawargs[35] = (float)ACTUATORS::dragshute_state;
 
 	// Weapon bay doors or tail hook
-	drawargs[25] = (float)ACTUATORS::tailhook_state; // This is usually the tail hook for most planes with them.
+	//drawargs[25] = (float)ACTUATORS::tailhook_state; // This is usually the tail hook for most planes with them.
 	drawargs[26] = (float)limit((F117::misc_state), 0.0, 1.0); // This is usually weapon bays for planes with them.
 
 	if (size > 616)
@@ -1416,7 +1416,7 @@ void ed_fm_release()
 	F117::airbrake_command = 0.0;
 	F117::airbrakes = 0.0;
 	F117::tailhook_CMD = 0.0;
-	F117::hook = 0.0;
+	//F117::hook = 0.0;
 	F117::dragshute_command = 0.0;
 	F117::dragshute = 0.0;
 	F117::misc_cmd = 0.0;
@@ -1428,8 +1428,8 @@ void ed_fm_release()
 	F117::horiz_hold = 0;
 	F117::alt_hold = 0;
 
-	F117::ACTUATORS::tailhook_state = 0.0;
-	F117::ACTUATORS::tailhook_rate = 0.0;
+	/*F117::ACTUATORS::tailhook_state = 0.0;
+	F117::ACTUATORS::tailhook_rate = 0.0;*/
 	F117::ACTUATORS::flapPosition_DEG = 0.0;
 	F117::ACTUATORS::flapRate_DEGPERSEC = 0.0;
 	F117::ACTUATORS::throttle_state;
