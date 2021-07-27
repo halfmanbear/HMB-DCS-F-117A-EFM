@@ -462,24 +462,26 @@ void ed_fm_simulate(double dt)
 	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% */
 
 	/* XXXXXXXX Cx_tot XXXXXXXX */
-	// Cx is drag
+
 		F117::AERO::dXdQ = (F117::meanChord_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Cxq;
 
 		F117::AERO::Cx_total = F117::AERO::Cx + F117::AERO::dXdQ * F117::pitchRate_RPS;
 		F117::AERO::Cx_total += CxGear + Cxbrakes;
-
 		/* ZZZZZZZZ Cz_tot ZZZZZZZZ */
+
 		F117::AERO::dZdQ = (F117::meanChord_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Czq;
 
-		F117::AERO::Cz_total = F117::AERO::Cz * F117::AERO::dZdQ * F117::pitchRate_RPS;
+		F117::AERO::Cz_total = F117::AERO::Cz + F117::AERO::dZdQ * F117::pitchRate_RPS;
 		F117::AERO::Cz_total += CzGear;
-
 		/* MMMMMMMM Cm_tot MMMMMMMM */
+
 		F117::AERO::dMdQ = (F117::meanChord_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Cmq;
 
-		F117::AERO::Cm_total = F117::AERO::Cm * F117::AERO::eta_el + F117::AERO::Cz_total * (F117::referenceCG_PCT - F117::actualCG_PCT) * F117::AERO::dMdQ * F117::pitchRate_RPS + F117::AERO::Cm_delta + F117::AERO::Cm_delta_ds;
+		F117::AERO::Cm_total = F117::AERO::Cm * F117::AERO::eta_el + F117::AERO::Cz_total * (F117::referenceCG_PCT - F117::actualCG_PCT) + F117::AERO::dMdQ * F117::pitchRate_RPS + F117::AERO::Cm_delta + F117::AERO::Cm_delta_ds;
 
 		/* YYYYYYYY Cy_tot YYYYYYYY */
+
+
 		F117::AERO::dYdail = F117::AERO::Cy_delta_a20;
 
 		F117::AERO::dYdR = (F117::wingSpan_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Cyr;
@@ -489,6 +491,7 @@ void ed_fm_simulate(double dt)
 		F117::AERO::Cy_total = F117::AERO::Cy + F117::AERO::dYdail * F117::aileron_PCT + F117::AERO::Cy_delta_r30 * F117::rudder_PCT + F117::AERO::dYdR * F117::yawRate_RPS + F117::AERO::dYdP * F117::rollRate_RPS;
 
 		/* NNNNNNNN Cn_tot NNNNNNNN */
+
 		F117::AERO::dNdail = F117::AERO::Cn_delta_a20;
 
 		F117::AERO::dNdR = (F117::wingSpan_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Cnr;
@@ -498,7 +501,7 @@ void ed_fm_simulate(double dt)
 		F117::AERO::Cn_total = F117::AERO::Cn - F117::AERO::Cy_total * (F117::referenceCG_PCT - F117::actualCG_PCT) * (F117::meanChord_FT / F117::wingSpan_FT) + F117::AERO::dNdail * F117::aileron_PCT + F117::AERO::Cn_delta_r30 * F117::rudder_PCT + F117::AERO::dNdR * F117::yawRate_RPS + F117::AERO::dNdP * F117::rollRate_RPS + F117::AERO::Cn_delta_beta * F117::beta_DEG;
 
 		/* LLLLLLLL Cl_total LLLLLLLL */
-		// Cl is lift
+
 		F117::AERO::dLdail = F117::AERO::Cl_delta_a20;
 
 		F117::AERO::dLdR = (F117::wingSpan_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Clr;
