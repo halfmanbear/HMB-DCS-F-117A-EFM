@@ -5,3 +5,10 @@ EFM Source Code/.vs/F117/v16/.suo
 *.opendb
 *.ipch
 *.db-wal
+EFM Source Code/x64/Release/API_Declare.obj
+*.obj
+*.recipe
+*.log
+*.pch
+*.tlog
+*.pdb

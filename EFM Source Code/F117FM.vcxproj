@@ -22,7 +22,7 @@
     <ProjectGuid>{30A7F19A-ED9B-4E78-99E7-C40FB579973A}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>ED_FM_Template</RootNamespace>
-    <ProjectName>Custom_FM</ProjectName>
+    <ProjectName>F117FM</ProjectName>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -68,20 +68,23 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <OutDir>..\..\Output</OutDir>
+    <OutDir>..\..\bin</OutDir>
+    <TargetName>F117FM</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <OutDir>..\..\bin\</OutDir>
+    <OutDir>..\..\bin</OutDir>
+    <TargetName>F117FM</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <OutDir>..\..\Output</OutDir>
+    <OutDir>..\..\bin</OutDir>
+    <TargetName>F117FM</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <TargetName>CustomFM</TargetName>
-    <OutDir>..\..\Output</OutDir>
+    <TargetName>F117FM</TargetName>
+    <OutDir>..\..\bin</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -146,18 +149,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <None Include="ReadMe.txt" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="Actuators\PlaneFMActuators.h" />
-    <ClInclude Include="Aerodynamics\PlaneFMAero.h" />
-    <ClInclude Include="Aerodynamics\PlaneFMAeroData.h" />
-    <ClInclude Include="Atmosphere\PlaneFMAtmosphere.h" />
-    <ClInclude Include="Engine\PlaneFMEngine.h" />
-    <ClInclude Include="EquationsOfMotion\F16EquationsOfMotion.h" />
+    <ClInclude Include="Actuators\Actuators.h" />
+    <ClInclude Include="Aerodynamics\Aero.h" />
+    <ClInclude Include="Aerodynamics\AeroData.h" />
+    <ClInclude Include="Atmosphere\Atmosphere.h" />
+    <ClInclude Include="Engine\Engine.h" />
     <ClInclude Include="FlightControls\FlightControls.h" />
-    <ClInclude Include="PlaneFM.h" />
-    <ClInclude Include="ED_FM_TemplateAPI.h" />
+    <ClInclude Include="F117FM.h" />
+    <ClInclude Include="ED_API.h" />
     <ClInclude Include="ED_FM_Utility.h" />
     <ClInclude Include="param_functions.h" />
     <ClInclude Include="Inputs.h" />
@@ -181,7 +180,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
       </PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="PlaneFM.cpp" />
+    <ClCompile Include="F117FM.cpp" />
     <ClCompile Include="include\FM\API_Declare.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

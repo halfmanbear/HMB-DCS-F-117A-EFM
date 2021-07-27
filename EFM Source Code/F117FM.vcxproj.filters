@@ -2,44 +2,58 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
-    <ClCompile Include="PlaneFM.cpp" />
-    <ClCompile Include="stdafx.cpp" />
-    <ClCompile Include="include\FM\API_Declare.cpp" />
+    <ClCompile Include="F117FM.cpp" />
+    <ClCompile Include="include\FM\API_Declare.cpp">
+      <Filter>API</Filter>
+    </ClCompile>
+    <ClCompile Include="stdafx.cpp">
+      <Filter>include</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="PlaneFM.h" />
-    <ClInclude Include="ED_FM_TemplateAPI.h" />
-    <ClInclude Include="ED_FM_Utility.h" />
-    <ClInclude Include="stdafx.h" />
-    <ClInclude Include="targetver.h" />
-    <ClInclude Include="UtilityFunctions.h" />
-    <ClInclude Include="Aerodynamics\PlaneFMAero.h"> 
+    <ClInclude Include="F117FM.h" />
+    <ClInclude Include="Aerodynamics\Aero.h">
       <Filter>Aerodynamics</Filter>
     </ClInclude>
-    <ClInclude Include="Aerodynamics\PlaneFMAeroData.h">
+    <ClInclude Include="Aerodynamics\AeroData.h">
       <Filter>Aerodynamics</Filter>
     </ClInclude>
-    <ClInclude Include="EquationsOfMotion\F16EquationsOfMotion.h">
-      <Filter>EquationsOfMotion</Filter>
-    </ClInclude>
-    <ClInclude Include="Engine\PlaneFMEngine.h">
+    <ClInclude Include="Engine\Engine.h">
       <Filter>Engine</Filter>
     </ClInclude>
-    <ClInclude Include="Atmosphere\PlaneFMAtmosphere.h">
+    <ClInclude Include="Atmosphere\Atmosphere.h">
       <Filter>Atmosphere</Filter>
     </ClInclude>
     <ClInclude Include="FlightControls\FlightControls.h">
       <Filter>FlightControls</Filter>
     </ClInclude>
-    <ClInclude Include="include\FM\wHumanCustomPhysicsAPI.h" />
-    <ClInclude Include="Inputs.h" />
-    <ClInclude Include="param_functions.h" />
-    <ClInclude Include="Actuators\PlaneFMActuators.h">
+    <ClInclude Include="Actuators\Actuators.h">
       <Filter>Actuators</Filter>
     </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="ReadMe.txt" />
+    <ClInclude Include="ED_API.h">
+      <Filter>API</Filter>
+    </ClInclude>
+    <ClInclude Include="ED_FM_Utility.h">
+      <Filter>Utilities</Filter>
+    </ClInclude>
+    <ClInclude Include="UtilityFunctions.h">
+      <Filter>Utilities</Filter>
+    </ClInclude>
+    <ClInclude Include="include\FM\wHumanCustomPhysicsAPI.h">
+      <Filter>include\FM</Filter>
+    </ClInclude>
+    <ClInclude Include="param_functions.h">
+      <Filter>EDPARAM</Filter>
+    </ClInclude>
+    <ClInclude Include="Inputs.h">
+      <Filter>Inputs</Filter>
+    </ClInclude>
+    <ClInclude Include="stdafx.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="targetver.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Aerodynamics">
@@ -47,9 +61,6 @@
     </Filter>
     <Filter Include="Actuators">
       <UniqueIdentifier>{dafa3bf6-16fb-48d7-ae7b-e1f7cf8938b5}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="EquationsOfMotion">
-      <UniqueIdentifier>{10b1275e-62af-4fa4-a24e-f6622d5e1a71}</UniqueIdentifier>
     </Filter>
     <Filter Include="Engine">
       <UniqueIdentifier>{2a589438-685e-419e-a028-e49caa20811e}</UniqueIdentifier>
@@ -59,6 +70,27 @@
     </Filter>
     <Filter Include="FlightControls">
       <UniqueIdentifier>{a631e22a-a48d-4b68-8446-701e99146567}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="API">
+      <UniqueIdentifier>{4d7ad23c-2738-4fb0-ba30-b5b2d20b58cd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Utilities">
+      <UniqueIdentifier>{3b149de7-164d-4208-ba46-bed489177b3d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include">
+      <UniqueIdentifier>{f8ce2cd1-c3ad-45db-bc09-8143c1c1c4d2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include\FM">
+      <UniqueIdentifier>{2a91b7e1-999e-4cc2-a9ba-b4fd5809604f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="EDPARAM">
+      <UniqueIdentifier>{99e5f0be-edcb-4f09-b2cd-0972291c96cf}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Inputs">
+      <UniqueIdentifier>{c2d40762-b980-4e74-a4ae-1674392e25a4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Headers">
+      <UniqueIdentifier>{116d803a-2580-4500-a991-6b425ff5ab5d}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>
