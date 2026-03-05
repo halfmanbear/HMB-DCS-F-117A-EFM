@@ -7,8 +7,14 @@ enum InputCommands
 	//general controls
 	resetTrim = 97,
 	FBW_override = 121,
+
 	EnginesOn = 309,
+	LeftEngineOn = 311,
+	RightEngineOn = 312,
+
 	EnginesOff = 310,
+	LeftEngineOff = 313,
+	RightEngineOff = 314,
 
 	//Pitch
 	PitchUp = 195,
@@ -35,9 +41,11 @@ enum InputCommands
 	ruddertrimRight = 99,
 
 	//throttle,
-	throttle = 3002,
-	throttleAxis = 3006,
-	throttleupLeft = 161,
+	//throttle = 3002,
+	throttleAxis = 2004, //3006
+	ThrottleAxisLeft = 2005,
+	ThrottleAxisRight = 2006,
+	throttleupLeft = 161, 
 	throttleupRight = 163,
 	throttledownLeft = 162,
 	throttledownRight = 164,
@@ -55,19 +63,20 @@ enum InputCommands
 
 	//air brake commands
 
-	AirBrakes = 73,
-	AirBrakesOn = 147,
-	AirBrakesOff = 148,
+	//AirBrakes = 73,
+	//AirBrakesOn = 147,
+	//AirBrakesOff = 148,
 
 	//Misc commands
 
 	bombay = 10100,
-	DragShute = 10101,
+	luaDamageHit = 10200,	// Lua damage monitor -> EFM: value = damage fraction (0-1)
+	dragChute = 76,
 
 	//flap commands
-	flapstoggle = 72,
-	flapsup = 145,
-	flapsdown = 146,
+	//flapstoggle = 72,
+	//flapsup = 145,
+	//flapsdown = 146,
 
 	// joystick axis commands
 	JoystickPitch = 2001,

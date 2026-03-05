@@ -158,5 +158,23 @@ extern "C"
 	ED_FM_TEMPLATE_API void ed_fm_hot_start();
 	ED_FM_TEMPLATE_API void ed_fm_hot_start_in_air();
 
-}; 
+	ED_FM_TEMPLATE_API void ed_fm_release();
+
+	/*
+	damage and repair
+	*/
+	ED_FM_TEMPLATE_API void ed_fm_on_damage(int Element, double element_integrity_factor);
+	ED_FM_TEMPLATE_API void ed_fm_repair();
+	ED_FM_TEMPLATE_API void ed_fm_set_immortal(bool value);
+	ED_FM_TEMPLATE_API bool ed_fm_need_to_be_repaired();
+	ED_FM_TEMPLATE_API bool ed_fm_pop_simulation_event(ed_fm_simulation_event & out);
+
+	/*
+	options callbacks
+	*/
+	ED_FM_TEMPLATE_API void ed_fm_unlimited_fuel(bool value);
+	ED_FM_TEMPLATE_API void ed_fm_set_easy_flight(bool value);
+	ED_FM_TEMPLATE_API double ed_fm_get_shake_amplitude();
+
+};
 
