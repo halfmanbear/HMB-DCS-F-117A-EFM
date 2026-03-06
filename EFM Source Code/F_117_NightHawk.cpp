@@ -101,6 +101,7 @@ namespace F117 // I tried to convert the imperial units to metric, but it result
 	double		weight_N				= 131222.538;	// Weight force of aircraft (N)
 	double		ay_world				= 0.0;			// World referenced up/down acceleration (m/s^2)
 	bool		weight_on_wheels		= false;		// Weight on wheels flag 
+	bool		wow_from_draw_args		= false;		// Suspension contact state from DCS draw args
 
 	double		rolling_friction		= 0.015;		// Wheel friction amount, I don't know what units. I don't know what this is exactly.
 	double		WheelBrakeCommand		= 0.0;			// Commanded wheel brake
@@ -157,6 +158,43 @@ namespace F117 // I tried to convert the imperial units to metric, but it result
 
 static F117::DamageState g_damage;
 static std::queue<ed_fm_simulation_event> g_simEvents;
+
+namespace
+{
+	bool gear_retraction_blocked()
+	{
+		return F117::weight_on_wheels || F117::wow_from_draw_args;
+	}
+
+	double clamp_gear_command_for_weight_on_wheels(double requestedCommand)
+	{
+		if (gear_retraction_blocked() && requestedCommand < 1.0)
+		{
+			return 1.0;
+		}
+
+		return requestedCommand;
+	}
+
+	void set_gear_command(double requestedCommand)
+	{
+		F117::GearCommand = clamp_gear_command_for_weight_on_wheels(requestedCommand);
+	}
+
+	void update_weight_on_wheels(double normalForceY)
+	{
+		const bool physicsWeightOnWheels =
+			(F117::ACTUATORS::gear_state >= 0.99) &&
+			(F117::weight_N > normalForceY) &&
+			(fabs(F117::ay_world) <= 0.5);
+
+		F117::weight_on_wheels = F117::wow_from_draw_args || physicsWeightOnWheels;
+		if (F117::weight_on_wheels)
+		{
+			F117::GearCommand = 1.0;
+		}
+	}
+}
 
 // World-axis state (declared here so ed_fm_simulate can use them for logging)
 double ax_world = 0;
@@ -390,7 +428,8 @@ void ed_fm_simulate(double dt)
 		double tailIntegrity = (g_damage.leftTail + g_damage.rightTail) / 2.0;
 		F117::rudder_pos = (float)(F117::ACTUATORS::rudder_actuator((float)F117::pedInput, dt) * tailIntegrity);
 
-		F117::gearDown = F117::ACTUATORS::gear_actuator(F117::GearCommand, dt);
+		F117::GearCommand = clamp_gear_command_for_weight_on_wheels(F117::GearCommand);
+		F117::gearDown = F117::ACTUATORS::gear_actuator(F117::GearCommand, dt, gear_retraction_blocked());
 
 		F117::tailhook_pos = F117::ACTUATORS::tailhook_actuator(F117::tailhook_command, dt);
 
@@ -713,11 +752,7 @@ void ed_fm_simulate(double dt)
 		F117::ACTUATORS::simInitialized = true;
 		F117::FLIGHTCONTROLS::simInitialized = true;
 
-		F117::weight_on_wheels = false;
-		if ((F117::weight_N > cz_force.y) && (abs(F117::ay_world) >= -0.5) && (F117::ACTUATORS::gear_state == 1.0))
-		{
-			F117::weight_on_wheels = true;
-		}
+		update_weight_on_wheels(cz_force.y);
 
 }
 
@@ -1008,14 +1043,15 @@ void ed_fm_set_command(int command, float value)	// Command = Command Index (See
 
 		// Gear commands
 	case geardown:
-		F117::GearCommand = 1.0;
+		set_gear_command(1.0);
 		break; 
 	case gearup:
-		F117::GearCommand = 0.0;
+		set_gear_command(0.0);
 		break;
 	case geartoggle:
-		if (F117::ACTUATORS::gear_state > 0.5) F117::GearCommand = 0.0;
-		else if (F117::ACTUATORS::gear_state < 0.5) F117::GearCommand = 1.0;
+		if (F117::ACTUATORS::gear_state > 0.5) set_gear_command(0.0);
+		else if (F117::ACTUATORS::gear_state < 0.5) set_gear_command(1.0);
+		break;
 	case WheelBrakeOn:
 		F117::rolling_friction = 0.50;
 		break;
@@ -1309,7 +1345,12 @@ void ed_fm_set_draw_args_v2(float* drawargs, size_t size) //The things that move
 		drawargs[3] = (float)F117::ACTUATORS::gear_state;
 		drawargs[5] = (float)F117::ACTUATORS::gear_state;
 	}
-	F117::weight_on_wheels = (drawargs[1] + drawargs[4] + drawargs[6]) > 0.5f;
+	F117::wow_from_draw_args = (drawargs[1] + drawargs[4] + drawargs[6]) > 0.5f;
+	if (F117::wow_from_draw_args)
+	{
+		F117::weight_on_wheels = true;
+		F117::GearCommand = 1.0;
+	}
 
 	// Ailerons
 	drawargs[11] = (float)limit((-aileron_PCT + (rollTrim / 10) / (F117::mach + 1)), -0.75, 0.75);
@@ -1673,6 +1714,8 @@ void ed_fm_cold_start()
 {
 	F117::gearDown = 1;
 	F117::GearCommand = 1;
+	F117::weight_on_wheels = true;
+	F117::wow_from_draw_args = true;
 	F117::throttleInput = 0;
 	F117::WheelBrakeCommand = 0.0;
 	F117::engineswitch = false;
@@ -1690,6 +1733,8 @@ void ed_fm_hot_start()
 	// Aircraft state
 	F117::gearDown = 1;
 	F117::GearCommand = 1;
+	F117::weight_on_wheels = true;
+	F117::wow_from_draw_args = true;
 	F117::WheelBrakeCommand = 0.0;
 	// Pilot throttle at idle stop
 	F117::throttleInput = 0.0;
@@ -1708,6 +1753,8 @@ void ed_fm_hot_start_in_air()
 {
 	F117::gearDown = 0;
 	F117::GearCommand = 0;
+	F117::weight_on_wheels = false;
+	F117::wow_from_draw_args = false;
 	F117::throttleInput = 77.5;
 	F117::throttle_state = 77.5;
 	F117::WheelBrakeCommand = 0.0;

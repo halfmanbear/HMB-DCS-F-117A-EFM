@@ -104,8 +104,13 @@ namespace F117
 					throttle_state = limit(throttle_state, 0.0, 100.0);
 			return throttle_state;
 		}
-		double  gear_actuator(double GearCommand, double frameTime)
+		double  gear_actuator(double GearCommand, double frameTime, bool weight_on_wheels)
 		{
+			if (weight_on_wheels && GearCommand < 1.0)
+			{
+				GearCommand = 1.0;
+			}
+
 			if (!simInitialized)
 			{
 				gear_state = GearCommand;
