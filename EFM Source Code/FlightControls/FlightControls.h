@@ -252,16 +252,14 @@ namespace F117
 			azFiltered = accelFilter.Filter(!(simInitialized), dt, az);
 
 			double alphaLimited = limit(angle_of_attack_ind, -5.0, 20.0);
-			double alphaLimitedRate = 25.0 * (alphaLimited - alphaFiltered); // Increased for snappier AoA response
+			double alphaLimitedRate = 35.0 * (alphaLimited - alphaFiltered); // Increased for snappier AoA response testing
 			alphaFiltered += (alphaLimitedRate * dt);
 
 			double pitchRateWashedOut = pitchRateWashout.Filter(!(simInitialized), dt, pitch_rate);
 
-			const double NZ_MAX = 6.0;
+			const double NZ_MAX = 6.3;
 			const double NZ_MIN = -3.0;
 
-			// Add gravity component to get true pilot-felt G (load factor)
-			// cos(roll)*cos(pitch) = 1 when level, -1 when inverted
 			double gravity_component = cos(roll_RAD) * cos(pitch_RAD);
 			double nz_measured = azFiltered + gravity_component;
 

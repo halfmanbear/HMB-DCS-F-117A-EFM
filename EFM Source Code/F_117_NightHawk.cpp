@@ -386,8 +386,6 @@ void ed_fm_simulate(double dt)
 	// -Pitch rate (rad/sec)
 	// -Experimental hard input limiter.
 
-	//aoa_filter = ((alpha_DEG * alpha_DEG / 2.5) / 270) + 1; // aoa limit redundant?
-
 	aoa_filter = 1;
 
 	F117::elevator_DEG_commanded = -(F117::FLIGHTCONTROLS::fcs_pitch_controller(F117::FLIGHTCONTROLS::longStickInput * controlDegradation, 0.0, F117::alpha_DEG, F117::pitchRate_RPS * F117::radiansToDegrees, (F117::az / 9.81), 0.0, F117::dynamicPressure_LBFT2, dt, F117::roll_angle, F117::pitch_angle, F117::totalVelocity_FPS, F117::mach, F117::thrust_N, F117::AERO::Cx_total));
@@ -884,7 +882,7 @@ void ed_fm_set_current_state_body_axis(
 	F117::yawRate_RPS = -omegay;  // Higher values mean less movement in that axis.
 	F117::pitchRate_RPS = omegaz;  // these act as limiters or dampers.
 	
-	if (alpha_DEG > 15 && pitchRate_RPS > 0) { F117::pitchRate_RPS = omegaz * (((alpha_DEG * alpha_DEG + 10000) / (180.0 + g_damage.totalWingLoss * 20.0)) - 54.5); } // aoa tuning
+	if (alpha_DEG > 20 && pitchRate_RPS > 0) { F117::pitchRate_RPS = omegaz * (((alpha_DEG * alpha_DEG + 10000) / (180.0 + g_damage.totalWingLoss * 20.0)) - 54.5); } // aoa tuning
 
 	F117::az = ay;
 	F117::ay = az;
