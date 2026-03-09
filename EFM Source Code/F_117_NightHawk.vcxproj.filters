@@ -3,6 +3,9 @@
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="F_117_NightHawk.cpp" />
+    <ClCompile Include="FlightControls\FlightControls.cpp">
+      <Filter>FlightControls</Filter>
+    </ClCompile>
     <ClCompile Include="include\FM\API_Declare.cpp">
       <Filter>API</Filter>
     </ClCompile>
@@ -11,7 +14,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="F117FM.h" />
+    <ClInclude Include="F_117_NightHawk.h" />
     <ClInclude Include="Aerodynamics\Aero.h">
       <Filter>Aerodynamics</Filter>
     </ClInclude>

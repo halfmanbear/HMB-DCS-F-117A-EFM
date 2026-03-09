@@ -59,733 +59,218 @@ namespace F117
 		double		CxWheelFriction = 0.0;
 		double		CyWheelFriction = 1.0;
 
-		double _Cx(double alpha,double beta,double dele)
+		struct InterpCache
 		{
-		//CX0120_ALPHA1_BETA1_DH1_201.dat
-			static int flag = 0;
-	
-			static double **X;
-			static ND_INFO ndinfo ;
+			int flag = 0;
+			double **axes = NULL;
+			ND_INFO ndinfo = {};
+		};
 
-			int FILESIZE;
-			int nDimension = 3; 
-			double x[3];	
-			FILESIZE = 1900;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				ndinfo.nPoints[1] = 19; 
-				ndinfo.nPoints[2] = 5; 
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				X[1] = beta1;
-				X[2] = dh1;
+		inline void init_interp_cache(InterpCache &cache, int nDimension, const int *pointCounts, double **axes)
+		{
+			if (cache.flag == 0)
+			{
+				cache.flag = 1;
+				cache.ndinfo.nDimension = nDimension;
+				cache.ndinfo.nPoints = intVector(nDimension);
+				cache.axes = (double **)malloc(nDimension * sizeof(double*));
+				for (int i = 0; i < nDimension; ++i)
+				{
+					cache.ndinfo.nPoints[i] = pointCounts[i];
+					cache.axes[i] = axes[i];
+				}
 			}
-
-			x[0] = alpha;
-			x[1] = beta;
-			x[2] = dele;
-
-			return interpn(X,_CxData,x,ndinfo);
-		}/* End of function(...) */
-
-		double _Cz(double alpha,double beta, double dele){
-		//CZ0120_ALPHA1_BETA1_DH1_301.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 3; /* alpha,beta,dele */
-			double x[3];	/* Number of dimension */
-
-			FILESIZE = 1900;	/* There are 1900 elements in the 20x19x5 3D array */
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	/* Alpha npoints */
-				ndinfo.nPoints[1] = 19; /* Beta npoints  */
-				ndinfo.nPoints[2] = 5;  /* dele npoints  */
-				X = (double **) malloc(nDimension*sizeof(double*));
-				X[0] = alpha1;
-				X[1] = beta1;
-				X[2] = dh1;
-				}
-			x[0] = alpha;
-			x[1] = beta;
-			x[2] = dele;
-			return interpn(X,_CzData,x,ndinfo);
-		}/* End of function(...) */
-
-		double _Cm(double alpha,double beta,double dele){
-		//CM0120_ALPHA1_BETA1_DH1_101.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 3; 
-			double x[3];	
-			FILESIZE = 1900;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				ndinfo.nPoints[1] = 19; 
-				ndinfo.nPoints[2] = 5; 
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				X[1] = beta1;
-				X[2] = dh1;
-				}
-
-			x[0] = alpha;
-			x[1] = beta;
-			x[2] = dele;
-			return	interpn(X,_CmData,x,ndinfo);
-		}/* End of function(...) */
-
-		double _Cy(double alpha,double beta){
-		// CY0320_ALPHA1_BETA1_401.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 2; 
-			double x[2];	
-			FILESIZE = 380;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */ 
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				ndinfo.nPoints[1] = 19; 
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				X[1] = beta1;
-				}
-
-			x[0] = alpha;
-			x[1] = beta;
-			return	interpn(X,_CyData,x,ndinfo);
-		}/* End of function(...) */
-
-		double _Cn(double alpha, double beta, double dele){
-		//CN0120_ALPHA1_BETA1_DH2_501.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 3; 
-			double x[3];	
-			FILESIZE = 1140;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				ndinfo.nPoints[1] = 19;	
-				ndinfo.nPoints[2] = 3;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				X[1] = beta1;
-				X[2] = dh2;
-				}
-
-			x[0] = alpha;
-			x[1] = beta;
-			x[2] = dele;
-			return (interpn(X,_CnData,x,ndinfo));
-		}/* End of function(...) */
-
-		double _Cl(double alpha, double beta,double dele){
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 3; 
-			double x[3];	
-			FILESIZE = 1140;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				ndinfo.nPoints[1] = 19;	
-				ndinfo.nPoints[2] = 3;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				X[1] = beta1;
-				X[2] = dh2;
-				}
-
-			x[0] = alpha;
-			x[1] = beta;
-			x[2] = dele;
-			return (interpn(X,_ClData,x,ndinfo));
-		}/* End of function(...) */
-
-		double _CXq(double alpha){
-		//CX1120_ALPHA1_204.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 20;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */ 
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				}
-
-			x[0] = alpha;
-			return (interpn(X,_CxqData,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _CZq(double alpha){
-			//CZ1120_ALPHA1_304.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 20;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				}
-
-			x[0] = alpha;
-			return (interpn(X,_CzqData,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _CMq(double alpha){
-			//CM1120_ALPHA1_104.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 20;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				}
-
-			x[0] = alpha;
-			return (interpn(X,_CmqData,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _CYp(double alpha){
-			//CY1220_ALPHA1_408.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 20;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				}
-
-			x[0] = alpha;
-			return (interpn(X,_CypData,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _CYr(double alpha){
-			//CY1320_ALPHA1_406.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 20;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				}
-
-			x[0] = alpha;
-			return (interpn(X,_CyrData,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _CNr(double alpha){
-			//CN1320_ALPHA1_506.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 20;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				}
-
-			x[0] = alpha;
-			return (interpn(X,_CnrData,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _CNp(double alpha){
-			//CN1220_ALPHA1_508.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 20;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				}
-
-			x[0] = alpha;
-			return (interpn(X,_CnpData,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _CLp(double alpha){
-			//CL1220_ALPHA1_608.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 20;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				}
-
-			x[0] = alpha;
-			return (interpn(X,_ClpData,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _CLr(double alpha){
-			//CL1320_ALPHA1_606.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 20;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				}
-
-			x[0] = alpha;
-			return (interpn(X,_ClrData,x,ndinfo));
-		}/* End of function(...) */
-
-		double _Cy_r30(double alpha, double beta){
-			//CY0720_ALPHA1_BETA1_405.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 2; 
-			double x[2];	
-			FILESIZE = 380;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				ndinfo.nPoints[1] = 19;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				X[1] = beta1;
-				}
-
-			x[0] = alpha;
-			x[1] = beta;
-			return (interpn(X,_Cy_r30Data,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _Cn_r30(double alpha, double beta){
-			//CN0720_ALPHA1_BETA1_503.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 2; 
-			double x[2];	
-			FILESIZE = 380;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				ndinfo.nPoints[1] = 19;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				X[1] = beta1;
-		
-				}
-
-			x[0] = alpha;
-			x[1] = beta;
-			return (interpn(X,_Cn_r30Data,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _Cl_r30(double alpha, double beta){
-			//CL0720_ALPHA1_BETA1_603.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-
-			int FILESIZE;
-			int nDimension = 2; 
-			double x[2];	
-			FILESIZE = 380;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				ndinfo.nPoints[1] = 19;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				X[1] = beta1;
-				}
-
-			x[0] = alpha;
-			x[1] = beta;
-			return (interpn(X,_Cl_r30Data,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _Cy_a20(double alpha, double beta){
-			//CY0620_ALPHA1_BETA1_403.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 2; 
-			double x[2];	
-			FILESIZE = 380;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				ndinfo.nPoints[1] = 19;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				X[1] = beta1;
-				}
-
-			x[0] = alpha;
-			x[1] = beta;
-			return (interpn(X,_Cy_a20Data,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _Cn_a20(double alpha, double beta){
-			//CN0620_ALPHA1_BETA1_504.dat
-			static int flag = 0;
-			static double *DATA = (double*) NULL;
-			static double **X;
-			static ND_INFO ndinfo ;	
-	
-			int FILESIZE;
-			int nDimension = 2; 
-			double x[2];	
-			FILESIZE = 380;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				ndinfo.nPoints[1] = 19;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				X[1] = beta1;
-				}
-
-			x[0] = alpha;
-			x[1] = beta;
-			return (interpn(X,_Cn_a20Data,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _Cl_a20(double alpha, double beta){
-			//CL0620_ALPHA1_BETA1_604.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-		
-			int FILESIZE;
-			int nDimension = 2; 
-			double x[2];	
-			FILESIZE = 380;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				ndinfo.nPoints[1] = 19;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				X[1] = beta1;
-				}
-			x[0] = alpha;
-			x[1] = beta;
-			return (interpn(X,_Cl_a20Data,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _delta_CNbeta(double alpha){
-			//CN9999_ALPHA1_brett.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 20;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				}
-
-			x[0] = alpha;
-			return (interpn(X,_delta_CNbetaData,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _delta_CLbeta(double alpha){
-			//CL9999_ALPHA1_brett.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-		
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 20;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				}
-
-			x[0] = alpha;
-			return (interpn(X,_delta_CLbetaData,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _delta_Cm(double alpha){
-			//CM9999_ALPHA1_brett.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-	
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 20;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 20;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = alpha1;
-				}
-
-			x[0] = alpha;
-			return (interpn(X,_delta_CmData,x,ndinfo));
-		}/* End of function(...) */
-
-
-		double _eta_el(double el){
-			//ETA_DH1_brett.dat
-			static int flag = 0;
-			static double **X;
-			static ND_INFO ndinfo ;
-		
-			int FILESIZE;
-			int nDimension = 1; 
-			double x[1];	
-			FILESIZE = 5;	
-
-			/* Initialise everything when this function is called for the first time */
-			if(flag==0){
-				flag = 1;	/* Set to FILE_READ_TAG */
-				ndinfo.nDimension = nDimension;
-				ndinfo.nPoints = intVector(nDimension);
-				ndinfo.nPoints[0] = 5;	
-				X = (double **) malloc(nDimension*sizeof(double*));
-
-				X[0] = dh1;
-				}
-
-			x[0] = el;
-			return (interpn(X,_eta_elData,x,ndinfo));
-		}/* End of function(...) */
-
+		}
+
+		inline double lookup_1d(InterpCache &cache, double *data, int points0, double *axis0, double x0)
+		{
+			int pointCounts[1] = { points0 };
+			double *axes[1] = { axis0 };
+			double x[1] = { x0 };
+			init_interp_cache(cache, 1, pointCounts, axes);
+			return interpn(cache.axes, data, x, cache.ndinfo);
+		}
+
+		inline double lookup_2d(InterpCache &cache, double *data,
+			int points0, double *axis0,
+			int points1, double *axis1,
+			double x0, double x1)
+		{
+			int pointCounts[2] = { points0, points1 };
+			double *axes[2] = { axis0, axis1 };
+			double x[2] = { x0, x1 };
+			init_interp_cache(cache, 2, pointCounts, axes);
+			return interpn(cache.axes, data, x, cache.ndinfo);
+		}
+
+		inline double lookup_3d(InterpCache &cache, double *data,
+			int points0, double *axis0,
+			int points1, double *axis1,
+			int points2, double *axis2,
+			double x0, double x1, double x2)
+		{
+			int pointCounts[3] = { points0, points1, points2 };
+			double *axes[3] = { axis0, axis1, axis2 };
+			double x[3] = { x0, x1, x2 };
+			init_interp_cache(cache, 3, pointCounts, axes);
+			return interpn(cache.axes, data, x, cache.ndinfo);
+		}
+
+		double _Cx(double alpha, double beta, double dele)
+		{
+			static InterpCache cache;
+			return lookup_3d(cache, _CxData, 20, alpha1, 19, beta1, 5, dh1, alpha, beta, dele);
+		}
+
+		double _Cz(double alpha, double beta, double dele)
+		{
+			static InterpCache cache;
+			return lookup_3d(cache, _CzData, 20, alpha1, 19, beta1, 5, dh1, alpha, beta, dele);
+		}
+
+		double _Cm(double alpha, double beta, double dele)
+		{
+			static InterpCache cache;
+			return lookup_3d(cache, _CmData, 20, alpha1, 19, beta1, 5, dh1, alpha, beta, dele);
+		}
+
+		double _Cy(double alpha, double beta)
+		{
+			static InterpCache cache;
+			return lookup_2d(cache, _CyData, 20, alpha1, 19, beta1, alpha, beta);
+		}
+
+		double _Cn(double alpha, double beta, double dele)
+		{
+			static InterpCache cache;
+			return lookup_3d(cache, _CnData, 20, alpha1, 19, beta1, 3, dh2, alpha, beta, dele);
+		}
+
+		double _Cl(double alpha, double beta, double dele)
+		{
+			static InterpCache cache;
+			return lookup_3d(cache, _ClData, 20, alpha1, 19, beta1, 3, dh2, alpha, beta, dele);
+		}
+
+		double _CXq(double alpha)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _CxqData, 20, alpha1, alpha);
+		}
+
+		double _CZq(double alpha)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _CzqData, 20, alpha1, alpha);
+		}
+
+		double _CMq(double alpha)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _CmqData, 20, alpha1, alpha);
+		}
+
+		double _CYp(double alpha)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _CypData, 20, alpha1, alpha);
+		}
+
+		double _CYr(double alpha)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _CyrData, 20, alpha1, alpha);
+		}
+
+		double _CNr(double alpha)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _CnrData, 20, alpha1, alpha);
+		}
+
+		double _CNp(double alpha)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _CnpData, 20, alpha1, alpha);
+		}
+
+		double _CLp(double alpha)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _ClpData, 20, alpha1, alpha);
+		}
+
+		double _CLr(double alpha)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _ClrData, 20, alpha1, alpha);
+		}
+
+		double _Cy_r30(double alpha, double beta)
+		{
+			static InterpCache cache;
+			return lookup_2d(cache, _Cy_r30Data, 20, alpha1, 19, beta1, alpha, beta);
+		}
+
+		double _Cn_r30(double alpha, double beta)
+		{
+			static InterpCache cache;
+			return lookup_2d(cache, _Cn_r30Data, 20, alpha1, 19, beta1, alpha, beta);
+		}
+
+		double _Cl_r30(double alpha, double beta)
+		{
+			static InterpCache cache;
+			return lookup_2d(cache, _Cl_r30Data, 20, alpha1, 19, beta1, alpha, beta);
+		}
+
+		double _Cy_a20(double alpha, double beta)
+		{
+			static InterpCache cache;
+			return lookup_2d(cache, _Cy_a20Data, 20, alpha1, 19, beta1, alpha, beta);
+		}
+
+		double _Cn_a20(double alpha, double beta)
+		{
+			static InterpCache cache;
+			return lookup_2d(cache, _Cn_a20Data, 20, alpha1, 19, beta1, alpha, beta);
+		}
+
+		double _Cl_a20(double alpha, double beta)
+		{
+			static InterpCache cache;
+			return lookup_2d(cache, _Cl_a20Data, 20, alpha1, 19, beta1, alpha, beta);
+		}
+
+		double _delta_CNbeta(double alpha)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _delta_CNbetaData, 20, alpha1, alpha);
+		}
+
+		double _delta_CLbeta(double alpha)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _delta_CLbetaData, 20, alpha1, alpha);
+		}
+
+		double _delta_Cm(double alpha)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _delta_CmData, 20, alpha1, alpha);
+		}
+
+		double _eta_el(double el)
+		{
+			static InterpCache cache;
+			return lookup_1d(cache, _eta_elData, 5, dh1, el);
+		}
 
 		/*
 		double _delta_Cm_ds(double alpha, double el){
 		...............
 		...............
 		} End of function(...) */
-
 
 		void hifi_C(double alpha,double beta,double el,double *retVal){
 			retVal[0] = _Cx(alpha,beta,el);

@@ -22,7 +22,7 @@
     <ProjectGuid>{30A7F19A-ED9B-4E78-99E7-C40FB579973A}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>ED_FM_Template</RootNamespace>
-    <ProjectName>F117FM</ProjectName>
+    <ProjectName>F_117_NightHawk</ProjectName>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -66,25 +66,29 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <DcsSavedGamesRoot Condition="'$(DcsSavedGamesRoot)'==''">$(USERPROFILE)\Saved Games</DcsSavedGamesRoot>
+    <DcsSavedGamesModBinDir Condition="'$(DcsSavedGamesModBinDir)'==''">$(DcsSavedGamesRoot)\DCS\Mods\aircraft\F-117-NightHawk\bin\</DcsSavedGamesModBinDir>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <OutDir>.\bin</OutDir>
-    <TargetName>F117FM</TargetName>
+    <OutDir>.\bin\</OutDir>
+    <TargetName>F_117_NightHawk</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <OutDir>E:\Saved Games\DCS\Mods\aircraft\F-117-NightHawk\bin</OutDir>
+    <OutDir>$(DcsSavedGamesModBinDir)</OutDir>
     <TargetName>F_117_NightHawk</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <OutDir>.\bin</OutDir>
-    <TargetName>F117FM</TargetName>
+    <OutDir>.\bin\</OutDir>
+    <TargetName>F_117_NightHawk</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <TargetName>F117FM</TargetName>
-    <OutDir>.\bin</OutDir>
+    <TargetName>F_117_NightHawk</TargetName>
+    <OutDir>$(DcsSavedGamesModBinDir)</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -155,7 +159,7 @@
     <ClInclude Include="Atmosphere\Atmosphere.h" />
     <ClInclude Include="Engine\Engine.h" />
     <ClInclude Include="FlightControls\FlightControls.h" />
-    <ClInclude Include="F117FM.h" />
+    <ClInclude Include="F_117_NightHawk.h" />
     <ClInclude Include="ED_API.h" />
     <ClInclude Include="ED_FM_Utility.h" />
     <ClInclude Include="param_functions.h" />
@@ -181,6 +185,7 @@
       </PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="F_117_NightHawk.cpp" />
+    <ClCompile Include="FlightControls\FlightControls.cpp" />
     <ClCompile Include="include\FM\API_Declare.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

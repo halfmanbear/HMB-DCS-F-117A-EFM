@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.30907.101
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "F117FM", "F117FM.vcxproj", "{30A7F19A-ED9B-4E78-99E7-C40FB579973A}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "F_117_NightHawk", "F_117_NightHawk.vcxproj", "{30A7F19A-ED9B-4E78-99E7-C40FB579973A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

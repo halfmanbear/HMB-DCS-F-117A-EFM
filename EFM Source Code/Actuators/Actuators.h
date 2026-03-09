@@ -15,14 +15,10 @@ namespace F117
 		double	elevatorRate_DEGPERSEC = 0.0;
 		double	aileronPosition_DEG = 0.0;
 		double	aileronRate_DEGPERSEC = 0.0;
-		//double	flapPosition_DEG = 0.0;
-		//double	flapRate_DEGPERSEC = 0.0;
 		double	throttle_state = 0.0;
 		double	throttle_rate = 0.0;
 		double	gear_state = 0.0;
 		double	gear_rate = 0.0;
-		//double	airbrake_state = 0.0;
-		//double	airbrake_rate = 0.0;
 		double	tailhook_state = 0.0;
 		double	tailhook_rate = 0.0;
 		double	dragchute_state = 0.0;
@@ -31,9 +27,14 @@ namespace F117
 
 		bool	simInitialized = false;
 
+		inline bool actuators_need_init()
+		{
+			return !simInitialized;
+		}
+
 		double  elevator_actuator(double elevator_DEG_commanded, double frameTime)
 		{
-			if (!simInitialized)
+			if (actuators_need_init())
 			{
 				elevatorPosition_DEG = elevator_DEG_commanded;
 				return elevatorPosition_DEG;
@@ -52,7 +53,7 @@ namespace F117
 
 		double  aileron_actuator(double roll_cmd, double frameTime)
 		{
-			if (!simInitialized)
+			if (actuators_need_init())
 			{
 				aileronPosition_DEG = roll_cmd;
 				return aileronPosition_DEG;
@@ -74,7 +75,7 @@ namespace F117
 
 		float  rudder_actuator(float rudderCommanded_DEG, double frameTime)
 		{
-			if (!simInitialized)
+			if (actuators_need_init())
 			{
 				rudderPosition_DEG = rudderCommanded_DEG;
 				return rudderPosition_DEG;
@@ -93,15 +94,17 @@ namespace F117
 
 		double  throttle_actuator(double throttleInput, double frameTime)
 		{
-			if (!simInitialized)
-					{
-						throttle_state = throttleInput;
-						return throttle_state;
-					}
-					throttle_rate = 20.2 * (throttleInput - throttle_state);
-					throttle_rate = limit(throttle_rate, -25.0, 20.0);
-					throttle_state += (throttle_rate * frameTime);
-					throttle_state = limit(throttle_state, 0.0, 100.0);
+			if (actuators_need_init())
+			{
+				throttle_state = throttleInput;
+				return throttle_state;
+			}
+
+			throttle_rate = 20.2 * (throttleInput - throttle_state);
+			throttle_rate = limit(throttle_rate, -25.0, 20.0);
+			throttle_state += (throttle_rate * frameTime);
+			throttle_state = limit(throttle_state, 0.0, 100.0);
+
 			return throttle_state;
 		}
 		double  gear_actuator(double GearCommand, double frameTime, bool weight_on_wheels)
@@ -111,7 +114,7 @@ namespace F117
 				GearCommand = 1.0;
 			}
 
-			if (!simInitialized)
+			if (actuators_need_init())
 			{
 				gear_state = GearCommand;
 				return gear_state;
@@ -123,27 +126,12 @@ namespace F117
 
 			return gear_state;
 		}
-		//double  flaps_actuator(double flap_command, double frameTime)
-		//{
-		//	if (!simInitialized)
-		//	{
-		//		flapPosition_DEG = flap_command;
-		//		return flapPosition_DEG;
-		//	}
-		//	flapRate_DEGPERSEC = 20.2 * (flap_command - flapPosition_DEG);
-		//	flapRate_DEGPERSEC = limit(flapRate_DEGPERSEC, -1.0, 1.0);
-		//	flapPosition_DEG += (flapRate_DEGPERSEC * frameTime);
-		//	flapPosition_DEG = limit(flapPosition_DEG, 0.0, 1.0);
-//
-	//		return flapPosition_DEG;
-	//	}
-
 		float elev_pos = 0.0;
 		float elev_rate = 0.0;
 
 		float  elev_actuator(float longStickInput, double frameTime)
 		{
-			if (!simInitialized)
+			if (actuators_need_init())
 			{
 				elev_pos = longStickInput;
 				return elev_pos;
@@ -157,24 +145,9 @@ namespace F117
 			return elev_pos;
 		}
 
-	//	double  airbrake_actuator(double airbrake_command, double frameTime)
-	//	{
-	//		if (!simInitialized)
-	//		{
-	//			airbrake_state = airbrake_command;
-	//			return airbrake_state;
-	//		}
-	//		airbrake_rate = 20.2 * (airbrake_command - airbrake_state);
-	//		airbrake_rate = limit(airbrake_rate, -0.75, 0.75);
-	//		airbrake_state += (airbrake_rate * frameTime);
-	//		airbrake_state = limit(airbrake_state, 0.0, 1.0);
-//
-//			return airbrake_state;
-//		}
-
 		double tailhook_actuator(double tailhook_command, double frameTime)
 		{
-			if (!simInitialized)
+			if (actuators_need_init())
 			{
 				tailhook_state = tailhook_command;
 				return tailhook_state;
@@ -190,13 +163,13 @@ namespace F117
 		double dragchute_actuator(double dragchute_command, double frameTime, double velocity_fps, double gear_down,
 			bool weight_on_wheels)
 		{
-			if (!simInitialized)
+			if (actuators_need_init())
 			{
 				dragchute_state = dragchute_command;
 				return dragchute_state;
 			}
 
-			// DRAG CHUTE DEPLOYMENT SAFETY CHECKS
+			// Drag chute deployment safety checks
 			// Only allow deployment if:
 			// 1. On the ground (weight on wheels)
 			// 2. Speed between 60-180 knots (100-300 fps)
@@ -211,7 +184,7 @@ namespace F117
 			bool speedTooSlow = (velocity_fps < minSustainSpeed_FPS);
 			bool speedTooFast = (velocity_fps > maxDeploySpeed_FPS);
 
-			// Override command based on conditions
+			// Override the command when deployment conditions are not met.
 			double safeCommand = dragchute_command;
 
 			if (dragchute_command > 0.1) {
@@ -224,7 +197,7 @@ namespace F117
 				}
 			}
 
-			// Auto-retract if speed too slow or too fast
+			// Auto-retract if speed is too slow or too fast.
 			if (speedTooSlow || speedTooFast) {
 				safeCommand = 0.0;  // Force retraction
 			}
@@ -250,7 +223,7 @@ namespace F117
 
 		float  misc_actuator(float misc_cmd, double frameTime)
 		{
-			if (!simInitialized)
+			if (actuators_need_init())
 			{
 				misc_pos = misc_cmd;
 				return misc_pos;
@@ -268,7 +241,7 @@ namespace F117
 
 		float  misc_actuatorH(float misc_cmdH, double frameTime)
 		{
-			if (!simInitialized)
+			if (actuators_need_init())
 			{
 				misc_posH = misc_cmdH;
 				return misc_posH;
@@ -281,7 +254,6 @@ namespace F117
 			return misc_posH;
 		}
 	};
-
 
 }
 
