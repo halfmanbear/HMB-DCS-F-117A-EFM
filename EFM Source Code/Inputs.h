@@ -62,6 +62,7 @@ enum InputCommands
 	tailhook = 69,
 
 	//air brake commands
+	AirRefuel = 155,
 
 	//AirBrakes = 73,
 	//AirBrakesOn = 147,

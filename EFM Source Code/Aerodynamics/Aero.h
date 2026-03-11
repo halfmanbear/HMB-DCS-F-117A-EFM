@@ -137,19 +137,28 @@ namespace F117
 		double _Cy(double alpha, double beta)
 		{
 			static InterpCache cache;
-			return lookup_2d(cache, _CyData, 20, alpha1, 19, beta1, alpha, beta);
+			// For a symmetric airframe, side-force coefficient is odd in beta.
+			const double betaSymmetric = std::abs(beta);
+			const double betaSign = (beta < 0.0) ? -1.0 : 1.0;
+			return betaSign * lookup_2d(cache, _CyData, 20, alpha1, 19, beta1, alpha, betaSymmetric);
 		}
 
 		double _Cn(double alpha, double beta, double dele)
 		{
 			static InterpCache cache;
-			return lookup_3d(cache, _CnData, 20, alpha1, 19, beta1, 3, dh2, alpha, beta, dele);
+			// For a symmetric airframe, yawing-moment coefficient is odd in beta.
+			const double betaSymmetric = std::abs(beta);
+			const double betaSign = (beta < 0.0) ? -1.0 : 1.0;
+			return betaSign * lookup_3d(cache, _CnData, 20, alpha1, 19, beta1, 3, dh2, alpha, betaSymmetric, dele);
 		}
 
 		double _Cl(double alpha, double beta, double dele)
 		{
 			static InterpCache cache;
-			return lookup_3d(cache, _ClData, 20, alpha1, 19, beta1, 3, dh2, alpha, beta, dele);
+			// For a symmetric airframe, rolling-moment coefficient is odd in beta.
+			const double betaSymmetric = std::abs(beta);
+			const double betaSign = (beta < 0.0) ? -1.0 : 1.0;
+			return betaSign * lookup_3d(cache, _ClData, 20, alpha1, 19, beta1, 3, dh2, alpha, betaSymmetric, dele);
 		}
 
 		double _CXq(double alpha)
@@ -294,9 +303,13 @@ namespace F117
 		}
 
 		void hifi_rudder(double alpha, double beta, double *retVal){
-				retVal[0] = _Cy_r30(alpha,beta) - _Cy(alpha,beta);
-				retVal[1] = _Cn_r30(alpha,beta) - _Cn(alpha,beta,0);
-				retVal[2] = _Cl_r30(alpha,beta) - _Cl(alpha,beta,0);
+				// For a symmetric airframe, rudder control derivatives should be even in beta.
+				// The current negative-beta rudder tables are asymmetric and drive a one-sided departure,
+				// so use the positive-beta half as the canonical source for both sides.
+				const double betaSymmetric = std::abs(beta);
+				retVal[0] = _Cy_r30(alpha,betaSymmetric) - _Cy(alpha,betaSymmetric);
+				retVal[1] = _Cn_r30(alpha,betaSymmetric) - _Cn(alpha,betaSymmetric,0);
+				retVal[2] = _Cl_r30(alpha,betaSymmetric) - _Cl(alpha,betaSymmetric,0);
 		}
 
 		void hifi_ailerons(double alpha, double beta, double *retVal){

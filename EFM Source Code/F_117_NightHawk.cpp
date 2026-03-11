@@ -93,6 +93,7 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	double		ps_LBFT2				= 0.0;			// Ambient calculated pressure (lb/ft^2)
 	bool		simInitialized			= false;		// Has the simulation gone through it's first run frame?
 	double		gearDown				= 0.0;			// Is the gear currently down?
+	bool		airRefuelDoorOpen	= false;		// Hook for AAR receptacle state when cockpit wiring is available.
 	double		az						= 0.0;			// This is the G force felt by the pilot, acting out the bottom of the aircraft (m/s^2), 1 is Earth's gravity.
 	double		ay						= 0.0;			// Ay (per normal direction convention) out the right wing (m/s^2)
 	double		weight_N				= 131222.538;	// Weight force of aircraft (N)
@@ -431,8 +432,11 @@ namespace
             F117::pedInput = limit(-value * (501.0 / (beta_DEG * beta_DEG + 500.0)), -1.0, 1.0);
             return true;
         case rudderleft:
-            F117::pedInput = -value + (101.0 / (beta_DEG * beta_DEG + 100.0));
+        {
+            const double rudderKeyBias = 101.0 / (beta_DEG * beta_DEG + 100.0);
+            F117::pedInput = limit(value + rudderKeyBias, -1.0, 1.0);
             return true;
+        }
         case rudderleftend:
             F117::pedInput = 0.0;
             return true;
@@ -440,8 +444,11 @@ namespace
             F117::yawTrim += kYawTrimStep;
             return true;
         case rudderright:
-            F117::pedInput = -value - (101.0 / (beta_DEG * beta_DEG + 100.0));
+        {
+            const double rudderKeyBias = 101.0 / (beta_DEG * beta_DEG + 100.0);
+            F117::pedInput = limit(-value - rudderKeyBias, -1.0, 1.0);
             return true;
+        }
         case rudderrightend:
             F117::pedInput = 0.0;
             return true;
@@ -573,6 +580,9 @@ namespace
             return true;
         case WheelBrakeOff:
             F117::rolling_friction = kWheelBrakeOffFriction;
+            return true;
+        case AirRefuel:
+            F117::airRefuelDoorOpen = !F117::airRefuelDoorOpen;
             return true;
         case bombay:
             if (misc_state < 0.5)
@@ -735,6 +745,8 @@ void update_flight_control_commands(double dt, double controlDegradation)
 {
     aoa_filter = 1;
 
+    F117::FLIGHTCONTROLS::update_pitch_mode_auto_inputs(F117::gearDown, F117::airRefuelDoorOpen);
+
     F117::elevator_DEG_commanded = -(F117::FLIGHTCONTROLS::fcs_pitch_controller(
         F117::FLIGHTCONTROLS::longStickInput * controlDegradation,
         0.0,
@@ -746,6 +758,7 @@ void update_flight_control_commands(double dt, double controlDegradation)
         dt,
         F117::roll_angle,
         F117::pitch_angle,
+        F117::rollRate_RPS * F117::radiansToDegrees,
         F117::totalVelocity_FPS,
         F117::mach,
         F117::thrust_N,
@@ -770,6 +783,9 @@ void update_flight_control_commands(double dt, double controlDegradation)
         F117::FLIGHTCONTROLS::latStickInput * controlDegradation,
         F117::FLIGHTCONTROLS::longStickForce,
         F117::ay / 9.81,
+        F117::pedInput,
+        F117::beta_DEG,
+        F117::roll_angle,
         F117::rollRate_RPS * F117::radiansToDegrees,
         0.0,
         F117::dynamicPressure_LBFT2,
@@ -784,7 +800,10 @@ void update_flight_control_commands(double dt, double controlDegradation)
         F117::gearDown,
         F117::weight_on_wheels);
 
-    aos_filter = static_cast<float>(pedInput * (beta_DEG * beta_DEG) / 7500 * (1 + (yawRate_RPS * radiansToDegrees) / 90) + 1);
+    // Keep the high-beta/high-yaw-rate rudder limiter symmetric left vs right.
+    const double betaMagnitude_DEG = std::abs(beta_DEG);
+    const double yawRateMagnitude_DEG_s = std::abs(yawRate_RPS * radiansToDegrees);
+    aos_filter = static_cast<float>(1.0 + (betaMagnitude_DEG * betaMagnitude_DEG) / 7500.0 * (1.0 + yawRateMagnitude_DEG_s / 90.0));
 
     F117::rudder_DEG_commanded = F117::FLIGHTCONTROLS::fcs_yaw_controller(
         F117::pedInput,
@@ -833,6 +852,12 @@ void update_propulsion_and_control_effectiveness(double dt, double tailIntegrity
 
     const double tailAsymmetry = g_damage.leftTail - g_damage.rightTail;
     F117::rudder_PCT = (F117::rudder_DEG * tailIntegrity) / 30.0 + tailAsymmetry * 0.1;
+    F117::FLIGHTCONTROLS::update_yaw_debug_snapshot(
+        F117::beta_DEG,
+        F117::yawRate_RPS,
+        F117::rudder_DEG_commanded,
+        F117::rudder_DEG,
+        F117::rudder_PCT);
 }
 
 
@@ -943,6 +968,16 @@ void update_aerodynamic_coefficients(double* temp)
     F117::AERO::dLdR = (F117::wingSpan_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Clr;
     F117::AERO::dLdP = (F117::wingSpan_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Clp;
     F117::AERO::Cl_total = F117::AERO::Cl + F117::AERO::dLdail * F117::aileron_PCT + F117::AERO::Cl_delta_r30 * F117::rudder_PCT + F117::AERO::dLdR * F117::yawRate_RPS + F117::AERO::dLdP * F117::rollRate_RPS + F117::AERO::Cl_delta_beta * F117::beta_DEG;
+
+    F117::FLIGHTCONTROLS::update_aero_debug_snapshot(
+        F117::AERO::Cy_delta_r30,
+        F117::AERO::Cn_delta_r30,
+        F117::AERO::Cl_delta_r30,
+        F117::AERO::Cn_delta_beta,
+        F117::AERO::Cl_delta_beta,
+        F117::AERO::Cy_total,
+        F117::AERO::Cn_total,
+        F117::AERO::Cl_total);
 }
 
 double apply_aerodynamic_forces_and_thrust()
@@ -1820,7 +1855,7 @@ void ed_fm_release()
     F117::DeltaTime = 0;
     F117::simInitialized = false;
     F117::ACTUATORS::simInitialized = false;
-    F117::FLIGHTCONTROLS::simInitialized = false;
+    F117::FLIGHTCONTROLS::reset_runtime_state();
     F117::ENGINE::N2 = 0.0;
 
     reset_damage_and_events();
@@ -2129,3 +2164,4 @@ bool ed_fm_need_to_be_repaired()
 }
 
 #pragma once
+
