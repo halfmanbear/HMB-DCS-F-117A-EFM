@@ -71,6 +71,12 @@ enum InputCommands
 	//Misc commands
 
 	bombay = 10100,
+	bombayOpen = 10101,
+	bombayClose = 10102,
+	pickleOn = 350,
+	pickleOff = 351,
+	weaponReleaseHoldOn = 10103,
+	weaponReleaseHoldOff = 10104,
 	luaDamageHit = 10200,	// Lua damage monitor -> EFM: value = damage fraction (0-1)
 	dragChute = 76,
 
@@ -105,3 +111,4 @@ enum InputCommands
 
 	Reserved // placeholder
 };
+

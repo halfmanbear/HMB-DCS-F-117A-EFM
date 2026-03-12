@@ -113,6 +113,11 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	float		misc_state				= 0.0;
 	float		misc_cmdH				= 0.0;			// Secondary misc actuator command used for the hook-related animation path.
 	float		misc_stateH				= 0.0;
+    bool        weapon_release_pickle_held = false;
+    bool        weapon_release_gate = false;
+    bool        weapon_bay_owned_by_release = false;
+    bool        weapon_bay_close_pending = false;
+    double      weapon_bay_close_delay = 0.0;
 
 	// Integrity-based damage state: 1.0 = perfect, 0.0 = destroyed
 	// Lua Damage table elements: [3]=COCKPIT, [10]=ENGINE001, [11]=MAIN
@@ -156,6 +161,8 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 
 static F117::DamageState g_damage;
 static std::queue<ed_fm_simulation_event> g_simEvents;
+static void* g_weaponReleaseGateParam = nullptr;
+static bool g_weaponReleaseGateParamInitialized = false;
 
 
 namespace
@@ -184,6 +191,10 @@ namespace
     constexpr double kWheelBrakeOffFriction = 0.015;
     constexpr double kToggleLowThreshold = 0.25;
     constexpr double kToggleHighThreshold = 0.75;
+    constexpr double kWeaponBayOpenThreshold = 0.995;
+    constexpr double kWeaponBayClosedThreshold = 0.005;
+    constexpr double kWeaponBayHoldAfterReleaseSeconds = 1.0;
+    constexpr char kWeaponReleaseGateParamName[] = "F117_WEAPON_RELEASE_GATE";
 
     constexpr double kLuaDamageDose = 0.25;
     constexpr double kWingDamageDoseScale = 0.6;
@@ -497,7 +508,141 @@ namespace
             fflush(g_damageLog);
         }
     }
+    void initialize_weapon_release_gate_param()
+    {
+        if (g_weaponReleaseGateParamInitialized)
+        {
+            return;
+        }
 
+        F117::cockpitAPI.ed_param_api = ed_get_cockpit_param_api();
+        if (F117::cockpitAPI.ed_param_api.get_parameter_handle == nullptr ||
+            F117::cockpitAPI.ed_param_api.update_parameter_with_number == nullptr)
+        {
+            return;
+        }
+
+        g_weaponReleaseGateParam = F117::cockpitAPI.getParamHandle(kWeaponReleaseGateParamName);
+        g_weaponReleaseGateParamInitialized = (g_weaponReleaseGateParam != nullptr);
+    }
+
+    void publish_weapon_release_gate_param()
+    {
+        initialize_weapon_release_gate_param();
+        if (g_weaponReleaseGateParam != nullptr)
+        {
+            F117::cockpitAPI.setParamNumber(g_weaponReleaseGateParam, F117::weapon_release_gate ? 1.0 : 0.0);
+        }
+    }
+
+    bool weapon_bay_is_open()
+    {
+        return F117::misc_state >= kWeaponBayOpenThreshold;
+    }
+
+    bool weapon_bay_is_closed()
+    {
+        return F117::misc_state <= kWeaponBayClosedThreshold;
+    }
+
+    void command_weapon_bay_open()
+    {
+        F117::misc_cmd = 1.0f;
+    }
+
+    void command_weapon_bay_close()
+    {
+        F117::misc_cmd = 0.0f;
+    }
+
+    void reset_weapon_release_sequence()
+    {
+        F117::weapon_release_pickle_held = false;
+        F117::weapon_release_gate = false;
+        F117::weapon_bay_owned_by_release = false;
+        F117::weapon_bay_close_pending = false;
+        F117::weapon_bay_close_delay = 0.0;
+        publish_weapon_release_gate_param();
+    }
+
+    void handle_weapon_release_pressed()
+    {
+        F117::weapon_bay_close_pending = false;
+        F117::weapon_bay_close_delay = 0.0;
+        F117::weapon_release_pickle_held = true;
+        F117::weapon_release_gate = false;
+
+        if (weapon_bay_is_open())
+        {
+            F117::weapon_release_gate = true;
+        }
+        else
+        {
+            command_weapon_bay_open();
+            F117::weapon_bay_owned_by_release = true;
+        }
+
+        publish_weapon_release_gate_param();
+    }
+
+    void handle_weapon_release_released()
+    {
+        F117::weapon_release_pickle_held = false;
+        F117::weapon_release_gate = false;
+
+        if (F117::weapon_bay_owned_by_release)
+        {
+            if (weapon_bay_is_open())
+            {
+                F117::weapon_bay_close_pending = true;
+                F117::weapon_bay_close_delay = kWeaponBayHoldAfterReleaseSeconds;
+            }
+            else
+            {
+                command_weapon_bay_close();
+                F117::weapon_bay_close_pending = false;
+                F117::weapon_bay_close_delay = 0.0;
+            }
+        }
+        else
+        {
+            F117::weapon_bay_close_pending = false;
+            F117::weapon_bay_close_delay = 0.0;
+        }
+
+        publish_weapon_release_gate_param();
+    }
+
+    void update_weapon_release_sequence(double dt)
+    {
+        if (F117::weapon_release_pickle_held &&
+            !F117::weapon_release_gate &&
+            weapon_bay_is_open())
+        {
+            F117::weapon_release_gate = true;
+        }
+
+        if (!F117::weapon_release_pickle_held &&
+            F117::weapon_bay_owned_by_release &&
+            weapon_bay_is_closed())
+        {
+            F117::weapon_bay_owned_by_release = false;
+            F117::weapon_bay_close_pending = false;
+            F117::weapon_bay_close_delay = 0.0;
+        }
+
+        if (!F117::weapon_release_pickle_held && F117::weapon_bay_close_pending)
+        {
+            F117::weapon_bay_close_delay = max(0.0, F117::weapon_bay_close_delay - dt);
+            if (F117::weapon_bay_close_delay <= 0.0)
+            {
+                command_weapon_bay_close();
+                F117::weapon_bay_close_pending = false;
+            }
+        }
+
+        publish_weapon_release_gate_param();
+    }
     bool handle_engine_and_throttle_command(int command, float value)
     {
         switch (command)
@@ -585,14 +730,31 @@ namespace
             F117::airRefuelDoorOpen = !F117::airRefuelDoorOpen;
             return true;
         case bombay:
+            reset_weapon_release_sequence();
             if (misc_state < 0.5)
             {
-                F117::misc_cmd = 1.0;
+                command_weapon_bay_open();
             }
-            if (misc_state > 0.5)
+            else if (misc_state > 0.5)
             {
-                F117::misc_cmd = 0.0;
+                command_weapon_bay_close();
             }
+            return true;
+        case bombayOpen:
+            reset_weapon_release_sequence();
+            command_weapon_bay_open();
+            return true;
+        case bombayClose:
+            reset_weapon_release_sequence();
+            command_weapon_bay_close();
+            return true;
+        case pickleOn:
+        case weaponReleaseHoldOn:
+            handle_weapon_release_pressed();
+            return true;
+        case pickleOff:
+        case weaponReleaseHoldOff:
+            handle_weapon_release_released();
             return true;
         case luaDamageHit:
             apply_lua_damage_hit();
@@ -1084,6 +1246,7 @@ double controlDegradation = get_control_degradation();
 update_flight_control_commands(dt, controlDegradation);
 
 double tailIntegrity = update_airframe_actuators(dt);
+update_weapon_release_sequence(dt);
 update_propulsion_and_control_effectiveness(dt, tailIntegrity);
 	// Engine and yaw debug logging
 		{
@@ -1830,6 +1993,7 @@ namespace
         F117::rolling_friction = kWheelBrakeOffFriction;
         F117::ENGINE::N2 = enginesRunning ? kGroundStartIdleN2 : 0.0;
         reset_damage_and_events();
+        reset_weapon_release_sequence();
     }
 
     void apply_air_start_state()
@@ -1845,6 +2009,7 @@ namespace
         F117::rolling_friction = kWheelBrakeOffFriction;
         F117::ENGINE::N2 = kAirStartN2;
         reset_damage_and_events();
+        reset_weapon_release_sequence();
     }
 }
 
@@ -1881,6 +2046,7 @@ void ed_fm_release()
     F117::misc_state = 0.0;
     F117::misc_cmdH = 0.0;
     F117::misc_stateH = 0.0;
+    reset_weapon_release_sequence();
 
     F117::alt_hold = 0;
     F117::horiz_hold = 0;
@@ -2162,6 +2328,4 @@ bool ed_fm_need_to_be_repaired()
 		|| g_damage.rightTail   < 1.0
 		|| g_damage.cockpit     < 1.0;
 }
-
-#pragma once
 

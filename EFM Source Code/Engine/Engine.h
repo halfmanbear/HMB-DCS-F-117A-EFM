@@ -21,7 +21,8 @@ namespace F117
         constexpr double SPOOL_DOWN_RATE = 0.45;
         constexpr double WINDMILL_DECAY = 0.10;
         constexpr double SHUTDOWN_N2_THRESHOLD = 0.5;
-        constexpr double IDLE_THRUST_SEA_LEVEL_N = 8000.0;
+        constexpr double GROUND_IDLE_THRUST_N = 3000.0;
+        constexpr double FLIGHT_IDLE_THRUST_N = 8000.0;
         constexpr double MAX_THRUST_SEA_LEVEL_N = 80400.0;
         constexpr double MAX_THRUST_LIMIT_N = 96000.0;
         constexpr double ALTITUDE_THRUST_LOSS_FACTOR = 0.7;
@@ -71,12 +72,14 @@ namespace F117
                 return 0.0;
             }
 
-            // Idle thrust falls off with altitude as available air mass decreases.
-            double Tidle = IDLE_THRUST_SEA_LEVEL_N *
-                (1.0 - (altitude / ALTITUDE_MAX_FT) * ALTITUDE_THRUST_LOSS_FACTOR);
-
             double altitude_factor =
                 1.0 - (altitude / ALTITUDE_MAX_FT) * ALTITUDE_THRUST_LOSS_FACTOR;
+            const double idleThrustBaselineN =
+                weightOnWheels ? GROUND_IDLE_THRUST_N : FLIGHT_IDLE_THRUST_N;
+
+            // Ground idle thrust is held lower than airborne idle so the aircraft
+            // does not start creeping on the runway at zero throttle.
+            double Tidle = idleThrustBaselineN * altitude_factor;
             double mach_factor = 1.0 + MACH_THRUST_GAIN * machLimited;
 
             double Tmax = MAX_THRUST_SEA_LEVEL_N * altitude_factor * mach_factor;
@@ -104,3 +107,5 @@ namespace F117
         }
     }
 }
+
+
