@@ -6,9 +6,6 @@
     <ClCompile Include="FlightControls\FlightControls.cpp">
       <Filter>FlightControls</Filter>
     </ClCompile>
-    <ClCompile Include="include\FM\API_Declare.cpp">
-      <Filter>API</Filter>
-    </ClCompile>
     <ClCompile Include="stdafx.cpp">
       <Filter>include</Filter>
     </ClCompile>

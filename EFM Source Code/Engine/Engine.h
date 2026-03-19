@@ -12,8 +12,8 @@ namespace F117
         constexpr double THROTTLE_MAX = 100.0;
         constexpr double MACH_MIN = 0.0;
         constexpr double MACH_MAX = 0.92;
-        constexpr double ALTITUDE_MIN_FT = 0.0;
-        constexpr double ALTITUDE_MAX_FT = 45000.0;
+        constexpr double ALTITUDE_MIN_M = 0.0;
+        constexpr double ALTITUDE_MAX_M = 13716.0; // 45000 ft
         constexpr double GROUND_IDLE_N2 = 60.0;
         constexpr double FLIGHT_IDLE_N2 = 65.0;
         constexpr double MAX_N2 = 100.0;
@@ -23,10 +23,9 @@ namespace F117
         constexpr double SHUTDOWN_N2_THRESHOLD = 0.5;
         constexpr double GROUND_IDLE_THRUST_N = 3000.0;
         constexpr double FLIGHT_IDLE_THRUST_N = 8000.0;
-        constexpr double MAX_THRUST_SEA_LEVEL_N = 80400.0;
-        constexpr double MAX_THRUST_LIMIT_N = 96000.0;
-        constexpr double ALTITUDE_THRUST_LOSS_FACTOR = 0.7;
-        constexpr double MACH_THRUST_GAIN = 0.15;
+        constexpr double MAX_THRUST_SEA_LEVEL_N = 80415.0;
+        constexpr double MAX_THRUST_LIMIT_N = 85769;
+        constexpr double DPDH_M_SCALE_HEIGHT = 9200.0;
         constexpr double MIN_THRUST_IDLE_MARGIN = 1.1;
         constexpr double IDLE_THRUST_CUTOFF_FACTOR = 0.9;
 
@@ -40,7 +39,7 @@ namespace F117
             // Clamp the incoming conditions to the model's intended operating range.
             double throttle = limit(throttleInput, THROTTLE_MIN, THROTTLE_MAX);
             double machLimited = limit(mach, MACH_MIN, MACH_MAX);
-            double altitude = limit(alt, ALTITUDE_MIN_FT, ALTITUDE_MAX_FT);
+            double altitude = limit(alt, ALTITUDE_MIN_M, ALTITUDE_MAX_M);
 
             // Ground idle remains lower than flight idle.
             double idleN2 = weightOnWheels ? GROUND_IDLE_N2 : FLIGHT_IDLE_N2;
@@ -72,15 +71,17 @@ namespace F117
                 return 0.0;
             }
 
-            double altitude_factor =
-                1.0 - (altitude / ALTITUDE_MAX_FT) * ALTITUDE_THRUST_LOSS_FACTOR;
+            double altitude_factor = exp(-altitude / DPDH_M_SCALE_HEIGHT);
+
             const double idleThrustBaselineN =
                 weightOnWheels ? GROUND_IDLE_THRUST_N : FLIGHT_IDLE_THRUST_N;
 
             // Ground idle thrust is held lower than airborne idle so the aircraft
             // does not start creeping on the runway at zero throttle.
             double Tidle = idleThrustBaselineN * altitude_factor;
-            double mach_factor = 1.0 + MACH_THRUST_GAIN * machLimited;
+            //double mach_factor = 1.0 + MACH_THRUST_GAIN * machLimited;
+            double M = machLimited;
+            double mach_factor = 1.0 - 0.33875 * M + 0.446875 * M * M;
 
             double Tmax = MAX_THRUST_SEA_LEVEL_N * altitude_factor * mach_factor;
 

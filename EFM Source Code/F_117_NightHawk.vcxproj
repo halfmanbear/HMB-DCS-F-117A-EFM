@@ -186,7 +186,6 @@
     </ClCompile>
     <ClCompile Include="F_117_NightHawk.cpp" />
     <ClCompile Include="FlightControls\FlightControls.cpp" />
-    <ClCompile Include="include\FM\API_Declare.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

@@ -11,7 +11,8 @@
 #include "Inputs.h"
 
 #include "include/Cockpit/CockpitAPI_Declare.h" // Provides param handle interfacing for use in lua
-#include "include/FM/API_Declare.h"	// Provides all DCS related functions in this cpp file
+#define EXPORT_ED_FM_PHYSICS_IMP extern "C" __declspec(dllexport)
+#include "include/FM/wHumanCustomPhysicsAPI_ImplementationDeclare.h"	// Official DCS EFM API declarations
 // Model headers
 #include "Actuators/Actuators.h"			//Actuators model functions
 #include "Atmosphere/Atmosphere.h"			//Atmosphere model functions
@@ -43,12 +44,11 @@ Vec3	velocity_world_cs;
 //-------------------------------------------------------
 namespace F117 // Shared FM state. Many aero/control calculations still use the original imperial-unit tuning.
 {
-	double		meterToFoot	= 3.28084;					// Meter to foot conversion factor
 	double		ambientTemperature_DegK = 0.0;			// Ambient temperature (kelvin)
 	double		ambientDensity_KgPerM3	= 0.0;			// Ambient density (kg/m^3)
-	double		wingSpan_FT				= 43.33;		// F-117A wing-span (ft)
-	double		wingArea_FT2			= 912.7;		// F-117A wing area (ft^2)
-	double		meanChord_FT			= 21.07;		// F-117A mean aerodynamic chord (ft)
+	double		wingSpan_M				= 13.205;		// F-117A wing-span (m)
+	double		wingArea_M2				= 84.77;		// F-117A wing area (m²)
+	double		meanChord_M				= 6.422;		// F-117A mean aerodynamic chord (m)
 	double		referenceCG_PCT			= 0.35;			// Reference center of mass as a % of wing chord
 	double		actualCG_PCT			= 0.32;			// Actual center of mass as a % of wing chord
 	double		Cm0						= 0.04;			// Pitch-up trim bias (positive = nose up) 0.0387 0.0287
@@ -59,8 +59,7 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	double		inertia_Iz_KGM2			= 85552.1;		// Reference moment of inertia (kg/m^2)
 	double		temp[9];								// Temporary array for holding look-up table results
 	double		altitude_m				= 0.0;			// Absolute altitude above sea level (metres)
-	double		altitude_FT				= 45000;		// Absolute altitude above sea level (ft)
-	double		totalVelocity_FPS		= 0.0;			// Total velocity (always positive) (ft/s)
+	double		totalVelocity_MPS		= 0.0;			// Total velocity (always positive) (m/s)
 	double		alpha_DEG				= 0.0;			// Angle of attack (deg)
 	double		beta_DEG				= 0.0;			// Slideslip angle (deg)
 	double		rollRate_RPS			= 0.0;			// Body roll rate (rad/sec)
@@ -88,9 +87,8 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	double		leadingEdgeFlap_DEG		= 0.0;			// Leading edge slat deflection (deg)
 	double		leadingEdgeFlap_PCT		= 0.0;			// Leading edge slat deflection as a percent of maximum (0 to 1)
 
-	double		dynamicPressure_LBFT2	= 0.0;			// Dynamic pressure (lb/ft^2)
+	double		dynamicPressure_PA		= 0.0;			// Dynamic pressure (Pa)
 	double		mach					= 0.0;			// Air speed in Mach; 1 is the local speed of sound.
-	double		ps_LBFT2				= 0.0;			// Ambient calculated pressure (lb/ft^2)
 	bool		simInitialized			= false;		// Has the simulation gone through it's first run frame?
 	double		gearDown				= 0.0;			// Is the gear currently down?
 	bool		airRefuelDoorOpen	= false;		// Hook for AAR receptacle state when cockpit wiring is available.
@@ -104,8 +102,6 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	double		rolling_friction		= 0.015;		// Relative wheel braking/rolling resistance reported to DCS.
 	double		WheelBrakeCommand		= 0.0;			// Commanded wheel brake
 	double		GearCommand				= 0.0;			// Commanded gear lever
-	//double		airbrake_command		= 0.0;			// Air brakes/spoiler command
-	//double		airbrakes				= 0.0;			// Are the air brakes/spoilers deployed?
 	double		tailhook_command		= 0.0;			// Tail hook command
 	double		tailhook_pos			= 0.0;			// Tailhook actuator position reported back to DCS.
 	float		rudder_pos				= 0.0;			//Rudder(s) deflection
@@ -154,6 +150,9 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	// Drag chute state
 	double		dragchute_command = 0.0;			// dragChute command
 	double		dragchute = 0.0;					// is the dragChute out?
+
+	double		surface_height_m = 1000.0;			// Height of terrain surface below aircraft centre (m). Default high to suppress ground effect until first DCS call.
+	bool		suspension_wow[3] = { false, false, false }; // Per-gear weight-on-wheels from DCS suspension feedback (0=nose, 1=left main, 2=right main)
 
 	EDPARAM cockpitAPI;
 	param_stuff param_class;
@@ -253,7 +252,7 @@ namespace
     constexpr int kFc3CockpitThrottleArg = 1002;
     constexpr int kFc3CockpitRudderArg = 1003;
 
-    constexpr double kGroundStartIdleN2 = 60.0;
+    constexpr double kGroundStartIdleN2 = 62.0;
     constexpr double kAirStartThrottle = 77.5;
     constexpr double kAirStartN2 = 92.0;
     constexpr double kMaxThrustNewtons = 92000.0;
@@ -296,7 +295,8 @@ namespace
             (F117::weight_N > normalForceY) &&
             (fabs(F117::ay_world) <= 0.5);
 
-        F117::weight_on_wheels = F117::wow_from_draw_args || physicsWeightOnWheels;
+        const bool suspensionWeightOnWheels = F117::suspension_wow[0] || F117::suspension_wow[1] || F117::suspension_wow[2];
+        F117::weight_on_wheels = F117::wow_from_draw_args || physicsWeightOnWheels || suspensionWeightOnWheels;
         if (F117::weight_on_wheels)
         {
             F117::GearCommand = kGearCommandDown;
@@ -516,8 +516,8 @@ namespace
         }
 
         F117::cockpitAPI.ed_param_api = ed_get_cockpit_param_api();
-        if (F117::cockpitAPI.ed_param_api.get_parameter_handle == nullptr ||
-            F117::cockpitAPI.ed_param_api.update_parameter_with_number == nullptr)
+        if (F117::cockpitAPI.ed_param_api.pfn_ed_cockpit_get_parameter_handle == nullptr ||
+            F117::cockpitAPI.ed_param_api.pfn_ed_cockpit_update_parameter_with_number == nullptr)
         {
             return;
         }
@@ -842,17 +842,17 @@ void update_total_velocity_from_airmass()
     airspeed.y = velocity_world_cs.y - wind.y;
     airspeed.z = velocity_world_cs.z - wind.z;
 
-    F117::totalVelocity_FPS = sqrt(airspeed.x * airspeed.x + airspeed.y * airspeed.y + airspeed.z * airspeed.z) * F117::meterToFoot;
-    if (F117::totalVelocity_FPS < 0.01)
+    F117::totalVelocity_MPS = sqrt(airspeed.x * airspeed.x + airspeed.y * airspeed.y + airspeed.z * airspeed.z);
+    if (F117::totalVelocity_MPS < 0.003)
     {
-        F117::totalVelocity_FPS = 0.01;
+        F117::totalVelocity_MPS = 0.003; // ~0.01 ft/s equivalent minimum
     }
 }
 
 void update_atmosphere_from_total_velocity(double* temp)
 {
-    F117::ATMOS::atmos(F117::ambientTemperature_DegK, F117::ambientDensity_KgPerM3, F117::totalVelocity_FPS, temp);
-    F117::dynamicPressure_LBFT2 = temp[0];
+    F117::ATMOS::atmos(F117::ambientTemperature_DegK, F117::ambientDensity_KgPerM3, F117::totalVelocity_MPS, temp);
+    F117::dynamicPressure_PA = temp[0];
     F117::mach = temp[1];
 }
 
@@ -885,9 +885,14 @@ void update_autopilot_hold_state()
     }
 }
 
+
 void update_fuel_system(double dt)
 {
-    F117::fuel_consumption_since_last_time = (F117::thrust_N / 36000) * dt;
+    // SFC (cemax) calculation:
+    // Thrust (Newtons) -> kgf (divide by 9.81)
+    // kg/kgf/hr (1.24) -> kg/s (divide by 3600)
+    const double cemax = 1.24;
+    F117::fuel_consumption_since_last_time = (F117::thrust_N / 9.81) * (cemax / 3600.0) * dt;
     F117::internal_fuel -= F117::fuel_consumption_since_last_time * F117::param_class.fuelvalue;
 }
 
@@ -916,30 +921,18 @@ void update_flight_control_commands(double dt, double controlDegradation)
         F117::pitchRate_RPS * F117::radiansToDegrees,
         (F117::az / 9.81),
         0.0,
-        F117::dynamicPressure_LBFT2,
+        F117::dynamicPressure_PA,
         dt,
         F117::roll_angle,
         F117::pitch_angle,
         F117::rollRate_RPS * F117::radiansToDegrees,
-        F117::totalVelocity_FPS,
+        F117::totalVelocity_MPS,
         F117::mach,
         F117::thrust_N,
         F117::AERO::Cx_total));
-    F117::elevator_DEG = F117::elevator_DEG_commanded + F117::pitchTrim;
-    if (alpha_DEG < 1)
-    {
-        F117::elevator_DEG = limit(F117::elevator_DEG, -25, 25.0);
-    }
-    if (alpha_DEG >= 1)
-    {
-        F117::elevator_DEG = limit(F117::elevator_DEG, -(25.0 / aoa_filter), 25.0);
-    }
-    if (alpha_DEG <= -5)
-    {
-        F117::elevator_DEG = limit(F117::elevator_DEG, -25.0, (15.0 / aoa_filter));
-    }
-
-    roll_filter = static_cast<float>(((rollRate_RPS * rollRate_RPS) / 2) / 4 * 5 + 0.5);
+    // Pitch axis: Loschke specifies -25° TEU (nose-down) to +37.5° TED (nose-up) for pitch.
+    // Physical actuator stop is ±45° — pitch authority does not reach the stop.
+    F117::elevator_DEG = limit(F117::elevator_DEG_commanded + F117::pitchTrim, -25.0, 37.5);
 
     F117::aileron_DEG_commanded = F117::FLIGHTCONTROLS::fcs_roll_controller(
         F117::FLIGHTCONTROLS::latStickInput * controlDegradation,
@@ -950,15 +943,23 @@ void update_flight_control_commands(double dt, double controlDegradation)
         F117::roll_angle,
         F117::rollRate_RPS * F117::radiansToDegrees,
         0.0,
-        F117::dynamicPressure_LBFT2,
+        F117::dynamicPressure_PA,
+        F117::gearDown > 0.5,
+        F117::airRefuelDoorOpen,
         dt);
-    F117::aileron_DEG = F117::aileron_DEG_commanded + F117::rollTrim;
-    F117::aileron_DEG = limit(F117::aileron_DEG, (-15.0 * roll_filter), (15.0 * roll_filter));
+
+    // Real F-117 pitch/roll mixer: pitch has priority.
+    // Each elevon physical stop is ±45°. Pitch occupies elevator_DEG of that travel.
+    // Roll gets whatever remains: max roll deflection = 45° - |elevator_DEG|.
+    // This means rolling pull-outs automatically have less roll authority at high pitch demand,
+    // exactly as the real aircraft (and consistent with Loschke's mixer description).
+    const double maxRollDEG = (std::max)(0.0, 45.0 - std::abs(F117::elevator_DEG));
+    F117::aileron_DEG = limit(F117::aileron_DEG_commanded + F117::rollTrim, -maxRollDEG, maxRollDEG);
 
     F117::dragchute = F117::ACTUATORS::dragchute_actuator(
         F117::dragchute_command,
         dt,
-        F117::totalVelocity_FPS,
+        F117::totalVelocity_MPS,
         F117::gearDown,
         F117::weight_on_wheels);
 
@@ -970,11 +971,13 @@ void update_flight_control_commands(double dt, double controlDegradation)
     F117::rudder_DEG_commanded = F117::FLIGHTCONTROLS::fcs_yaw_controller(
         F117::pedInput,
         0.0,
-        F117::yawRate_RPS * (180.0 / 3.14159),
-        ((F117::rollRate_RPS * F117::radiansToDegrees) / 45),
+        F117::beta_DEG,
+        F117::yawRate_RPS * F117::radiansToDegrees,
+        F117::rollRate_RPS * F117::radiansToDegrees,
+        F117::pitchRate_RPS * F117::radiansToDegrees,
         F117::FLIGHTCONTROLS::alphaFiltered,
-        F117::aileron_DEG_commanded,
-        F117::ay / 1.56,
+        F117::dynamicPressure_PA,
+        F117::gearDown > 0.5,
         dt);
     F117::rudder_DEG = F117::rudder_DEG_commanded + F117::yawTrim;
     F117::rudder_DEG = limit(F117::rudder_DEG, -15.0 / aos_filter, 15.0 / aos_filter);
@@ -1006,7 +1009,7 @@ void update_propulsion_and_control_effectiveness(double dt, double tailIntegrity
 
     const bool engineRunning = F117::engineswitch && (F117::internal_fuel >= 5.0) && (avgEngineIntegrity > 0.05);
     const double damagedThrottle = F117::throttleInput * avgEngineIntegrity;
-    F117::thrust_N = F117::ENGINE::engine_dynamics(damagedThrottle, F117::mach, F117::altitude_FT, dt, engineRunning, F117::weight_on_wheels);
+    F117::thrust_N = F117::ENGINE::engine_dynamics(damagedThrottle, F117::mach, F117::altitude_m, dt, engineRunning, F117::weight_on_wheels);
 
     const double wingIntegrity = 1.0 - g_damage.totalWingLoss;
     F117::aileron_PCT = (F117::aileron_DEG * wingIntegrity) / 25.5;
@@ -1046,7 +1049,12 @@ void update_aerodynamic_coefficients(double* temp)
 
     const double Cd0 = 0.0155;
     const double K_induced = 0.18;
-    const double Cd_induced = K_induced * Cz * Cz;
+
+    // Wieselberger ground effect: phi approaches 0 near the ground (reducing induced drag)
+    // and approaches 1 in free air (no effect). h/b = height / wingspan.
+    const double h_over_b    = F117::surface_height_m / F117::wingSpan_M;
+    const double phi_GE      = (16.0 * h_over_b * 16.0 * h_over_b) / (1.0 + 16.0 * h_over_b * 16.0 * h_over_b);
+    const double Cd_induced  = K_induced * Cz * Cz * phi_GE;
 
     double Cd_wave = 0.0;
     const double Mcrit = 0.87;
@@ -1105,30 +1113,30 @@ void update_aerodynamic_coefficients(double* temp)
     F117::AERO::eta_el = temp[3];
     F117::AERO::Cm_delta_ds = 0;
 
-    F117::AERO::dXdQ = (F117::meanChord_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Cxq;
+    F117::AERO::dXdQ = (F117::meanChord_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Cxq;
     F117::AERO::Cx_total = F117::AERO::Cx + F117::AERO::dXdQ * F117::pitchRate_RPS;
     F117::AERO::Cx_total += CxGear + Cxchute + Cxbay;
 
-    F117::AERO::dZdQ = (F117::meanChord_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Czq;
+    F117::AERO::dZdQ = (F117::meanChord_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Czq;
     F117::AERO::Cz_total = F117::AERO::Cz + F117::AERO::dZdQ * F117::pitchRate_RPS;
     F117::AERO::Cz_total += CzGear + Czbay;
 
-    F117::AERO::dMdQ = (F117::meanChord_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Cmq;
+    F117::AERO::dMdQ = (F117::meanChord_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Cmq;
     F117::AERO::Cm_total = F117::AERO::Cm * F117::AERO::eta_el + F117::AERO::Cz_total * (F117::referenceCG_PCT - F117::actualCG_PCT) + F117::AERO::dMdQ * F117::pitchRate_RPS + F117::AERO::Cm_delta + F117::AERO::Cm_delta_ds + F117::Cm0;
 
     F117::AERO::dYdail = F117::AERO::Cy_delta_a20;
-    F117::AERO::dYdR = (F117::wingSpan_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Cyr;
-    F117::AERO::dYdP = (F117::wingSpan_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Cyp;
+    F117::AERO::dYdR = (F117::wingSpan_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Cyr;
+    F117::AERO::dYdP = (F117::wingSpan_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Cyp;
     F117::AERO::Cy_total = F117::AERO::Cy + F117::AERO::dYdail * F117::aileron_PCT + F117::AERO::Cy_delta_r30 * F117::rudder_PCT + F117::AERO::dYdR * F117::yawRate_RPS + F117::AERO::dYdP * F117::rollRate_RPS;
 
     F117::AERO::dNdail = F117::AERO::Cn_delta_a20;
-    F117::AERO::dNdR = (F117::wingSpan_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Cnr;
-    F117::AERO::dNdP = (F117::wingSpan_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Cnp;
-    F117::AERO::Cn_total = F117::AERO::Cn - F117::AERO::Cy_total * (F117::referenceCG_PCT - F117::actualCG_PCT) * (F117::meanChord_FT / F117::wingSpan_FT) + F117::AERO::dNdail * F117::aileron_PCT + F117::AERO::Cn_delta_r30 * F117::rudder_PCT + F117::AERO::dNdR * F117::yawRate_RPS + F117::AERO::dNdP * F117::rollRate_RPS + F117::AERO::Cn_delta_beta * F117::beta_DEG;
+    F117::AERO::dNdR = (F117::wingSpan_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Cnr;
+    F117::AERO::dNdP = (F117::wingSpan_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Cnp;
+    F117::AERO::Cn_total = F117::AERO::Cn - F117::AERO::Cy_total * (F117::referenceCG_PCT - F117::actualCG_PCT) * (F117::meanChord_M / F117::wingSpan_M) + F117::AERO::dNdail * F117::aileron_PCT + F117::AERO::Cn_delta_r30 * F117::rudder_PCT + F117::AERO::dNdR * F117::yawRate_RPS + F117::AERO::dNdP * F117::rollRate_RPS + F117::AERO::Cn_delta_beta * F117::beta_DEG;
 
     F117::AERO::dLdail = F117::AERO::Cl_delta_a20;
-    F117::AERO::dLdR = (F117::wingSpan_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Clr;
-    F117::AERO::dLdP = (F117::wingSpan_FT / (2 * F117::totalVelocity_FPS)) * F117::AERO::Clp;
+    F117::AERO::dLdR = (F117::wingSpan_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Clr;
+    F117::AERO::dLdP = (F117::wingSpan_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Clp;
     F117::AERO::Cl_total = F117::AERO::Cl + F117::AERO::dLdail * F117::aileron_PCT + F117::AERO::Cl_delta_r30 * F117::rudder_PCT + F117::AERO::dLdR * F117::yawRate_RPS + F117::AERO::dLdP * F117::rollRate_RPS + F117::AERO::Cl_delta_beta * F117::beta_DEG;
 
     F117::FLIGHTCONTROLS::update_aero_debug_snapshot(
@@ -1144,20 +1152,22 @@ void update_aerodynamic_coefficients(double* temp)
 
 double apply_aerodynamic_forces_and_thrust()
 {
-    Vec3 cy_force(0.0, 0.0, F117::AERO::Cy_total * F117::wingArea_FT2 * F117::dynamicPressure_LBFT2 * 4.44822162825);
+    const double qS = F117::wingArea_M2 * F117::dynamicPressure_PA; // N
+
+    Vec3 cy_force(0.0, 0.0, F117::AERO::Cy_total * qS);
     Vec3 cy_force_pos(0.0, 0, 0);
     add_local_force(cy_force, cy_force_pos);
 
-    Vec3 cx_force(-F117::AERO::Cx_total * F117::wingArea_FT2 * F117::dynamicPressure_LBFT2 * 4.44822162825, 0, 0);
+    Vec3 cx_force(-F117::AERO::Cx_total * qS, 0, 0);
     Vec3 cx_force_pos(0, 0.0, 0.0);
     add_local_force(cx_force, cx_force_pos);
 
     const double liftDamageFactor = 1.0 - g_damage.totalWingLoss;
-    Vec3 cz_force(0.0, -F117::AERO::Cz_total * F117::wingArea_FT2 * F117::dynamicPressure_LBFT2 * 4.44822162825 * liftDamageFactor, 0.0);
+    Vec3 cz_force(0.0, -F117::AERO::Cz_total * qS * liftDamageFactor, 0.0);
     Vec3 cz_force_pos(0, 0, 0);
     add_local_force(cz_force, cz_force_pos);
 
-    const double qS_b = F117::wingArea_FT2 * F117::dynamicPressure_LBFT2 * F117::wingSpan_FT * 1.35581795;
+    const double qS_b = qS * F117::wingSpan_M; // N·m
     double rollMoment = F117::AERO::Cl_total * qS_b;
     rollMoment += g_damage.wingAsymmetry * qS_b * 0.05;
     Vec3 cl_moment(rollMoment, 0.0, 0.0);
@@ -1165,10 +1175,10 @@ double apply_aerodynamic_forces_and_thrust()
 
     const double pitchDamageFactor = 1.0 - g_damage.totalTailLoss * 0.5;
     const double noseDownBias = -g_damage.totalWingLoss * qS_b * 0.08;
-    Vec3 cm_moment(0.0, 0.0, F117::AERO::Cm_total * F117::wingArea_FT2 * F117::dynamicPressure_LBFT2 * 1.35581795 * F117::meanChord_FT * pitchDamageFactor + noseDownBias);
+    Vec3 cm_moment(0.0, 0.0, F117::AERO::Cm_total * qS * F117::meanChord_M * pitchDamageFactor + noseDownBias);
     add_local_moment(cm_moment);
 
-    const double qS_span = F117::wingArea_FT2 * F117::dynamicPressure_LBFT2 * F117::wingSpan_FT * 1.35581795;
+    const double qS_span = qS_b; // N·m (same as qS_b for yaw)
     double yawMoment = -F117::AERO::Cn_total * qS_span;
     const double tailAsymDamage = g_damage.leftTail - g_damage.rightTail;
     yawMoment += tailAsymDamage * qS_span * 0.03;
@@ -1277,7 +1287,7 @@ update_propulsion_and_control_effectiveness(dt, tailIntegrity);
 				}
 				if (engineDebugLog.is_open())
 				{
-					engineDebugLog << "engine1_thrust_N,engine2_thrust_N,total_thrust_N,throttle_pct,N2_rpm_pct,mach,velocity_fps,altitude_ft,"
+					engineDebugLog << "engine1_thrust_N,engine2_thrust_N,total_thrust_N,throttle_pct,N2_rpm_pct,mach,velocity_mps,altitude_m,"
 					               << "pedInput,rudder_DEG_cmd,rudder_DEG,rudder_PCT,rudder_pos,beta_DEG,yawRate_RPS,yawTrim,aileron_DEG,aileron_PCT\n";
 				}
 				engineLogInitialized = true;
@@ -1293,8 +1303,8 @@ update_propulsion_and_control_effectiveness(dt, tailIntegrity);
 				               << F117::throttleInput << ","
 				               << F117::ENGINE::N2 << ","
 				               << F117::mach << ","
-				               << F117::totalVelocity_FPS << ","
-				               << F117::altitude_FT << ","
+				               << F117::totalVelocity_MPS << ","
+				               << F117::altitude_m << ","
 				               << F117::pedInput << ","
 				               << F117::rudder_DEG_commanded << ","
 				               << F117::rudder_DEG << ","
@@ -1322,7 +1332,15 @@ double weightOnWheelsReferenceForce = apply_aerodynamic_forces_and_thrust();
 
 }
 
-void ed_fm_set_atmosphere(	
+void ed_fm_set_surface(double h, double /*h_obj*/, unsigned /*surface_type*/,
+                       double /*normal_x*/, double /*normal_y*/, double /*normal_z*/)
+{
+    // h is the height of the terrain surface directly below the aircraft centre of mass.
+    // Used for ground effect modelling in update_aerodynamic_coefficients.
+    F117::surface_height_m = h;
+}
+
+void ed_fm_set_atmosphere(
 	double h,//altitude above sea level			(meters)
 	double t,//current atmosphere temperature   (Kelvin)
 	double a,//speed of sound					(meters/sec)
@@ -1336,8 +1354,6 @@ void ed_fm_set_atmosphere(
 	F117::ambientTemperature_DegK = t;
 	F117::ambientDensity_KgPerM3 = ro;
 	F117::altitude_m = h;
-	F117::altitude_FT = h * F117::meterToFoot;
-	F117::ps_LBFT2 = p * 0.020885434273;
 }
 
 void ed_fm_set_current_mass_state ( double mass,
@@ -1601,9 +1617,9 @@ double ed_fm_get_external_fuel ()
 	return external_fuel;
 }
 
-double ed_fm_refueling_add_fuel()
+void ed_fm_refueling_add_fuel(double fuel)
 {
-	return internal_fuel + 100;
+	F117::internal_fuel += fuel;
 }
 
 
@@ -2329,3 +2345,391 @@ bool ed_fm_need_to_be_repaired()
 		|| g_damage.cockpit     < 1.0;
 }
 
+// -----------------------------------------------------------------------
+// New API functions (DCS 2.5.7+ / July 2025 SDK) - stubs
+// DCS calls these via GetProcAddress; returning safely is sufficient if unused.
+// -----------------------------------------------------------------------
+
+// Called asynchronously with cloud/precipitation density at the aircraft position.
+void ed_fm_set_clouds_density(const atmo_clouds_and_precipation & /*info*/)
+{
+}
+
+// DCS requests the set of world points at which it should sample wind for this FM.
+// Set in_out.field = nullptr to opt out.
+void ed_fm_wind_vector_field_update_request(wind_vector_field & in_out)
+{
+	in_out.field = nullptr;
+	in_out.field_points_count = 0;
+}
+
+// Called after DCS has filled all wind sample points requested above.
+void ed_fm_wind_vector_field_done()
+{
+}
+
+// DCS pushes in-game events (e.g. carrier cat/trap) to the FM.
+bool ed_fm_push_simulation_event(const ed_fm_simulation_event & /*in*/)
+{
+	return false;
+}
+
+// DCS feeds back per-gear suspension state each frame.
+// idx: 0 = nose gear, 1 = left main, 2 = right main.
+void ed_fm_suspension_feedback(int idx, const ed_fm_suspension_info * info)
+{
+    if (!info || idx < 0 || idx > 2) return;
+    F117::suspension_wow[idx] = (info->struct_compression > 0.001);
+}
+
+bool ed_fm_LERX_vortex_update(unsigned idx, LERX_vortex& out)
+{
+    if (idx > 1)
+        return false;
+
+    out.version = 0;
+
+    if (F117::weight_on_wheels || F117::totalVelocity_MPS < 35.0)
+    {
+        out.spline = nullptr;
+        out.spline_points_count = 0;
+        return true;
+    }
+
+    const float aoa = (float)F117::alpha_DEG;
+    const float beta = (float)F117::beta_DEG;
+    const float vel = (float)F117::totalVelocity_MPS;
+    float rho = (float)F117::ambientDensity_KgPerM3;
+    if (rho < 0.1f) rho = 1.225f;
+
+    // Only advance time on the first vortex call per frame (idx==0).
+    // Both vortices share the same animation clock; advancing on every call
+    // would double the rate since DCS calls this once for each idx per frame.
+    static float vortex_time = 0.0f;
+    if (idx == 0)
+        vortex_time += (float)F117::DeltaTime;
+    float time = vortex_time;
+
+    // =========================================================================
+    // AoA onset — sigmoid centred at (aoa_onset) deg with sharpness 1.4.  
+    // =========================================================================
+    const float aoa_onset = 5.0f;
+    const float sharpness = 1.4f;
+    float vortex_strength = 1.0f / (1.0f + expf(-(aoa - aoa_onset) * sharpness));
+    vortex_strength = (std::max)(0.0f, (std::min)(1.0f, vortex_strength));
+
+    if (vortex_strength < 0.02f)
+    {
+        out.spline = nullptr;
+        out.spline_points_count = 0;
+        return true;
+    }
+
+    // =========================================================================
+    // ALTITUDE-DEPENDENT CONDENSATION FADE
+    //
+    // Visible wing vapor requires ambient moisture to nucleate in the vortex
+    // core's low-pressure region.  Temperature lapse ~2 deg C / 1000 ft,
+    // dew-point lapse ~0.5 deg C / 1000 ft — the spread widens with altitude
+    // making condensation progressively harder.  Ambient density captures both
+    // pressure and temperature effects via the standard atmosphere.
+    //
+    //   Sea level  (rho ~1.225):  humidity_factor ~ 1.0
+    //   10,000 ft  (rho ~0.90):   humidity_factor ~ 0.85
+    //   20,000 ft  (rho ~0.65):   humidity_factor ~ 0.40
+    //   30,000 ft  (rho ~0.46):   humidity_factor ~ 0.10
+    //   40,000 ft  (rho ~0.30):   humidity_factor ~ 0.02
+    //
+    // Additionally use altitude_m directly for a hard ceiling to handle any
+    // non-standard atmosphere edge cases (hot day at altitude, etc).
+    // =========================================================================
+    const float rho_sea_level = 1.225f;
+    float rho_ratio = rho / rho_sea_level;
+    float humidity_factor = powf(rho_ratio, 3.5f);
+
+    // Low-altitude moisture boost (below ~500 m / ~1500 ft)
+    if (rho_ratio > 0.95f)
+    {
+        float low_alt_boost = (rho_ratio - 0.95f) / 0.05f;
+        humidity_factor += low_alt_boost * 0.08f;
+    }
+
+    // Hard ceiling via actual altitude — zero above ~10,000 m (~33,000 ft)
+    float alt_m = (float)F117::altitude_m;
+    if (alt_m > 8000.0f)
+    {
+        float alt_fade = 1.0f - (alt_m - 8000.0f) / 2000.0f;
+        humidity_factor *= (std::max)(0.0f, alt_fade);
+    }
+
+    humidity_factor = (std::max)(0.0f, (std::min)(1.0f, humidity_factor));
+
+    if (humidity_factor < 0.01f || vortex_strength * humidity_factor < 0.02f)
+    {
+        out.spline = nullptr;
+        out.spline_points_count = 0;
+        return true;
+    }
+
+    // =========================================================================
+    // Sideslip asymmetry — F-117 faceted geometry amplifies windward/leeward
+    // vortex strength difference more than a smooth-skinned delta.
+    // =========================================================================
+    float side_bias = (idx == 1) ? beta : -beta;
+    float asym = 1.0f + side_bias * 0.12f;
+    asym = (std::max)(0.15f, (std::min)(1.85f, asym));
+
+    // --- Density / speed scaling ---
+    float reynolds = rho * vel;
+    float density_scale = (std::min)(1.2f, (std::max)(0.6f, reynolds / 50000.0f));
+    float speed_factor = (std::min)(1.3f, (std::max)(0.7f, vel / 120.0f));
+
+    out.opacity = vortex_strength * 0.10f * asym * density_scale * humidity_factor;
+
+    // =========================================================================
+    // VORTEX BURST POSITION
+    //
+    // On a 67.5 deg sweep delta, burst sits well aft of trailing edge at low
+    // alpha and migrates forward with increasing AoA.
+    //
+    // Experimental data for 70 deg delta (closest published sweep to 67.5):
+    //   ~10 deg AoA: burst at ~120% root chord (downstream of TE)
+    //   ~20 deg AoA: burst at ~70% root chord
+    //   ~30 deg AoA: burst at ~30% root chord
+    //   ~40 deg AoA: burst at ~4% (near apex)
+    // =========================================================================
+    const float spline_length = 8.7f;
+    float burst_frac;
+    if (aoa < 5.0f)
+        burst_frac = 1.5f;
+    else if (aoa < 30.0f)
+        burst_frac = 1.5f - (aoa - 5.0f) * (1.2f / 25.0f);
+    else
+        burst_frac = 0.3f - (aoa - 30.0f) * 0.02f;
+    burst_frac = (std::max)(0.05f, (std::min)(1.5f, burst_frac));
+
+    out.explosion_start = burst_frac * spline_length * speed_factor;
+    out.explosion_start = (std::max)(0.5f, out.explosion_start);
+
+    // =========================================================================
+    // PARAMETRIC PATH — F-117 specific geometry
+    //
+    // Vortex originates at the wing / inlet junction and tracks inboard of
+    // the leading edge at ~15-20% local semi-span.
+    // =========================================================================
+    const float x_start = 4.20f, y_start = -0.08f, z_start = 2.10f;
+    const float x_end = -4.50f, y_end = 0.50f, z_end = 5.20f;
+
+    float curvature_y = aoa * 0.012f;
+    float curvature_z = aoa * 0.004f;
+    float r_scale = 0.95f + aoa * 0.025f;
+
+    // Tangents: LE sweep = 67.5 deg, core tracks slightly inboard
+    const float sweep_ratio = 1.8f;
+    const float tx0 = -1.0f, ty0 = 0.04f + curvature_y * 0.25f;
+    const float tz0 = sweep_ratio * 0.35f;
+    const float tx1 = -1.0f, ty1 = 0.01f + curvature_y * 0.10f;
+    const float tz1 = sweep_ratio * 0.15f;
+
+    static constexpr int N = 8;
+    static LERX_vortex_spline_point vortex_buffers[2][N];
+    LERX_vortex_spline_point* sp = vortex_buffers[idx];
+
+    const float zs = (idx == 0) ? -1.0f : 1.0f;
+
+    // =========================================================================
+    // Wing upper-surface clearance envelope
+    // =========================================================================
+    // Piecewise-linear upper surface height in body-axis Y (up = positive) along
+    // the vortex path parameter t=[0,1].  Three stations:
+    //   t=0 (apex/inlet junction): y = -0.20 m  (surface sits below body datum)
+    //   t=0.5 (mid-chord):         y = -0.06 m
+    //   t=1 (trailing edge):       y = +0.12 m  (aft body rises toward elevons)
+    auto wing_surface_y = [](float t) -> float
+        {
+            float y_apex = -0.20f;
+            float y_mid = -0.06f;
+            float y_aft = 0.12f;
+            if (t < 0.5f)
+                return y_apex + (y_mid - y_apex) * (t / 0.5f);
+            else
+                return y_mid + (y_aft - y_mid) * ((t - 0.5f) / 0.5f);
+        };
+
+    const float clearance_margin = 0.03f;
+
+    float burst_t = burst_frac;
+    if (burst_t > 1.0f) burst_t = 1.0f;
+
+    for (int i = 0; i < N; ++i)
+    {
+        float t = (float)i / (float)(N - 1);
+        float t2 = t * t;
+        float t3 = t2 * t;
+
+        // --- Hermite basis ---
+        float h00 = 2.0f * t3 - 3.0f * t2 + 1.0f;
+        float h10 = t3 - 2.0f * t2 + t;
+        float h01 = -2.0f * t3 + 3.0f * t2;
+        float h11 = t3 - t2;
+
+        // --- Hermite basis derivatives (analytical tangent) ---
+        float dh00 = 6.0f * t2 - 6.0f * t;
+        float dh10 = 3.0f * t2 - 4.0f * t + 1.0f;
+        float dh01 = -6.0f * t2 + 6.0f * t;
+        float dh11 = 3.0f * t2 - 2.0f * t;
+
+        // --- Position via cubic Hermite ---
+        float px = h00 * x_start + h10 * tx0 + h01 * x_end + h11 * tx1;
+        float py = h00 * y_start + h10 * ty0 + h01 * y_end + h11 * ty1;
+        float pz = h00 * z_start + h10 * tz0 + h01 * z_end + h11 * tz1;
+
+        // AoA-dependent curvature: vertical bow + lateral spread
+        py += curvature_y * 4.0f * t * (1.0f - t);
+        pz += curvature_z * 4.0f * t * (1.0f - t);
+
+        // --- Analytical tangent (derivative of position w.r.t. t) ---
+        float dpx = dh00 * x_start + dh10 * tx0 + dh01 * x_end + dh11 * tx1;
+        float dpy = dh00 * y_start + dh10 * ty0 + dh01 * y_end + dh11 * ty1;
+        float dpz = dh00 * z_start + dh10 * tz0 + dh01 * z_end + dh11 * tz1;
+        dpy += curvature_y * 4.0f * (1.0f - 2.0f * t);
+        dpz += curvature_z * 4.0f * (1.0f - 2.0f * t);
+
+        // =================================================================
+        // JITTER — two regimes:
+        //   Pre-burst:  tight helical precession (coherent core)
+        //   Post-burst: chaotic multi-frequency turbulence
+        // =================================================================
+        // Smooth transition across a ±0.05 window centred on the burst point.
+        float blend = (t - (burst_t - 0.05f)) / 0.10f;
+        blend = (std::max)(0.0f, (std::min)(1.0f, blend));
+        float post_burst = blend;
+        float pre_burst  = 1.0f - blend;
+
+        float j_coherent = sinf(time * 6.0f + i * 1.9f) * 0.008f
+            + sinf(time * 11.0f + i * 3.1f) * 0.004f;
+
+        float downstream = (std::max)(0.0f, t - burst_t);
+        float turb_amp = 0.04f * (1.0f + downstream * 3.0f);
+        float j_turbulent = sinf(time * 17.0f + i * 2.3f) * turb_amp
+            + sinf(time * 31.0f + i * 5.7f) * turb_amp * 0.5f
+            + cosf(time * 23.0f + i * 4.1f) * turb_amp * 0.3f;
+
+        float jitter_y = pre_burst * j_coherent + post_burst * j_turbulent;
+        float jitter_z = pre_burst * j_coherent * 0.5f
+            + post_burst * j_turbulent * 0.7f;
+
+        // =================================================================
+        // RADIUS — two regimes:
+        //   Pre-burst:  linear growth (circulation scales with local semispan)
+        //   Post-burst: rapid conical expansion (wake-type flow)
+        // =================================================================
+        float radius_pre = t * 0.80f * r_scale;
+        float excess = (std::max)(0.0f, t - burst_t);
+        float radius_post = (burst_t * 0.80f * r_scale) + excess * 3.2f * r_scale;
+
+        float desired_radius = pre_burst * radius_pre + post_burst * radius_post;
+
+        // Taper to zero at apex (adjusted for N=8 spacing)
+        float apex_taper = (std::min)(1.0f, t * 5.0f);
+        desired_radius *= apex_taper;
+
+        // --- Wing surface clearance clamp ---
+        float wing_y = wing_surface_y(t);
+        float min_core_height = desired_radius + clearance_margin;
+        if ((py - wing_y) < min_core_height)
+            py = wing_y + min_core_height;
+
+        float clearance = py - wing_y - clearance_margin;
+        float max_radius = (std::max)(0.0f, clearance);
+
+        float final_radius = desired_radius;
+        if (desired_radius > 0.0f && max_radius < desired_radius)
+        {
+            float ratio = max_radius / desired_radius;
+            final_radius = desired_radius * ratio * (2.0f - ratio);
+        }
+
+        // =================================================================
+        // OPACITY:
+        //   Pre-burst:  builds from zero, peaks at ~65% of burst distance
+        //   Post-burst: exponential fade with residual turbulent haze
+        // =================================================================
+        float opacity;
+        if (t < burst_t)
+        {
+            float peak_t = burst_t * 0.65f;
+            float rise, fall;
+            if (t < peak_t)
+            {
+                float s = t / peak_t;
+                rise = s * s;
+                fall = 1.0f;
+            }
+            else
+            {
+                rise = 1.0f;
+                float s = (t - peak_t) / (burst_t - peak_t);
+                fall = 1.0f - 0.3f * s;
+            }
+            opacity = 0.09f * rise * fall * vortex_strength * asym;
+        }
+        else
+        {
+            float decay = expf(-(t - burst_t) * 6.0f);
+            float haze = 0.15f;
+            opacity = (0.09f * decay + 0.09f * haze * (1.0f - decay))
+                * vortex_strength * asym * 0.5f;
+        }
+
+        // =================================================================
+        // DENSITY BREAKUP — three noise layers for streaky, wispy, non-uniform vapour 
+        //   1. Large-scale patchiness  (whole sections thin/thick)
+        //   2. Medium axial streaks
+        //   3. Fine-grain shimmer
+        // =================================================================
+        float noise1 = sinf(t * 4.5f + time * 1.3f)
+            * sinf(t * 7.2f - time * 0.9f);
+        float noise2 = sinf(t * 13.0f + time * 3.7f + i * 0.8f)
+            * cosf(t * 9.1f + time * 2.1f);
+        float noise3 = sinf(t * 29.0f + time * 11.0f + i * 2.4f);
+
+        float density_mod = 1.0f
+            + 0.35f * noise1
+            + 0.20f * noise2
+            + 0.10f * noise3;
+
+        // Extra breakup in the turbulent post-burst wake
+        density_mod += post_burst * 0.25f * sinf(time * 19.0f + i * 3.3f);
+
+        density_mod = (std::max)(0.05f, (std::min)(1.6f, density_mod));
+
+        // Modulate radius slightly — wisps aren't constant width
+        float radius_mod = 1.0f + 0.12f * noise1 + 0.06f * noise2;
+        sp[i].radius = final_radius * radius_mod;
+
+        // --- Final position ---
+        sp[i].pos[0] = px;
+        sp[i].pos[1] = py + jitter_y;
+        sp[i].pos[2] = pz * zs + jitter_z * zs;
+
+        // --- Normalised tangent from analytical derivative ---
+        float mag = sqrtf(dpx * dpx + dpy * dpy + dpz * dpz);
+        if (mag < 1e-6f) mag = 1.0f;
+        float inv_mag = 1.0f / mag;
+
+        sp[i].vel[0] = dpx * inv_mag;
+        sp[i].vel[1] = dpy * inv_mag;
+        sp[i].vel[2] = dpz * inv_mag * zs;
+
+        // --- Composite opacity: base * clamp fade * density breakup * humidity ---
+        float clamp_fade = (desired_radius > 0.01f)
+            ? (final_radius / desired_radius) : 1.0f;
+        sp[i].opacity = opacity * clamp_fade * density_mod * humidity_factor;
+    }
+
+    out.spline = sp;
+    out.spline_points_count = N;
+    out.spline_point_size_in_bytes = sizeof(LERX_vortex_spline_point);
+    return true;
+}

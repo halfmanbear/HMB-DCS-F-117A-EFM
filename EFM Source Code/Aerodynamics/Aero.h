@@ -282,6 +282,9 @@ namespace F117
 		} End of function(...) */
 
 		void hifi_C(double alpha,double beta,double el,double *retVal){
+			alpha = (alpha < -20.0 ? -20.0 : (alpha > 90.0 ? 90.0 : alpha));
+			beta  = (beta < -30.0 ? -30.0 : (beta > 30.0 ? 30.0 : beta));
+			el    = (el < -25.0 ? -25.0 : (el > 25.0 ? 25.0 : el));
 			retVal[0] = _Cx(alpha,beta,el);
 			retVal[1] = _Cz(alpha,beta,el);
 			retVal[2] = _Cm(alpha,beta,el);
@@ -291,6 +294,7 @@ namespace F117
 		}
 
 		void hifi_damping(double alpha, double *retVal){
+			alpha = (alpha < -20.0 ? -20.0 : (alpha > 90.0 ? 90.0 : alpha));
 			retVal[0] = _CXq(alpha);
 			retVal[1] = _CYr(alpha);
 			retVal[2] = _CYp(alpha);
@@ -306,19 +310,24 @@ namespace F117
 				// For a symmetric airframe, rudder control derivatives should be even in beta.
 				// The current negative-beta rudder tables are asymmetric and drive a one-sided departure,
 				// so use the positive-beta half as the canonical source for both sides.
-				const double betaSymmetric = std::abs(beta);
+				alpha = (alpha < -20.0 ? -20.0 : (alpha > 90.0 ? 90.0 : alpha));
+				const double betaSymmetric = (std::abs(beta) > 30.0 ? 30.0 : std::abs(beta));
 				retVal[0] = _Cy_r30(alpha,betaSymmetric) - _Cy(alpha,betaSymmetric);
 				retVal[1] = _Cn_r30(alpha,betaSymmetric) - _Cn(alpha,betaSymmetric,0);
 				retVal[2] = _Cl_r30(alpha,betaSymmetric) - _Cl(alpha,betaSymmetric,0);
 		}
 
 		void hifi_ailerons(double alpha, double beta, double *retVal){
+				alpha = (alpha < -20.0 ? -20.0 : (alpha > 90.0 ? 90.0 : alpha));
+				beta  = (beta < -30.0 ? -30.0 : (beta > 30.0 ? 30.0 : beta));
 				retVal[0] = _Cy_a20(alpha,beta) - _Cy(alpha,beta);
 				retVal[2] = _Cn_a20(alpha,beta) - _Cn(alpha,beta,0);
 				retVal[4] = _Cl_a20(alpha,beta) - _Cl(alpha,beta,0);
 		}
 
 		void hifi_other_coeffs(double alpha, double el, double *retVal){
+				alpha = (alpha < -20.0 ? -20.0 : (alpha > 90.0 ? 90.0 : alpha));
+				el    = (el < -25.0 ? -25.0 : (el > 25.0 ? 25.0 : el));
 				retVal[0] = _delta_CNbeta(alpha);
 				retVal[1] = _delta_CLbeta(alpha);
 				retVal[2] = _delta_Cm(alpha);

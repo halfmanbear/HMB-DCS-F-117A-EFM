@@ -40,6 +40,8 @@ namespace F117
             GeneralFilter yawRateWashout;
             GeneralFilter yawRateFilter;
             GeneralFilter yawServoFilter;
+            GeneralFilter pitchRateWashoutFilter;        // AOA limiter pitch-rate anticipation
+            GeneralFilter pitchRateFeedbackWashout;      // main-loop pitch-rate blend (P+I feedback)
 
             double stickCommandPosFiltered = 0.0;
             double azFiltered = 0.0;
@@ -90,116 +92,134 @@ namespace F117
             double pitchModeGearDown = 0.0;
             bool pitchModeAirRefuelDoorOpen = false;
 
+            double autoBetaTrimState      = 0.0; // automatic Beta trim accumulator (deg)
+            double aoaLimiterIntegrator   = 0.0; // P+I AOA limiter integrator state
+
             constexpr double kPi = 3.14159265358979323846;
             constexpr double kFixedControlTimeStep = 0.005;
             constexpr int kMaxControlSubstepsPerFrame = 20;
             constexpr double kMaxAccumulatedControlTime = kFixedControlTimeStep * kMaxControlSubstepsPerFrame;
             constexpr int kPitchDebugLogIntervalFrames = 10;
 
-            enum class PitchCommandMode
-            {
-                NormalAcceleration = 0,
-                PitchRate = 1,
-                Automatic = 2
-            };
 
             namespace YawControllerConfig
             {
-                constexpr double kPedalForceScale = 450.0;
-                constexpr double kPedalDeadbandForce = 44.0;
-                constexpr double kPedalCommandSlope = -0.0739;
-                constexpr double kPedalCommandOffset = 3.2512;
-                // Internal rudder command limit in real surface degrees.
-                // Higher = more commanded yaw authority before saturation; lower = flatter, less clipped full-pedal behavior.
-                constexpr double kRudderLimitDeg = 15.0;
-                constexpr double kYawAlphaCouplingGain = 5.0 / 57.3;
-                // Yaw-rate damping gain. Higher = stronger rate opposition and less oscillation;
-                // lower = more free yaw response, but more rebound near the pedal stops.
+                // Beta-command architecture (real F-117 directional axis).
+                // Pedal position commands a target Beta; fins are driven to satisfy that Beta.
+
+                // Pedal → Beta command gain (deg Beta per unit normalised pedal).
+                constexpr double kBetaCommandGain = 10.0;
+                // Beta command limit schedule vs dynamic pressure.
+                // Below kBetaCmdQbarLow the full limit applies (crosswind landing authority).
+                // Above kBetaCmdQbarHigh the limit is reduced to protect the airframe.
+                constexpr double kBetaCmdQbarLow  = 2000.0;   // Pa (~80 kts)
+                constexpr double kBetaCmdQbarHigh = 28000.0;  // Pa (~370 kts)
+                constexpr double kBetaCmdLimitHigh = 10.0;    // deg (low-speed limit)
+                constexpr double kBetaCmdLimitLow  =  3.0;    // deg (high-speed limit)
+                // Small pedal deadband at neutral (normalised units).
+                constexpr double kBetaPedalDeadband = 0.02;
+                // Base Beta feedback gain (deg fin per deg Beta error).
+                // Gain doubles linearly as AOA increases from 0 to kBetaGainAoADoubleAlpha
+                // to keep Beta tight at high AOA where its destabilising pitching moment is largest.
+                constexpr double kBetaFeedbackGainBase     = 3.0;
+                constexpr double kBetaGainAoADoubleAlpha   = 20.0; // deg AOA where gain doubles
+                // Automatic Beta trim: bleeds residual Beta out slowly while gear is up and
+                // pedal force is below threshold. Acts through a small deadband.
+                constexpr double kAutoBetaTrimDeadband        = 0.5;  // deg
+                constexpr double kAutoBetaTrimRate            = 0.4;  // (deg trim)/s per deg Beta excess
+                constexpr double kAutoBetaTrimLimit           = 5.0;  // deg max trim authority
+                constexpr double kAutoBetaTrimPedalThreshold  = 0.05; // normalised pedal (~22 lb)
+                // Inertia-coupling term: product of pitch_rate × roll_rate fed back to yaw
+                // to prevent divergence during high roll-rate manoeuvres (real F-117 feature).
+                constexpr double kInertiaCouplingGain = -0.4;  // deg fin per (rad/s)^2
+                // Yaw-rate damping.
                 constexpr double kYawDampingGain = 1.5;
-                // Side-acceleration feedback gain. Higher = more auto-centering / coordination;
-                // lower = easier steady flat turns on rudder alone, but less self-correction.
-                constexpr double kSideAccelFeedbackGain = 0.25;
-                constexpr double kAriAoAGain = 0.05;
-                constexpr double kAriLimit = 1.5;
-                // Pedal-command filter rate. Higher = rudder command reaches and leaves the target faster;
-                // lower = smoother feel, but more lag in pedal response.
+                // Beta command low-pass filter rate (smooths pedal transients).
                 constexpr double kCommandFilterRate = 4.0;
+                // Stability-axis yaw rate washout time-constant inverse.
                 constexpr double kWashoutTauInverse = 1.0;
+                // Yaw rate lead-lag shaping.
                 constexpr double kYawLeadLagNumerator0 = 3.0;
                 constexpr double kYawLeadLagPole = 15.0;
-                // Yaw servo natural frequency. Higher = quicker rudder bite; lower = softer onset and less tendency to overshoot.
+                // Fin servo dynamics.
                 constexpr double kServoNaturalFrequency = 52.0;
-                // Yaw servo damping ratio. Higher = flatter response and less rebound near max yaw;
-                // lower = snappier response, but more oscillation/ring.
                 constexpr double kServoDampingRatio = 0.95;
             }
 
             namespace PitchControllerConfig
             {
-                // Pitch-law selector:
-                // - Automatic: PitchRate when gear is down or AAR door is open; otherwise NormalAcceleration
-                // - NormalAcceleration: neutral stick seeks trimmed Nz (current F-16-like behavior)
-                // - PitchRate: neutral stick seeks zero pitch rate for comparison testing
-                constexpr PitchCommandMode kCommandMode = PitchCommandMode::Automatic;
-                constexpr double kPitchRateModeGearThreshold = 0.1;
+                // Threshold on gearDown signal (0–1) above which gear is considered extended.
+                constexpr double kGearDownThreshold = 0.1;
                 constexpr double kPositiveStickForceScale = 80.0;
                 constexpr double kNegativeStickForceScale = 180.0;
                 constexpr double kStickForceMin = -180.0;
                 constexpr double kStickForceMax = 80.0;
                 constexpr double kStickCommandDeadband = 8.0;
                 constexpr double kStickCommandBreakpoint = 33.0;
-                constexpr double kNzCommandMin = -4.0;
-                constexpr double kNzCommandMax = 8.0;
+                constexpr double kNzCommandMin = -2.0;
+                constexpr double kNzCommandMax = 7.0;
                 // Integrator strength on Nz error. Higher = more steady-state authority and more stored pull;
                 // lower = less overshoot/carry-through, but slower trim-in to the commanded G.
                 constexpr double kPitchIntegratorGain = 0.75;
                 // Extra multiplier used only when the integrator is unwinding against the current error.
                 // Higher = faster dump of stored pull/push and less overshoot; lower = smoother, but more carry-through.
-                constexpr double kPitchIntegratorUnwindGain = 4.0;
+                constexpr double kPitchIntegratorUnwindGain = 3.0; //was 4.0 TEST
                 constexpr double kAoAFilterRate = 35.0;
-                constexpr double kNzMax = 6.3;
-                constexpr double kNzMin = -3.0;
+                // Real F-117: full aft stick = +7g, full forward = -2g.
+                constexpr double kNzMax = 7.0;
+                constexpr double kNzMin = -2.0;
                 constexpr double kNzStickDeadband = 0.05;
                 constexpr double kNzReferenceTrackRate = 2.0;
-                // Pitch-rate damping gain. More negative = stronger damping and less transient overshoot;
-                // less negative = sharper response, but more oscillation/overshoot.
-                constexpr double kPitchDampingGain = -6.5;
-                // Proportional gain on Nz error. Higher = quicker initial pull and tighter tracking;
-                // lower = softer response and less transient overshoot.
+                // Proportional gain on Nz error (scaled by 1/qbar at runtime).
                 constexpr double kNzErrorGain = 1.7;
+                // Pitch-rate blend: washed-out pitch rate is blended INTO the Nz feedback before the
+                // error is computed (per Loschke: "specified blend of washed out pitch rate and the
+                // normal acceleration"). This gives a true P+I architecture — pitch rate damps transient
+                // response via the error signal; the washout ensures zero steady-state contribution so the
+                // integrator does not fight the damper in sustained pull/push manoeuvres.
+                // Gain derived to match old separate-damping authority at reference q:
+                //   kPitchRateBlendGain = old_kPitchDampingGain_magnitude / kNzErrorGain = 7.0 / 1.7 ≈ 4.1
+                constexpr double kPitchRateBlendGain          = 4.1;  // g·s/rad
+                constexpr double kPitchRateBlendWashoutTauInv = 1.0;  // rad/s (1-second washout time constant)
                 constexpr double kPitchIntegratorLimit = 25.0;
                 constexpr double kAoAMax = 20.0;
+                // Base AOA limiter threshold — Mach-scheduled at runtime: threshold rises at high Mach
+                // (airframe becomes more stable transsonically) so the limiter is less conservative.
                 constexpr double kAoALimitStart = 19.0;
-                constexpr double kAoAPushdownGain = 0.30; //0.3
-                constexpr double kPitchServoNaturalFrequency = 52.0; // aoa vapor testing was 52
-                constexpr double kPitchServoDampingRatio = 2.5; //0.7
+                constexpr double kAoALimiterMachGain = 2.5; // deg threshold added per Mach unit
+                // Gear-down: AOA limiter biased higher to allow lower approach/landing speeds.
+                constexpr double kAoALimitStartGearDownBias = 3.0; // deg added to threshold
+                // High-gain P+I AOA limiter (has more authority than the pilot).
+                // The limiter is triggered by alpha + washed-out pitch rate anticipation exceeding
+                // the Mach-scheduled threshold.
+                constexpr double kAoALimiterProportionalGain = 8.0;
+                constexpr double kAoALimiterIntegratorGain   = 2.5;
+                constexpr double kAoALimiterIntegratorLimit  = 30.0;
+                // Pitch-rate anticipation for the AOA limiter.
+                // Washed-out pitch rate is scaled by kAoAAnticipationGainRef / qbar so the anticipation
+                // is stronger at low q (where departure risk is highest on aggressive pull-ups).
+                constexpr double kAoAAnticipationWashoutTauInverse = 2.0;  // 0.5 s washout
+                constexpr double kAoAAnticipationGainRef            = 1.5; // deg AoA per deg/s at kQbarRef
+                constexpr double kAoAAnticipationMax                = 8.0; // deg (anticipation clamp)
+                // Dynamic pressure scheduling of forward-loop gains (1/qbar).
+                // All forward-loop gains are proportional to qbarRef/qbar, clamped to [min, max].
+                constexpr double kQbarRef          = 14000.0; // Pa (~300 kts SL)
+                constexpr double kQbarMin          =  2000.0; // Pa (prevents divide issues)
+                constexpr double kQbarGainScaleMin =  0.5;
+                constexpr double kQbarGainScaleMax =  3.0;
+                // Roll-rate^2 inertia coupling fed back to pitch axis.
+                // Prevents inertia-coupled pitch departures during high-AoA rolling manoeuvres.
+                constexpr double kRollRateSquaredAoAThreshold  = 12.0; // deg, AoA above which active
+                constexpr double kRollRateSquaredRateThreshold =  1.0; // rad/s, rate above which active
+                constexpr double kRollRateSquaredGain          =  0.05; // deg elevator per (rad/s)^2
+                // Speed stability: non-linear AoA feedback at AoA > 7 deg and below 200 kts.
+                // Provides apparent speed stability on approach (pitches down as speed falls).
+                constexpr double kSpeedStabilityVelocityMPS  = 103.0; // 200 kts
+                constexpr double kSpeedStabilityAoAThreshold =   7.0; // deg
+                constexpr double kSpeedStabilityGain         =   0.3; // deg per deg AoA excess
+                constexpr double kPitchServoNaturalFrequency = 52.0;
+                constexpr double kPitchServoDampingRatio = 1.5;
 
-                // Pitch-rate command schedule used only when kCommandMode == PitchRate.
-                // Higher values = more rate-command feel and less "return to 1G" on stick release.
-                constexpr double kPitchRateCommandMinDegS = -20.0;
-                constexpr double kPitchRateCommandAtNegForceBreakDegS = -3.0;
-                constexpr double kPitchRateCommandAtPosForceBreakDegS = 3.0;
-                constexpr double kPitchRateCommandMaxDegS = 18.0;
-                // Proportional gain on pitch-rate error (rad/s). Higher = crisper rate capture;
-                // lower = softer rate response but more lag.
-                constexpr double kPitchRateErrorGain = 18.0;
-                // Integrator gain for pitch-rate mode. Higher = better steady tracking of commanded rate;
-                // lower = less carry-through and less risk of fighting the pilot on release.
-                constexpr double kPitchRateIntegratorGain = 1.5;
-                constexpr double kPitchRateIntegratorLimit = 25.0;
-                // Outer-loop protection added only in PitchRate mode so the test law still respects
-                // the same Nz/AoA envelope. Higher = stronger automatic unload when the rate law
-                // approaches or drives through the limiter; lower = freer pitch-rate feel, but weaker protection.
-                constexpr double kPitchRateNzLimitStartPositive = 5.7;
-                constexpr double kPitchRateNzLimitStartNegative = -2.4;
-                constexpr double kPitchRateNzLimiterGainDegSPerG = 12.0;
-                constexpr double kPitchRateAoALimiterGainDegSPerDeg = 6.0;
-                // Direct damping added only in PitchRate mode. More negative = less oscillation and
-                // less limiter hunting; less negative = freer rate response, but more overshoot.
-                constexpr double kPitchRateDampingGain = -3.0;
-                // Supervisory Nz protection added directly to the final command in PitchRate mode.
-                // Higher = firmer G limiting; lower = more pure rate-command feel with more breach risk.
-                constexpr double kPitchRateNzProtectionGain = 5.0;
 
                 // Gain on the gravity feed-forward that updates nz_reference each frame.
                 // Higher = nz_reference follows rapid bank/pitch changes more aggressively;
@@ -261,49 +281,37 @@ namespace F117
                 constexpr double kRollFeelFixedGain = 0.7;
                 constexpr double kRollFeelSlope = 0.012;
                 constexpr double kStickDeadband = 3.0;
-                constexpr double kFirstBreakpoint = 25.0;
-                constexpr double kSecondBreakpoint = 46.0;
                 constexpr double kPressureLow = 19153.0;
                 constexpr double kPressureHigh = 23941.0;
-                constexpr double kPressureLowGain = 0.2;
-                constexpr double kPressureSlope = -0.00002089;
-                constexpr double kPressureOffset = 0.6;
-                constexpr double kPressureHighGain = 0.1;
+                constexpr double kPressureLowGain = 2.0;
+                constexpr double kPressureSlope = -0.0002088;
+                constexpr double kPressureOffset = 5.998;
+                constexpr double kPressureHighGain = 1.0;
                 constexpr double kRollCommandLimit = 21.5;
                 constexpr double kLatForceFilterPole = 60.0;
-                // Roll-command filter pole. Higher = commanded roll rate recenters faster when the
-                // stick is released, so roll inertia stops sooner; lower = smoother but more carry-through.
                 constexpr double kRollCommandFilterPole = 20.0;
-                // Roll actuator natural frequency. Higher = more immediate roll surface response;
-                // lower = softer initial bite and less chance of exciting the airframe.
                 constexpr double kRollServoNaturalFrequency = 52.0;
-                // Roll actuator damping ratio. Higher = less overshoot/oscillation in roll stop;
-                // lower = snappier response, but more tendency to ring.
                 constexpr double kRollServoDampingRatio = 0.85;
-                // Measured roll-rate filter pole. Higher = less lag in rate feedback and quicker stopping;
-                // lower = smoother/noisier rejection tradeoff, but more phase lag.
                 constexpr double kRollRateFilterPole = 50.0;
                 constexpr double kRollRateFilter2Num0 = 4.0;
                 constexpr double kRollRateFilter2Num1 = 64.0;
                 constexpr double kRollRateFilter2Den1 = 80.0;
                 constexpr double kRollRateFilter2OmegaSquared = 6400.0;
-                constexpr double kDynPressureLbFt2ToNm2 = 47.880258889;
 
-                // Stick force-to-roll-rate schedule: target roll rate commands (deg/s)
-                // at each piecewise-linear breakpoint.  Adjusting a breakpoint force or
-                // a target rate here keeps all derived slopes/intercepts consistent.
-                constexpr double kRollRateAtBreak1 = 20.0;  // deg/s at kFirstBreakpoint lbf
-                constexpr double kRollRateAtBreak2 = 80.0;  // deg/s at kSecondBreakpoint lbf
-
-                // Segment slopes and intercepts.  The schedule is symmetric: positive
-                // side uses +intercept, negative side uses –intercept.
-                constexpr double kRollSlopeSeg1     = kRollRateAtBreak1 / (kFirstBreakpoint - kStickDeadband);
-                constexpr double kRollInterceptSeg1 = -kRollSlopeSeg1 * kStickDeadband;
-                constexpr double kRollSlopeSeg2     = (kRollRateAtBreak2 - kRollRateAtBreak1) / (kSecondBreakpoint - kFirstBreakpoint);
-                constexpr double kRollInterceptSeg2 = kRollRateAtBreak1 - kRollSlopeSeg2 * kFirstBreakpoint;
-                // Segment 3: empirical steeper ramp beyond kSecondBreakpoint
-                constexpr double kRollSlopeSeg3     = 7.5862;
-                constexpr double kRollInterceptSeg3 = kRollRateAtBreak2 - kRollSlopeSeg3 * kSecondBreakpoint;
+                // Parabolic stick-force-to-roll-rate shaping (real F-117 uses non-linear parabolic
+                // shaping per Loschke). The schedule is: rollRateCmd = K * (force - deadband)^2
+                // giving a gentle onset near centre and increasing responsiveness toward full stick.
+                // kRollRateMax is the commanded rate at full stick deflection (150 deg/s estimated
+                // from stock footage analysis). kRollParabolicGain is derived from these two values
+                // so changing kRollRateMax automatically keeps the curve consistent.
+                constexpr double kRollRateMax       = 150.0;  // deg/s at full stick
+                constexpr double kRollUsableForce   = kLatStickForceScale - kStickDeadband; // 72 lbf
+                constexpr double kRollParabolicGain = kRollRateMax / (kRollUsableForce * kRollUsableForce);
+                // Gear down: roll rate feedback gain is increased to reduce turbulence response on approach.
+                constexpr double kGearDownRateFeedbackGainFactor = 1.6;
+                // Air refuelling: lateral stick input gain is reduced for control harmony with the
+                // reduced pitch gain in AAR mode.
+                constexpr double kAARLateralStickGainScale = 0.6;
             }
 
             inline bool yaw_filters_need_init()
@@ -335,17 +343,6 @@ namespace F117
                 }
             }
 
-            PitchCommandMode resolve_pitch_command_mode()
-            {
-                if (PitchControllerConfig::kCommandMode != PitchCommandMode::Automatic)
-                {
-                    return PitchControllerConfig::kCommandMode;
-                }
-
-                return (pitchModeGearDown > PitchControllerConfig::kPitchRateModeGearThreshold || pitchModeAirRefuelDoorOpen)
-                    ? PitchCommandMode::PitchRate
-                    : PitchCommandMode::NormalAcceleration;
-            }
 
             std::string narrow_from_wide(const std::wstring& wide)
             {
@@ -417,7 +414,9 @@ namespace F117
 
             void write_pitch_debug_header()
             {
-                debugLog << "roll_deg,pitch_deg,roll_rate,roll_stick,roll_stick_force,roll_rate_cmd,roll_flat_turn_cmd,roll_rate_cmd_filt,roll_cmd_surface,roll_surface_out,yaw_ped_input,beta_deg,yaw_rate_rps,yaw_rate_dps,yaw_rudder_cmd,yaw_rudder_cmd_filt,yaw_pedal_cmd,yaw_damping,yaw_side_accel,yaw_ari_cmd,yaw_combined_cmd,yaw_surface_out,rudder_deg_cmd,rudder_deg,rudder_pct,aero_cy_dr,aero_cn_dr,aero_cl_dr,aero_cn_dbeta,aero_cl_dbeta,aero_cy_total,aero_cn_total,aero_cl_total,pitch_mode,pitch_mode_cmd,az_raw,gravity_comp,nz_measured,nz_reference,stickCmdPos,nz_cmd,nz_error,nz_proportional,pitch_damping,nz_control,integratorOut,alpha_raw,alphaFiltered,stickInput,pitchRate,dynPressure,velocity_fps,mach,thrust_N,Cx_total,elevatorOut\n";
+                // Columns: pitch_mode=0 always in flight (NormalAcceleration P+I law).
+                // pitch_rate_blend = washed pitch-rate contribution (g) blended into the Nz error signal.
+                debugLog << "roll_deg,pitch_deg,roll_rate_dps,roll_stick,roll_stick_force,roll_rate_cmd,roll_flat_turn_cmd,roll_rate_cmd_filt,roll_cmd_surface,roll_surface_out,yaw_ped_input,beta_deg,yaw_rate_rps,yaw_rate_dps,yaw_rudder_cmd,yaw_rudder_cmd_filt,yaw_pedal_cmd,yaw_damping,yaw_side_accel,yaw_ari_cmd,yaw_combined_cmd,yaw_surface_out,rudder_deg_cmd,rudder_deg,rudder_pct,aero_cy_dr,aero_cn_dr,aero_cl_dr,aero_cn_dbeta,aero_cl_dbeta,aero_cy_total,aero_cn_total,aero_cl_total,az_raw,gravity_comp,nz_measured,nz_reference,stickCmdPos,nz_cmd,nz_error,nz_proportional,pitch_rate_blend,nz_control,integratorOut,alpha_raw,alphaFiltered,stickInput,pitchRate,dynPressure_pa,velocity_mps,mach,thrust_N,Cx_total,elevatorOut\n";
             }
 
             void open_pitch_debug_log()
@@ -454,8 +453,6 @@ namespace F117
                 double rollAngleDeg,
                 double pitchAngleDeg,
                 double rollRateDegS,
-                double pitchMode,
-                double pitchModeCommand,
                 double rawAz,
                 double gravityComponent,
                 double nzMeasured,
@@ -464,7 +461,7 @@ namespace F117
                 double nzCommand,
                 double nzError,
                 double nzProportional,
-                double pitchDamping,
+                double pitchRateBlendContrib,  // washed pitch-rate blend contribution (g) in error signal
                 double nzControl,
                 double integratorOut,
                 double rawAoA,
@@ -517,8 +514,6 @@ namespace F117
                          << lastAeroCyTotal << ","
                          << lastAeroCnTotal << ","
                          << lastAeroClTotal << ","
-                         << pitchMode << ","
-                         << pitchModeCommand << ","
                          << rawAz << ","
                          << gravityComponent << ","
                          << nzMeasured << ","
@@ -527,7 +522,7 @@ namespace F117
                          << nzCommand << ","
                          << nzError << ","
                          << nzProportional << ","
-                         << pitchDamping << ","
+                         << pitchRateBlendContrib << ","
                          << nzControl << ","
                          << integratorOut << ","
                          << rawAoA << ","
@@ -544,18 +539,22 @@ namespace F117
 
             void init_yaw_filters(double dt)
             {
+                // Beta command low-pass filter
                 double numerators[2] = { 0.0, YawControllerConfig::kCommandFilterRate };
                 double denominators[2] = { 1.0, YawControllerConfig::kCommandFilterRate };
                 rudderCommandFilter.InitFilter(numerators, denominators, 1, dt);
 
+                // Stability-axis yaw rate washout
                 double numerators1[2] = { 1.0, 0.0 };
                 double denominators1[2] = { 1.0, YawControllerConfig::kWashoutTauInverse };
                 yawRateWashout.InitFilter(numerators1, denominators1, 1, dt);
 
+                // Yaw rate lead-lag shaping
                 double numerators2[2] = { YawControllerConfig::kYawLeadLagNumerator0, YawControllerConfig::kYawLeadLagPole };
                 double denominators2[2] = { 1.0, YawControllerConfig::kYawLeadLagPole };
                 yawRateFilter.InitFilter(numerators2, denominators2, 1, dt);
 
+                // Fin servo dynamics
                 const double servoOmegaSquared = std::pow(YawControllerConfig::kServoNaturalFrequency, 2.0);
                 double numerators3[3] = { 0.0, 0.0, servoOmegaSquared };
                 double denominators3[3] = { 1.0, 2.0 * YawControllerConfig::kServoDampingRatio * YawControllerConfig::kServoNaturalFrequency, servoOmegaSquared };
@@ -563,6 +562,7 @@ namespace F117
 
                 yawControlAccumulator = 0.0;
                 yawHeldOutput = 0.0;
+                autoBetaTrimState = 0.0;
                 lastYawPedInput = 0.0;
                 lastYawRateDegS = 0.0;
                 lastYawRudderCommand = 0.0;
@@ -596,10 +596,22 @@ namespace F117
                 double denominators[3] = { 1.0, 2.0 * PitchControllerConfig::kPitchServoDampingRatio * PitchControllerConfig::kPitchServoNaturalFrequency, servoOmegaSquared };
                 pitchActuatorDynamicsFilter.InitFilter(numerators, denominators, 2, dt);
 
+                // AOA limiter pitch-rate anticipation washout filter (tau = 0.5 s)
+                double washoutNum[2]  = { 1.0, 0.0 };
+                double washoutDen[2]  = { 1.0, PitchControllerConfig::kAoAAnticipationWashoutTauInverse };
+                pitchRateWashoutFilter.InitFilter(washoutNum, washoutDen, 1, dt);
+
+                // Main-loop pitch-rate feedback blend washout filter (tau = 1.0 s)
+                // Separate from the AOA anticipation filter — different time constant.
+                double blendWashoutNum[2] = { 1.0, 0.0 };
+                double blendWashoutDen[2] = { 1.0, PitchControllerConfig::kPitchRateBlendWashoutTauInv };
+                pitchRateFeedbackWashout.InitFilter(blendWashoutNum, blendWashoutDen, 1, dt);
+
                 stickCommandPosFiltered = 0.0;
                 azFiltered = 0.0;
                 nz_reference = 1.0;
                 pitchIntegratorState = 0.0;
+                aoaLimiterIntegrator  = 0.0;
                 pitchControlAccumulator = 0.0;
                 pitchHeldOutput = 0.0;
                 logCounter = 0;
@@ -691,6 +703,8 @@ namespace F117
             lastAeroClTotal = 0.0;
             pitchModeGearDown = 0.0;
             pitchModeAirRefuelDoorOpen = false;
+            autoBetaTrimState = 0.0;
+            aoaLimiterIntegrator = 0.0;
             lastRollStickInput = 0.0;
             lastRollStickForce = 0.0;
             lastRollRateCommand = 0.0;
@@ -733,55 +747,94 @@ namespace F117
             lastAeroClTotal = clTotal;
         }
 
-        double fcs_yaw_controller_step(double pedInput, double pedTrim, double yaw_rate, double roll_rate, double aoa_filtered, double aileron_commanded, double ay, double dt, bool resetFilters)
+        // Real F-117 directional axis: Beta-command augmentation (proportional only).
+        // Pedal position commands a target sideslip angle (Beta). The fins are driven to
+        // satisfy that command. Beta feedback gain is AoA-scheduled (doubles at high AoA to
+        // resist the destabilising pitching moment from Beta). Automatic Beta trim bleeds
+        // residual Beta when gear is up and pedal force is below threshold. Inertia coupling
+        // (pitch_rate × roll_rate) prevents directional divergence during high-rate manoeuvres.
+        // The ARI (aileron-rudder interconnect) present in early design was removed from the
+        // real aircraft after evaluation — it is NOT implemented here.
+        double fcs_yaw_controller_step(double pedInput, double pedTrim, double beta_deg, double yaw_rate, double roll_rate, double pitch_rate, double aoa_filtered, double dynPressure_PA, bool gearDown, double dt, bool resetFilters)
         {
-            double rudderForceCommand = pedInput * YawControllerConfig::kPedalForceScale;
-            double rudderCommand = 0.0;
-            if (std::abs(rudderForceCommand) < YawControllerConfig::kPedalDeadbandForce)
+            // 1. Pedal → Beta command (with small deadband)
+            double rawPedalCmd = 0.0;
+            if (std::abs(pedInput) > YawControllerConfig::kBetaPedalDeadband)
             {
-                rudderCommand = 0.0;
-            }
-            else if (rudderForceCommand >= YawControllerConfig::kPedalDeadbandForce)
-            {
-                rudderCommand = YawControllerConfig::kPedalCommandSlope * rudderForceCommand + YawControllerConfig::kPedalCommandOffset;
-            }
-            else if (rudderForceCommand <= -YawControllerConfig::kPedalDeadbandForce)
-            {
-                rudderCommand = YawControllerConfig::kPedalCommandSlope * rudderForceCommand - YawControllerConfig::kPedalCommandOffset;
+                const double sign = (pedInput > 0.0) ? 1.0 : -1.0;
+                rawPedalCmd = sign * (std::abs(pedInput) - YawControllerConfig::kBetaPedalDeadband)
+                              / (1.0 - YawControllerConfig::kBetaPedalDeadband)
+                              * YawControllerConfig::kBetaCommandGain;
             }
 
-            rudderCommand = limit(rudderCommand, -YawControllerConfig::kRudderLimitDeg, YawControllerConfig::kRudderLimitDeg);
-            double rudderCommandFiltered = rudderCommandFilter.Filter(resetFilters, dt, rudderCommand);
-            double pedalCommand = pedTrim - rudderCommandFiltered;
+            // Dynamic pressure schedule: limit Beta command at high speed
+            const double qbarClamped = (std::max)(dynPressure_PA, YawControllerConfig::kBetaCmdQbarLow);
+            double betaCmdLimit = YawControllerConfig::kBetaCmdLimitHigh;
+            if (qbarClamped >= YawControllerConfig::kBetaCmdQbarHigh)
+            {
+                betaCmdLimit = YawControllerConfig::kBetaCmdLimitLow;
+            }
+            else if (qbarClamped > YawControllerConfig::kBetaCmdQbarLow)
+            {
+                const double t = (qbarClamped - YawControllerConfig::kBetaCmdQbarLow)
+                               / (YawControllerConfig::kBetaCmdQbarHigh - YawControllerConfig::kBetaCmdQbarLow);
+                betaCmdLimit = YawControllerConfig::kBetaCmdLimitHigh
+                             + t * (YawControllerConfig::kBetaCmdLimitLow - YawControllerConfig::kBetaCmdLimitHigh);
+            }
+            const double betaCmdLimited = limit(rawPedalCmd, -betaCmdLimit, betaCmdLimit);
 
-            double alphaGained = aoa_filtered * YawControllerConfig::kYawAlphaCouplingGain;
-            double rollRateCoupling = roll_rate * alphaGained;
-            double yawRateCorrected = yaw_rate - rollRateCoupling;
+            // Low-pass filter the Beta command to smooth pedal transients
+            const double betaCmdFiltered = rudderCommandFilter.Filter(resetFilters, dt, betaCmdLimited);
 
-            double yawRateWashedOut = yawRateWashout.Filter(resetFilters, dt, yawRateCorrected);
-            double yawRateSmoothed = yawRateFilter.Filter(resetFilters, dt, yawRateWashedOut);
-            double yawDamping = YawControllerConfig::kYawDampingGain * yawRateSmoothed;
+            // 2. Automatic Beta trim (series trim): active when gear is up and pedal near centre.
+            // Slowly trims away residual Beta (e.g. from engine thrust asymmetry).
+            if (!gearDown && std::abs(pedInput) < YawControllerConfig::kAutoBetaTrimPedalThreshold)
+            {
+                const double betaExcess = beta_deg - limit(beta_deg, -YawControllerConfig::kAutoBetaTrimDeadband, YawControllerConfig::kAutoBetaTrimDeadband);
+                autoBetaTrimState -= YawControllerConfig::kAutoBetaTrimRate * betaExcess * dt;
+                autoBetaTrimState  = limit(autoBetaTrimState, -YawControllerConfig::kAutoBetaTrimLimit, YawControllerConfig::kAutoBetaTrimLimit);
+            }
 
-            double sideAccelFeedback = YawControllerConfig::kSideAccelFeedbackGain * ay;
-            double ariCommand = limit(YawControllerConfig::kAriAoAGain * aoa_filtered, 0.0, YawControllerConfig::kAriLimit) * aileron_commanded;
-            double combinedCommand = pedalCommand + yawDamping + sideAccelFeedback + ariCommand;
-            double yawSurfaceCommand = yawServoFilter.Filter(resetFilters, dt, combinedCommand);
+            const double betaCommandTotal = betaCmdFiltered + pedTrim + autoBetaTrimState;
 
-            lastYawPedInput = pedInput;
-            lastYawRateDegS = yaw_rate;
-            lastYawRudderCommand = rudderCommand;
-            lastYawRudderCommandFiltered = rudderCommandFiltered;
-            lastYawPedalCommand = pedalCommand;
-            lastYawDamping = yawDamping;
-            lastYawSideAccelFeedback = sideAccelFeedback;
-            lastYawAriCommand = ariCommand;
-            lastYawCombinedCommand = combinedCommand;
-            lastYawSurfaceCommand = yawSurfaceCommand;
+            // 3. Beta feedback with AoA-scheduled gain.
+            // Gain doubles linearly from base at 0° AoA to 2× base at kBetaGainAoADoubleAlpha.
+            const double aoaFraction = limit(aoa_filtered / YawControllerConfig::kBetaGainAoADoubleAlpha, 0.0, 1.0);
+            const double betaGain = YawControllerConfig::kBetaFeedbackGainBase * (1.0 + aoaFraction);
+            const double betaError = betaCommandTotal - beta_deg;
+            const double betaFeedback = betaGain * betaError;
+
+            // 4. Stability-axis yaw rate damping (stability axis correction: subtract roll×alpha coupling)
+            const double alphaRad = aoa_filtered * (kPi / 180.0);
+            const double yawRateStabilityAxis = yaw_rate - roll_rate * alphaRad;
+            const double yawRateWashedOut = yawRateWashout.Filter(resetFilters, dt, yawRateStabilityAxis);
+            const double yawRateSmoothed  = yawRateFilter.Filter(resetFilters, dt, yawRateWashedOut);
+            const double yawDamping = YawControllerConfig::kYawDampingGain * yawRateSmoothed;
+
+            // 5. Inertia coupling: pitch_rate × roll_rate to prevent inertia-coupled yaw divergence.
+            const double pitch_rate_rad_s = pitch_rate * (kPi / 180.0);
+            const double roll_rate_rad_s  = roll_rate  * (kPi / 180.0);
+            const double inertiaCoupling  = YawControllerConfig::kInertiaCouplingGain * pitch_rate_rad_s * roll_rate_rad_s;
+
+            // 6. Combine and pass through fin servo dynamics
+            const double combinedCommand    = betaFeedback + yawDamping + inertiaCoupling;
+            const double yawSurfaceCommand  = yawServoFilter.Filter(resetFilters, dt, combinedCommand);
+
+            lastYawPedInput            = pedInput;
+            lastYawRateDegS            = yaw_rate;
+            lastYawRudderCommand       = rawPedalCmd;
+            lastYawRudderCommandFiltered = betaCmdFiltered;
+            lastYawPedalCommand        = betaCommandTotal;
+            lastYawDamping             = yawDamping;
+            lastYawSideAccelFeedback   = inertiaCoupling;  // re-used log slot
+            lastYawAriCommand          = 0.0;              // ARI removed from real aircraft
+            lastYawCombinedCommand     = combinedCommand;
+            lastYawSurfaceCommand      = yawSurfaceCommand;
 
             return yawSurfaceCommand;
         }
 
-        double fcs_yaw_controller(double pedInput, double pedTrim, double yaw_rate, double roll_rate, double aoa_filtered, double aileron_commanded, double ay, double dt)
+        double fcs_yaw_controller(double pedInput, double pedTrim, double beta_deg, double yaw_rate, double roll_rate, double pitch_rate, double aoa_filtered, double dynPressure_PA, bool gearDown, double dt)
         {
             const bool needsInit = yaw_filters_need_init();
             if (needsInit)
@@ -801,11 +854,13 @@ namespace F117
                 yawHeldOutput = fcs_yaw_controller_step(
                     pedInput,
                     pedTrim,
+                    beta_deg,
                     yaw_rate,
                     roll_rate,
+                    pitch_rate,
                     aoa_filtered,
-                    aileron_commanded,
-                    ay,
+                    dynPressure_PA,
+                    gearDown,
                     kFixedControlTimeStep,
                     resetFilters);
                 resetFilters = false;
@@ -858,76 +913,19 @@ namespace F117
             return stickCommandPosFiltered;
         }
 
-        double fcs_pitch_rate_controller_force_command(double longStickInputCommand, double pitchTrim)
-        {
-            double longStickInputForce = 0.0;
-            if (longStickInputCommand >= 0.0)
-            {
-                longStickInputForce = longStickInputCommand * PitchControllerConfig::kPositiveStickForceScale;
-            }
-            else
-            {
-                longStickInputForce = longStickInputCommand * PitchControllerConfig::kNegativeStickForceScale;
-            }
 
-            longStickInputForce = limit(longStickInputForce, PitchControllerConfig::kStickForceMin, PitchControllerConfig::kStickForceMax);
-
-            double pitchRateCommandDegS = 0.0;
-            if (std::abs(longStickInputForce) <= PitchControllerConfig::kStickCommandDeadband)
-            {
-                pitchRateCommandDegS = 0.0;
-            }
-            else if (longStickInputForce < -PitchControllerConfig::kStickCommandDeadband)
-            {
-                if (longStickInputForce > -PitchControllerConfig::kStickCommandBreakpoint)
-                {
-                    const double blend = (-longStickInputForce - PitchControllerConfig::kStickCommandDeadband) /
-                        (PitchControllerConfig::kStickCommandBreakpoint - PitchControllerConfig::kStickCommandDeadband);
-                    pitchRateCommandDegS =
-                        PitchControllerConfig::kPitchRateCommandAtNegForceBreakDegS * blend;
-                }
-                else
-                {
-                    const double blend = (-longStickInputForce - PitchControllerConfig::kStickCommandBreakpoint) /
-                        (-PitchControllerConfig::kStickForceMin - PitchControllerConfig::kStickCommandBreakpoint);
-                    pitchRateCommandDegS =
-                        PitchControllerConfig::kPitchRateCommandAtNegForceBreakDegS +
-                        (PitchControllerConfig::kPitchRateCommandMinDegS - PitchControllerConfig::kPitchRateCommandAtNegForceBreakDegS) * blend;
-                }
-            }
-            else
-            {
-                if (longStickInputForce < PitchControllerConfig::kStickCommandBreakpoint)
-                {
-                    const double blend = (longStickInputForce - PitchControllerConfig::kStickCommandDeadband) /
-                        (PitchControllerConfig::kStickCommandBreakpoint - PitchControllerConfig::kStickCommandDeadband);
-                    pitchRateCommandDegS =
-                        PitchControllerConfig::kPitchRateCommandAtPosForceBreakDegS * blend;
-                }
-                else
-                {
-                    const double blend = (longStickInputForce - PitchControllerConfig::kStickCommandBreakpoint) /
-                        (PitchControllerConfig::kStickForceMax - PitchControllerConfig::kStickCommandBreakpoint);
-                    pitchRateCommandDegS =
-                        PitchControllerConfig::kPitchRateCommandAtPosForceBreakDegS +
-                        (PitchControllerConfig::kPitchRateCommandMaxDegS - PitchControllerConfig::kPitchRateCommandAtPosForceBreakDegS) * blend;
-                }
-            }
-
-            // Match the existing Nz-command stick sense: aft stick should command positive pull/pitch-up.
-            // For quick A/B testing we re-use pitchTrim as a small bias on the pitch-rate command.
-            return pitchTrim - pitchRateCommandDegS;
-        }
-
-        double fcs_pitch_controller_step(double longStickInputCommand, double pitchTrim, double angle_of_attack_ind, double pitch_rate_DEG_s, double az, double differentialCommand, double dynPressure_LBFT2, double dt, double roll_angle_DEG, double pitch_angle_DEG, double roll_rate_DEG_s, double velocity_fps, double mach, double thrust_N, double Cx_total, bool resetFilters)
+        double fcs_pitch_controller_step(double longStickInputCommand, double pitchTrim, double angle_of_attack_ind, double pitch_rate_DEG_s, double az, double differentialCommand, double dynPressure_PA, double dt, double roll_angle_DEG, double pitch_angle_DEG, double roll_rate_DEG_s, double velocity_mps, double mach, double thrust_N, double Cx_total, bool resetFilters)
         {
             // TODO: differentialCommand (elevon differential for pitch/roll mixing) is not yet implemented.
             (void)differentialCommand;
 
-            const PitchCommandMode activePitchCommandMode = resolve_pitch_command_mode();
-            const bool usePitchRateCommand = (activePitchCommandMode == PitchCommandMode::PitchRate);
             double stickCommandPos = fcs_pitch_controller_force_command(longStickInputCommand, pitchTrim, dt);
-            double pitchRateCommandDegS = fcs_pitch_rate_controller_force_command(longStickInputCommand, pitchTrim);
+
+            // AAR: reduce pitch stick position gain (per Loschke: "stick position input gain is decreased")
+            if (pitchModeAirRefuelDoorOpen)
+            {
+                stickCommandPos *= RollControllerConfig::kAARLateralStickGainScale;
+            }
             double roll_RAD = roll_angle_DEG * (kPi / 180.0);
             double pitch_RAD = pitch_angle_DEG * (kPi / 180.0);
 
@@ -941,7 +939,7 @@ namespace F117
             double gravity_component = std::cos(roll_RAD) * std::cos(pitch_RAD);
             double nz_measured = azFiltered + gravity_component;
 
-            if (!usePitchRateCommand && std::fabs(stickCommandPos) < PitchControllerConfig::kNzStickDeadband)
+            if (std::fabs(stickCommandPos) < PitchControllerConfig::kNzStickDeadband)
             {
                 const double gravityError = gravity_component - nz_reference;
                 const double trackRate = (gravityError > 0.0)
@@ -964,148 +962,169 @@ namespace F117
             double nz_cmd = limit(nz_reference + stickCommandPos, PitchControllerConfig::kNzMin, PitchControllerConfig::kNzMax);
             double nz_error = nz_cmd - nz_measured;
             double nzProportional = PitchControllerConfig::kNzErrorGain * nz_error;
-            double pitchDamping = 0.0;
             double nz_control = 0.0;
             double integratorGain = PitchControllerConfig::kPitchIntegratorGain;
             double integratorInput = 0.0;
             double integratorLimit = PitchControllerConfig::kPitchIntegratorLimit;
             double finalCombinedCommandFilteredLimited = 0.0;
-            double pitchModeCommandForLog = usePitchRateCommand ? pitchRateCommandDegS : nz_cmd;
 
-            if (usePitchRateCommand)
+            // 1/qbar dynamic pressure gain schedule (real F-117: all forward-loop gains
+            // scheduled as a function of inverse dynamic pressure so stick feel is consistent
+            // across the flight envelope).
+            const double qbarScaled = (std::max)(dynPressure_PA, PitchControllerConfig::kQbarMin);
+            const double qbarGainScale = limit(
+                PitchControllerConfig::kQbarRef / qbarScaled,
+                PitchControllerConfig::kQbarGainScaleMin,
+                PitchControllerConfig::kQbarGainScaleMax);
+
+            const double scaledNzErrorGain = PitchControllerConfig::kNzErrorGain * qbarGainScale;
+
+            // Washed-out pitch rate blended INTO the Nz feedback before the error is formed.
+            // Per Loschke: "a specified blend of washed out pitch rate and the normal acceleration".
+            // Washout (tau = 1 s) ensures zero steady-state contribution so the integrator never
+            // fights a persistent damping offset in sustained manoeuvres.
+            const double pitchRateWashedBlend = pitchRateFeedbackWashout.Filter(resetFilters, dt, pitchRate_RAD_s);
+
             {
-                double pitchRateLimiterBiasDegS = 0.0;
-                if (nz_measured > PitchControllerConfig::kPitchRateNzLimitStartPositive)
-                {
-                    pitchRateLimiterBiasDegS -= PitchControllerConfig::kPitchRateNzLimiterGainDegSPerG * (nz_measured - PitchControllerConfig::kPitchRateNzLimitStartPositive);
-                }
-                else if (nz_measured < PitchControllerConfig::kPitchRateNzLimitStartNegative)
-                {
-                    pitchRateLimiterBiasDegS += PitchControllerConfig::kPitchRateNzLimiterGainDegSPerG * (PitchControllerConfig::kPitchRateNzLimitStartNegative - nz_measured);
-                }
+                // P+I g-command law per Loschke.
+                // Pitch-rate blend damps transients via the error signal; 1/qbar scaling on the
+                // proportional gain automatically scales the blend contribution across the envelope.
+                const double blendedNzFeedback = nz_measured
+                    + PitchControllerConfig::kPitchRateBlendGain * pitchRateWashedBlend;
+                nz_error      = nz_cmd - blendedNzFeedback;
+                nzProportional = scaledNzErrorGain * nz_error;
+                nz_control    = nzProportional;
 
-                if (alphaFiltered > PitchControllerConfig::kAoALimitStart)
-                {
-                    pitchRateLimiterBiasDegS -= PitchControllerConfig::kPitchRateAoALimiterGainDegSPerDeg * (alphaFiltered - PitchControllerConfig::kAoALimitStart);
-                }
+                // Gear-down and AAR: proportional only (no integrator) — gives classic phugoid + short period.
+                // Gear-down eliminates need for WoW switching at touchdown/lift-off.
+                // AAR: per Loschke, pitch law reverts to proportional-only with reduced stick gain.
+                const bool gearIsDown = (pitchModeGearDown > PitchControllerConfig::kGearDownThreshold);
+                const bool proportionalOnly = gearIsDown || pitchModeAirRefuelDoorOpen;
 
-                const double pitchRateLimitedCommandDegS = limit(
-                    pitchRateCommandDegS + pitchRateLimiterBiasDegS,
-                    PitchControllerConfig::kPitchRateCommandMinDegS,
-                    PitchControllerConfig::kPitchRateCommandMaxDegS);
-                const double pitchRateCommandRadS = pitchRateLimitedCommandDegS * (kPi / 180.0);
-                const double pitchRateError = pitchRateCommandRadS - pitchRate_RAD_s;
-                nzProportional = PitchControllerConfig::kPitchRateErrorGain * pitchRateError;
-                nz_error = pitchRateError;
-                nz_cmd = pitchRateLimitedCommandDegS;
-                pitchModeCommandForLog = pitchRateLimitedCommandDegS;
-                integratorGain = PitchControllerConfig::kPitchRateIntegratorGain;
-                integratorInput = pitchRateError;
-                integratorLimit = PitchControllerConfig::kPitchRateIntegratorLimit;
-
-                pitchDamping = PitchControllerConfig::kPitchRateDampingGain * pitchRate_RAD_s;
-                double pitchRateNzProtection = 0.0;
-                if (nz_measured > PitchControllerConfig::kPitchRateNzLimitStartPositive)
+                if (proportionalOnly)
                 {
-                    pitchRateNzProtection -= PitchControllerConfig::kPitchRateNzProtectionGain *
-                        (nz_measured - PitchControllerConfig::kPitchRateNzLimitStartPositive);
-                }
-                else if (nz_measured < PitchControllerConfig::kPitchRateNzLimitStartNegative)
-                {
-                    pitchRateNzProtection += PitchControllerConfig::kPitchRateNzProtectionGain *
-                        (PitchControllerConfig::kPitchRateNzLimitStartNegative - nz_measured);
-                }
-
-                const double unsaturatedCommandBeforeIntegration =
-                    nzProportional + pitchIntegratorState + pitchDamping + pitchRateNzProtection;
-                const bool actuatorSaturatedHigh =
-                    (unsaturatedCommandBeforeIntegration >= integratorLimit && pitchRateError > 0.0);
-                const bool actuatorSaturatedLow =
-                    (unsaturatedCommandBeforeIntegration <= -integratorLimit && pitchRateError < 0.0);
-                if (actuatorSaturatedHigh || actuatorSaturatedLow)
-                {
+                    // Freeze and bleed integrator to zero; proportional path only
+                    pitchIntegratorState = pitchIntegratorState * (1.0 - limit(dt * 5.0, 0.0, 1.0));
                     integratorInput = 0.0;
                 }
-
-                if ((pitchIntegratorState > 0.0 && integratorInput < 0.0) ||
-                    (pitchIntegratorState < 0.0 && integratorInput > 0.0))
+                else
                 {
-                    integratorGain *= PitchControllerConfig::kPitchIntegratorUnwindGain;
+                    bool nzAtUpperLimit = (nz_measured >= PitchControllerConfig::kNzMax && nz_error > 0.0);
+                    bool nzAtLowerLimit = (nz_measured <= PitchControllerConfig::kNzMin && nz_error < 0.0);
+
+                    const double unsaturatedCommandBeforeIntegration =
+                        nzProportional + pitchIntegratorState;
+                    const bool actuatorSaturatedHigh =
+                        (unsaturatedCommandBeforeIntegration >= integratorLimit && nz_error > 0.0);
+                    const bool actuatorSaturatedLow =
+                        (unsaturatedCommandBeforeIntegration <= -integratorLimit && nz_error < 0.0);
+                    integratorInput =
+                        (nzAtUpperLimit || nzAtLowerLimit || actuatorSaturatedHigh || actuatorSaturatedLow) ? 0.0 : nz_error;
+
+                    if ((pitchIntegratorState > 0.0 && integratorInput < 0.0) ||
+                        (pitchIntegratorState < 0.0 && integratorInput > 0.0))
+                    {
+                        integratorGain *= PitchControllerConfig::kPitchIntegratorUnwindGain;
+                    }
+
+                    pitchIntegratorState = limit(
+                        pitchIntegratorState + integratorGain * dt * integratorInput,
+                        -integratorLimit,
+                        integratorLimit);
                 }
 
-                pitchIntegratorState = limit(
-                    pitchIntegratorState + integratorGain * dt * integratorInput,
-                    -integratorLimit,
-                    integratorLimit);
-
-                const double integratorOutput = pitchIntegratorState;
-                nz_control = nzProportional + pitchDamping + pitchRateNzProtection;
                 finalCombinedCommandFilteredLimited = limit(
-                    nzProportional + integratorOutput + pitchDamping + pitchRateNzProtection,
-                    -integratorLimit,
-                    integratorLimit);
-            }
-            else
-            {
-                pitchDamping = PitchControllerConfig::kPitchDampingGain * pitchRate_RAD_s;
-                nz_control = nzProportional + pitchDamping;
-
-                bool nzAtUpperLimit = (nz_measured >= PitchControllerConfig::kNzMax && nz_error > 0.0);
-                bool nzAtLowerLimit = (nz_measured <= PitchControllerConfig::kNzMin && nz_error < 0.0);
-
-                // Freeze the integrator only when the aircraft is already at the measured G limit,
-                // or when the controller output itself is saturated and the error is still trying to
-                // drive further into saturation.  This preserves authority to reach the commanded G
-                // limit without allowing integrator wind-up into a jerky response.
-                const double unsaturatedCommandBeforeIntegration =
-                    nzProportional + pitchIntegratorState + pitchDamping;
-                const bool actuatorSaturatedHigh =
-                    (unsaturatedCommandBeforeIntegration >= integratorLimit && nz_error > 0.0);
-                const bool actuatorSaturatedLow =
-                    (unsaturatedCommandBeforeIntegration <= -integratorLimit && nz_error < 0.0);
-                integratorInput =
-                    (nzAtUpperLimit || nzAtLowerLimit || actuatorSaturatedHigh || actuatorSaturatedLow) ? 0.0 : nz_error;
-
-                if ((pitchIntegratorState > 0.0 && integratorInput < 0.0) ||
-                    (pitchIntegratorState < 0.0 && integratorInput > 0.0))
-                {
-                    integratorGain *= PitchControllerConfig::kPitchIntegratorUnwindGain;
-                }
-
-                pitchIntegratorState = limit(
-                    pitchIntegratorState + integratorGain * dt * integratorInput,
-                    -integratorLimit,
-                    integratorLimit);
-
-                const double integratorOutput = pitchIntegratorState;
-                finalCombinedCommandFilteredLimited = limit(
-                    nzProportional + integratorOutput + pitchDamping,
+                    nzProportional + pitchIntegratorState,
                     -integratorLimit,
                     integratorLimit);
             }
 
-            double integratorOutput = pitchIntegratorState;
+            const double integratorOutput = pitchIntegratorState;
             double finalPitchCommandTotal = pitchActuatorDynamicsFilter.Filter(resetFilters, dt, finalCombinedCommandFilteredLimited);
 
-            if (alphaFiltered > PitchControllerConfig::kAoALimitStart)
+            // ---- Real F-117 AOA limiter: high-gain P+I, activated by AoA + washed-out pitch-rate anticipation ----
+            // Threshold is Mach-scheduled (rises at high Mach; airframe more stable transonically).
+            // Pitch-rate anticipation is dynamic-pressure-scheduled (stronger at low q for aggressive pull-ups).
+            // When active the limiter has MORE authority than the pilot.
             {
-                double aoaError = alphaFiltered - PitchControllerConfig::kAoALimitStart;
-                double aoaPushdown = PitchControllerConfig::kAoAPushdownGain * aoaError;
-                if (finalPitchCommandTotal > 0.0)
+                // Gear-down biases the limiter threshold higher (lower approach/landing speed possible).
+                const bool gearIsDown = (pitchModeGearDown > PitchControllerConfig::kGearDownThreshold);
+                const double machClamped = limit(mach, 0.0, 1.0);
+                double limiterThreshold = PitchControllerConfig::kAoALimitStart
+                                        + PitchControllerConfig::kAoALimiterMachGain * machClamped;
+                if (gearIsDown)
                 {
-                    double limitFactor = 1.0 - (aoaError / (PitchControllerConfig::kAoAMax - PitchControllerConfig::kAoALimitStart));
-                    limitFactor = limit(limitFactor, 0.0, 1.0);
-                    finalPitchCommandTotal *= limitFactor;
+                    limiterThreshold += PitchControllerConfig::kAoALimitStartGearDownBias;
                 }
-                finalPitchCommandTotal -= aoaPushdown;
+                limiterThreshold = limit(limiterThreshold, PitchControllerConfig::kAoALimitStart, PitchControllerConfig::kAoAMax - 0.5);
+
+                // Washed-out pitch rate for anticipation (q-scheduled gain)
+                const double pitchRateForAnticipation = pitchRateWashoutFilter.Filter(resetFilters, dt, pitch_rate_DEG_s);
+                const double qbarForAnticiption = (std::max)(dynPressure_PA, PitchControllerConfig::kQbarMin);
+                const double anticipationGain = PitchControllerConfig::kAoAAnticipationGainRef
+                                              * (PitchControllerConfig::kQbarRef / qbarForAnticiption);
+                const double anticipation = limit(anticipationGain * pitchRateForAnticipation,
+                                                  -PitchControllerConfig::kAoAAnticipationMax,
+                                                   PitchControllerConfig::kAoAAnticipationMax);
+
+                const double limiterInput = alphaFiltered + anticipation;
+
+                if (limiterInput > limiterThreshold)
+                {
+                    const double limiterError = limiterInput - limiterThreshold;
+
+                    // Integrator (clamp and freeze at limit)
+                    const bool limIntSatHigh = (aoaLimiterIntegrator >= PitchControllerConfig::kAoALimiterIntegratorLimit);
+                    if (!limIntSatHigh)
+                    {
+                        aoaLimiterIntegrator = limit(
+                            aoaLimiterIntegrator + PitchControllerConfig::kAoALimiterIntegratorGain * dt * limiterError,
+                            0.0, PitchControllerConfig::kAoALimiterIntegratorLimit);
+                    }
+
+                    const double limiterCommand = -(PitchControllerConfig::kAoALimiterProportionalGain * limiterError
+                                                  + aoaLimiterIntegrator);
+                    // Limiter overrides if it produces a stronger nose-down command
+                    if (limiterCommand < finalPitchCommandTotal)
+                    {
+                        finalPitchCommandTotal = limiterCommand;
+                    }
+                }
+                else
+                {
+                    // Decay integrator when not active so re-entry is smooth
+                    aoaLimiterIntegrator = limit(aoaLimiterIntegrator - PitchControllerConfig::kAoALimiterIntegratorGain * dt * 2.0, 0.0, PitchControllerConfig::kAoALimiterIntegratorLimit);
+                }
+            }
+
+            // ---- Roll-rate^2 inertia coupling (pitch axis) ----
+            // Prevents inertia-coupled pitch departures during high-AoA rolling manoeuvres.
+            {
+                const double rollRateRadS = roll_rate_DEG_s * (kPi / 180.0);
+                if (alphaFiltered > PitchControllerConfig::kRollRateSquaredAoAThreshold
+                    && std::abs(rollRateRadS) > PitchControllerConfig::kRollRateSquaredRateThreshold)
+                {
+                    const double rollRateSq = rollRateRadS * rollRateRadS;
+                    finalPitchCommandTotal -= PitchControllerConfig::kRollRateSquaredGain * rollRateSq;
+                }
+            }
+
+            // ---- Speed stability (below 200 kts, AoA > 7 deg) ----
+            // Provides apparent speed stability on approach: nose-down tendency as speed falls.
+            {
+                if (velocity_mps < PitchControllerConfig::kSpeedStabilityVelocityMPS
+                    && alphaFiltered > PitchControllerConfig::kSpeedStabilityAoAThreshold)
+                {
+                    const double speedFade = 1.0 - velocity_mps / PitchControllerConfig::kSpeedStabilityVelocityMPS;
+                    const double aoaExcess = alphaFiltered - PitchControllerConfig::kSpeedStabilityAoAThreshold;
+                    finalPitchCommandTotal -= PitchControllerConfig::kSpeedStabilityGain * aoaExcess * speedFade;
+                }
             }
 
             log_pitch_debug_sample(
                 roll_angle_DEG,
                 pitch_angle_DEG,
                 roll_rate_DEG_s,
-                static_cast<double>(usePitchRateCommand ? 1 : 0),
-                pitchModeCommandForLog,
                 az,
                 gravity_component,
                 nz_measured,
@@ -1114,15 +1133,15 @@ namespace F117
                 nz_cmd,
                 nz_error,
                 nzProportional,
-                pitchDamping,
+                PitchControllerConfig::kPitchRateBlendGain * pitchRateWashedBlend,  // pitch_rate_blend
                 nz_control,
                 integratorOutput,
                 angle_of_attack_ind,
                 alphaFiltered,
                 longStickInputCommand,
                 pitch_rate_DEG_s,
-                dynPressure_LBFT2,
-                velocity_fps,
+                dynPressure_PA,
+                velocity_mps,
                 mach,
                 thrust_N,
                 Cx_total,
@@ -1131,7 +1150,7 @@ namespace F117
             return finalPitchCommandTotal;
         }
 
-        double fcs_pitch_controller(double longStickInputCommand, double pitchTrim, double angle_of_attack_ind, double pitch_rate_DEG_s, double az, double differentialCommand, double dynPressure_LBFT2, double dt, double roll_angle_DEG, double pitch_angle_DEG, double roll_rate_DEG_s, double velocity_fps, double mach, double thrust_N, double Cx_total)
+        double fcs_pitch_controller(double longStickInputCommand, double pitchTrim, double angle_of_attack_ind, double pitch_rate_DEG_s, double az, double differentialCommand, double dynPressure_PA, double dt, double roll_angle_DEG, double pitch_angle_DEG, double roll_rate_DEG_s, double velocity_mps, double mach, double thrust_N, double Cx_total)
         {
             const bool needsInit = pitch_filters_need_init();
             if (needsInit)
@@ -1155,12 +1174,12 @@ namespace F117
                     pitch_rate_DEG_s,
                     az,
                     differentialCommand,
-                    dynPressure_LBFT2,
+                    dynPressure_PA,
                     kFixedControlTimeStep,
                     roll_angle_DEG,
                     pitch_angle_DEG,
                     roll_rate_DEG_s,
-                    velocity_fps,
+                    velocity_mps,
                     mach,
                     thrust_N,
                     Cx_total,
@@ -1171,11 +1190,16 @@ namespace F117
 
             return pitchHeldOutput;
         }
-        double fcs_roll_controller_step(double latStickInputCommand, double longStickForceCommand, double ay, double pedInput, double beta_deg, double roll_angle_deg, double roll_rate, double roll_rate_trim, double dynPressure_LBFT2, double dt, bool resetFilters)
+        double fcs_roll_controller_step(double latStickInputCommand, double longStickForceCommand, double ay, double pedInput, double beta_deg, double roll_angle_deg, double roll_rate, double roll_rate_trim, double dynPressure_PA, bool gearDown, bool airRefuelDoorOpen, double dt, bool resetFilters)
         {
-            double latStickForceCmd = latStickInputCommand * RollControllerConfig::kLatStickForceScale;
+            // Air refuelling: lateral stick gain reduced for control harmony with reduced pitch gain.
+            const double effectiveLateralStick = airRefuelDoorOpen
+                ? latStickInputCommand * RollControllerConfig::kAARLateralStickGainScale
+                : latStickInputCommand;
+
+            double latStickForceCmd = effectiveLateralStick * RollControllerConfig::kLatStickForceScale;
             double latStickForce = latStickForceFilter.Filter(resetFilters, dt, latStickForceCmd);
-            double ayBiasBlend = limit(std::abs(latStickInputCommand) / RollControllerConfig::kAyBiasFullStick, 0.0, 1.0);
+            double ayBiasBlend = limit(std::abs(effectiveLateralStick) / RollControllerConfig::kAyBiasFullStick, 0.0, 1.0);
             double latStickForceBiased = latStickForce - (ay * RollControllerConfig::kAyBiasGain * ayBiasBlend);
 
             double longStickForceGained = longStickForceCommand * RollControllerConfig::kLongStickFeelGain;
@@ -1194,38 +1218,21 @@ namespace F117
             }
 
             double latStickForceFinal = latStickForceBiased * rollFeelGain;
+            // Parabolic stick-force-to-roll-rate shaping.
+            // rollRateCmd = sign * K * (|force| - deadband)^2, clamped to ±kRollRateMax.
+            // This matches the real F-117's non-linear parabolic shaping: gentle onset at centre
+            // (good precision) with rapidly increasing authority toward full deflection (good jinking).
             double rollRateCommand = 0.0;
-            if (std::abs(latStickForceFinal) < RollControllerConfig::kStickDeadband)
+            if (std::abs(latStickForceFinal) > RollControllerConfig::kStickDeadband)
             {
-                rollRateCommand = 0.0;
-            }
-            else if ((latStickForceFinal >= RollControllerConfig::kStickDeadband) && (latStickForceFinal <= RollControllerConfig::kFirstBreakpoint))
-            {
-                rollRateCommand = RollControllerConfig::kRollSlopeSeg1 * latStickForceFinal + RollControllerConfig::kRollInterceptSeg1;
-            }
-            else if ((latStickForceFinal > RollControllerConfig::kFirstBreakpoint) && (latStickForceFinal <= RollControllerConfig::kSecondBreakpoint))
-            {
-                rollRateCommand = RollControllerConfig::kRollSlopeSeg2 * latStickForceFinal + RollControllerConfig::kRollInterceptSeg2;
-            }
-            else if (latStickForceFinal > RollControllerConfig::kSecondBreakpoint)
-            {
-                rollRateCommand = RollControllerConfig::kRollSlopeSeg3 * latStickForceFinal + RollControllerConfig::kRollInterceptSeg3;
-            }
-            else if ((latStickForceFinal <= -RollControllerConfig::kStickDeadband) && (latStickForceFinal >= -RollControllerConfig::kFirstBreakpoint))
-            {
-                rollRateCommand = RollControllerConfig::kRollSlopeSeg1 * latStickForceFinal - RollControllerConfig::kRollInterceptSeg1;
-            }
-            else if ((latStickForceFinal < -RollControllerConfig::kFirstBreakpoint) && (latStickForceFinal >= -RollControllerConfig::kSecondBreakpoint))
-            {
-                rollRateCommand = RollControllerConfig::kRollSlopeSeg2 * latStickForceFinal - RollControllerConfig::kRollInterceptSeg2;
-            }
-            else if (latStickForceFinal < -RollControllerConfig::kSecondBreakpoint)
-            {
-                rollRateCommand = RollControllerConfig::kRollSlopeSeg3 * latStickForceFinal - RollControllerConfig::kRollInterceptSeg3;
+                const double sign = (latStickForceFinal > 0.0) ? 1.0 : -1.0;
+                const double forceBeyondDeadband = std::abs(latStickForceFinal) - RollControllerConfig::kStickDeadband;
+                rollRateCommand = sign * RollControllerConfig::kRollParabolicGain * forceBeyondDeadband * forceBeyondDeadband;
+                rollRateCommand = limit(rollRateCommand, -RollControllerConfig::kRollRateMax, RollControllerConfig::kRollRateMax);
             }
 
             double flatTurnPedalBlend = limit(std::abs(pedInput) / RollControllerConfig::kFlatTurnPedalFull, 0.0, 1.0);
-            double flatTurnStickBlend = 1.0 - limit(std::abs(latStickInputCommand) / RollControllerConfig::kFlatTurnLatStickFade, 0.0, 1.0);
+            double flatTurnStickBlend = 1.0 - limit(std::abs(effectiveLateralStick) / RollControllerConfig::kFlatTurnLatStickFade, 0.0, 1.0);
             double flatTurnBlend = flatTurnPedalBlend * flatTurnStickBlend;
             double flatTurnRollCommand = flatTurnBlend * limit(
                 beta_deg * RollControllerConfig::kFlatTurnBetaGain - roll_angle_deg * RollControllerConfig::kFlatTurnBankGain,
@@ -1238,25 +1245,30 @@ namespace F117
             double rollRateFiltered2 = rollRateFilter2.Filter(resetFilters, dt, rollRateFiltered1);
             double rollRateCommandCombined = rollRateFiltered2 - rollRateCommandFiltered - roll_rate_trim;
 
-            double dynamicPressure_NM2 = dynPressure_LBFT2 * RollControllerConfig::kDynPressureLbFt2ToNm2;
             double pressureGain = 0.0;
-            if (dynamicPressure_NM2 < RollControllerConfig::kPressureLow)
+            if (dynPressure_PA < RollControllerConfig::kPressureLow)
             {
                 pressureGain = RollControllerConfig::kPressureLowGain;
             }
-            else if ((dynamicPressure_NM2 >= RollControllerConfig::kPressureLow) && (dynamicPressure_NM2 <= RollControllerConfig::kPressureHigh))
+            else if ((dynPressure_PA >= RollControllerConfig::kPressureLow) && (dynPressure_PA <= RollControllerConfig::kPressureHigh))
             {
-                pressureGain = RollControllerConfig::kPressureSlope * dynamicPressure_NM2 + RollControllerConfig::kPressureOffset;
+                pressureGain = RollControllerConfig::kPressureSlope * dynPressure_PA + RollControllerConfig::kPressureOffset;
             }
             else
             {
                 pressureGain = RollControllerConfig::kPressureHighGain;
             }
 
+            // Gear down: increase roll rate feedback gain to reduce response to turbulence on approach.
+            if (gearDown)
+            {
+                pressureGain *= RollControllerConfig::kGearDownRateFeedbackGainFactor;
+            }
+
             double rollCommandGained = limit(rollRateCommandCombined * pressureGain, -RollControllerConfig::kRollCommandLimit, RollControllerConfig::kRollCommandLimit);
             double rollSurfaceCommand = rollActuatorDynamicsFilter.Filter(resetFilters, dt, rollCommandGained);
 
-            lastRollStickInput = latStickInputCommand;
+            lastRollStickInput = effectiveLateralStick;
             lastRollStickForce = latStickForceFinal;
             lastRollRateCommand = rollRateCommand;
             lastRollFlatTurnCommand = flatTurnRollCommand;
@@ -1267,7 +1279,7 @@ namespace F117
             return rollSurfaceCommand;
         }
 
-        double fcs_roll_controller(double latStickInputCommand, double longStickForceCommand, double ay, double pedInput, double beta_deg, double roll_angle_deg, double roll_rate, double roll_rate_trim, double dynPressure_LBFT2, double dt)
+        double fcs_roll_controller(double latStickInputCommand, double longStickForceCommand, double ay, double pedInput, double beta_deg, double roll_angle_deg, double roll_rate, double roll_rate_trim, double dynPressure_PA, bool gearDown, bool airRefuelDoorOpen, double dt)
         {
             const bool needsInit = roll_filters_need_init();
             if (needsInit)
@@ -1293,7 +1305,9 @@ namespace F117
                     roll_angle_deg,
                     roll_rate,
                     roll_rate_trim,
-                    dynPressure_LBFT2,
+                    dynPressure_PA,
+                    gearDown,
+                    airRefuelDoorOpen,
                     kFixedControlTimeStep,
                     resetFilters);
                 resetFilters = false;

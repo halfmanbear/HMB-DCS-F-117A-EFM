@@ -4,18 +4,19 @@ namespace F117
 {
 	namespace ATMOS
 	{
-		// Simple atmospheric calculations
-		void atmos(double temperature, double density, double vt, double *coeff )
+		// Simple atmospheric calculations.
+		// Inputs: temperature (K), density (kg/m³), vt (m/s)
+		// Outputs: coeff[0] = dynamic pressure (Pa), coeff[1] = Mach (dimensionless)
+		void atmos(double temperature, double density, double vt, double *coeff)
 		{
-			double temp, rho, mach, qbar;
-			
-			temp = temperature * 1.8; // In Deg Rankine
-			rho = density * 0.00194032033;
-			mach = (vt)/sqrt(1.4*1716.3*temp);
-			qbar = .5*rho*pow(vt,2);
-			
+			constexpr double kGammaAir = 1.4;
+			constexpr double kRAir     = 287.058; // J/(kg·K)
+
+			double mach = vt / sqrt(kGammaAir * kRAir * temperature);
+			double qbar = 0.5 * density * vt * vt;
+
 			coeff[0] = qbar;
 			coeff[1] = mach;
-		}	
+		}
 	}
 }

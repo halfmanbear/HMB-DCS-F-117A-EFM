@@ -85,6 +85,93 @@ typedef void (*PFN_SET_ATMOSPHERE)(double h,//altitude above sea level
 								   double wind_vy,//components of velocity vector, including turbulence in world coordinate system
 								   double wind_vz //components of velocity vector, including turbulence in world coordinate system
 								   );
+
+enum class WNDVF_SPACE
+{
+	IN_BODY_SPACE, // pos expected to be in aircraft body space , wind  will be filled as wind converted to body space
+	IN_WORLD_SPACE,// pos expected to be in global space , wind  will be filled as wind in globalspace
+};
+
+struct wind_vector_field_component
+{
+	double pos [3]; // x,y,z components in DCS coordinates system (x positive forward ,y positive up , z positive to the right)
+	double wind[3]; // x,y,z components in DCS coordinates system (x positive forward ,y positive up , z positive to the right)
+};
+
+const unsigned wind_vector_field_component_size = sizeof(wind_vector_field_component);
+
+
+struct wind_vector_field
+{
+	wind_vector_field_component	  * field				= nullptr;
+	//amount of points
+	unsigned						field_points_count  = 0;
+	///sizeof  wind_vector_field_component 
+	///used when you store more data in derived structure
+	unsigned 						field_point_size_in_bytes = wind_vector_field_component_size;
+	//indicates in which coordinates system you want to have data
+	WNDVF_SPACE	space = WNDVF_SPACE::IN_BODY_SPACE;
+};
+/*
+called before simulation to set up your environment for the next step
+
+prototype for
+void ed_fm_wind_vector_field_update_request(wind_vector_field & in_out);
+void ed_fm_wind_vector_field_done()
+
+DCS will  call ed_fm_wind_vector_field_update_request first,
+after that it will read  in_out  structure and  fill all "field_points_count" points starting from "field"
+and fill wind  array with actual atmosphere state in that point 
+
+after that ed_fm_wind_vector_field_done  will be called :
+
+wind_vector_field wind_data;
+ed_fm_wind_vector_field_update_request(wind_data);
+if (wind_data.field)
+{
+	for (int i = 0; i < wind_data.field_points_count; ++i)
+	{
+		wind_vector_field_component * pnt = (wind_vector_field_component*)((BYTE*)wind_data.field + i * (wind_data.field_point_size_in_bytes));
+
+		...DCS will request  atmosphere here for  wind in   pnt->pos with respect of wind_data.space
+	}
+}
+ed_fm_wind_vector_field_done();
+*/
+typedef void(*PFN_WIND_VECTOR_FIELD_UPDATE_REQUEST)(wind_vector_field & in_out);
+typedef void(*PFN_WIND_VECTOR_FIELD_DONE)();
+
+
+/*
+NOTE!!! clouds sampling is asyncronious and request GPU access, so return value have a lag of several frames
+please be carefull to use this in simulation 
+*/
+struct atmo_clouds_and_precipation
+{
+	/*
+	clouds density in position requested {frameLag} frames before.
+	if value is negative then density is  INVALID 
+	*/
+	float density		= -1;
+	/*
+	sampled precipitation in position requested {frameLag} frames before.
+	if value is negative then precipation is  INVALID 
+	*/
+	float precipation	= -1;
+};
+
+typedef void (*PFN_SET_CLOUDS_DENSITY)(const atmo_clouds_and_precipation& info);
+
+/*
+called before simulation to set up your environment for the next step
+
+prototype for
+void ed_fm_set_clouds_density(const atmo_clouds_and_precipation & info);
+
+DCS will  call ed_fm_set_clouds_density 
+
+*/
+
 /*
 called before simulation to set up your environment for the next step
 
@@ -251,14 +338,36 @@ struct EdDrawArgument
 		void *p;
 		int   i;
 	};
+	// default operates as float
+	inline EdDrawArgument &operator  =(float v) { f  = v; return *this;}
+	inline EdDrawArgument &operator +=(float v) { f += v; return *this;}
+	inline EdDrawArgument &operator -=(float v) { f -= v; return *this;}
+	inline EdDrawArgument &operator *=(float v) { f *= v; return *this;}
+	inline EdDrawArgument &operator /=(float v) { f /= v; return *this;}
+	inline operator float() const 				{return f;}
+
 };
+
+/*  since 2.5.7 - internal model args representation changed to straight float;
+	update draw arguments for your aircraft
+
+	prototype for ed_fm_set_draw_args_v2
+	also same prototype is used for ed_fm_set_fc3_cockpit_draw_args_v2  : direct control over cockpit arguments , it can be use full for FC3 cockpits reintegration with new flight model
+*/
+typedef void(*PFN_SET_DRAW_ARGS_V2)  (float * data, size_t size);
+
 /*
 	update draw arguments for your aircraft 
-
+	
 	prototype for ed_fm_set_draw_args
 	also same prototype is used for ed_fm_set_fc3_cockpit_draw_args  : direct control over cockpit arguments , it can be use full for FC3 cockpits reintegration with new flight model 
+	
+	NOTE 2.5.7 and beyond:
+	- ed_fm_set_fc3_cockpit_draw_args - not supported anymore , see ed_fm_set_fc3_cockpit_draw_args_v2 ,
+	- ed_fm_set_draw_args - supported , but ed_fm_set_draw_args_v2 is preferred 
 */
 typedef void (*PFN_SET_DRAW_ARGS)  (EdDrawArgument * array,size_t size);
+
 
 
 /*
@@ -271,7 +380,12 @@ typedef double (*PFN_GET_SHAKE_AMPLITUDE) ();
 will be called for your internal configuration
 ed_fm_configure
 */
-typedef double (*PFN_CONFIGURE)  (const char * cfg_path);
+typedef void (*PFN_CONFIGURE)  (const char * cfg_path);
+/*
+will be called for your internal configuration
+void ed_fm_release   called when fm not needed anymore : aircraft death etc.
+*/
+typedef void (*PFN_FM_RELEASE) ();
 
 
 /*
@@ -281,64 +395,388 @@ ed_fm_get_param
 
 enum ed_fm_param_enum
 {
-	ED_FM_ENGINE_0_RPM = 0,					//NOTE!!!! engine at index 0 is APU
-	ED_FM_ENGINE_0_RELATED_RPM,				//NOTE!!!! engine at index 0 is APU
-	ED_FM_ENGINE_0_CORE_RPM,				//NOTE!!!! engine at index 0 is APU
-	ED_FM_ENGINE_0_CORE_RELATED_RPM,		//NOTE!!!! engine at index 0 is APU
-	ED_FM_ENGINE_0_THRUST,					//NOTE!!!! engine at index 0 is APU
-	ED_FM_ENGINE_0_RELATED_THRUST,			//NOTE!!!! engine at index 0 is APU
-	ED_FM_ENGINE_0_CORE_THRUST,				//NOTE!!!! engine at index 0 is APU
-	ED_FM_ENGINE_0_CORE_RELATED_THRUST,		//NOTE!!!! engine at index 0 is APU
+	/*
+		Engine block,
+		For each of possible 20 engines there is range of 100 parameters, displaced by (ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM) for each consecutive parameters block
+		NOTE!!! Block for Engine 0 is reserved  for Auxillary Power Unit, so actual Engines start from block 1 (ED_FM_ENGINE_1*)
+		Engine 1 assumed to be the left most engine
+		
+		Terminology :
+		RPM 			- Revolutions per minute , as is
+		Relative RPM 	- as relation of RPM to maximum RPM of this engine, also applies to other kinds of related values
+		Core 			- internal spool of two-spool (turbofan/turboprop/piston prop)
+		Fan             - external rotary of two-spool (turbofan/turboprop/piston prop)
+	*/
 
-	ED_FM_PROPELLER_0_RPM,    // propeller RPM , for helicopter it is main rotor RPM
-	ED_FM_PROPELLER_0_PITCH,  // propeller blade pitch
-	ED_FM_PROPELLER_0_TILT,   // for helicopter
-	ED_FM_PROPELLER_0_INTEGRITY_FACTOR,   // for 0 to 1 , 0 is fully broken , 
+    // APU params
+	ED_FM_ENGINE_0_RPM = 0,					/// Engine Fan RPM (fan RPM for turbofan, propeller RPM for turboprop, etc.)
+	ED_FM_ENGINE_0_RELATED_RPM,				/// Relative Engine Fan RPM - as relation of RPM to maximum RPM of this engine
+	ED_FM_ENGINE_0_CORE_RPM,				/// For turbofan engine - Core RPM, for piston engine engine shaft RPM
+	ED_FM_ENGINE_0_CORE_RELATED_RPM,		/// For turbofan engine - Core Related RPM
+	ED_FM_ENGINE_0_THRUST,					/// Thrust of engine in newtons, [N]
+	ED_FM_ENGINE_0_RELATED_THRUST,			/// Related thrust in relation to "max" or also called "dry thrust" thrust of that engine
+	ED_FM_ENGINE_0_CORE_THRUST,				/// For turbofan engine - Core Thrust, [N]
+	ED_FM_ENGINE_0_CORE_RELATED_THRUST,		/// For turbofan engine - Related Core thrust in relation to "max" or also called "dry thrust" thrust of that engine
 
-	ED_FM_ENGINE_0_TEMPERATURE,//Celcius
-	ED_FM_ENGINE_0_OIL_PRESSURE,
-	ED_FM_ENGINE_0_FUEL_FLOW,
+	ED_FM_PROPELLER_0_RPM,                  /// Propeller RPM, for helicopters this is main rotor RPM
+	ED_FM_PROPELLER_0_PITCH,                /// Propeller blade pitch
+	ED_FM_PROPELLER_0_TILT,                 ///
+	ED_FM_PROPELLER_0_INTEGRITY_FACTOR,     /// Propeller integrity factor, [0, 1], 0 is fully broken
 
-	/*RESERVED PLACE FOR OTHER ENGINE PARAM*/
-	ED_FM_ENGINE_1_RPM = 100,	
-	ED_FM_ENGINE_1_RELATED_RPM,				
-	ED_FM_ENGINE_1_CORE_RPM,				
-	ED_FM_ENGINE_1_CORE_RELATED_RPM,		
-	ED_FM_ENGINE_1_THRUST,					
-	ED_FM_ENGINE_1_RELATED_THRUST,			
-	ED_FM_ENGINE_1_CORE_THRUST,				
-	ED_FM_ENGINE_1_CORE_RELATED_THRUST,	
+	ED_FM_ENGINE_0_TEMPERATURE,			    /// Air temperature after combustion chamber, [degrees Celsius]
+	ED_FM_ENGINE_0_OIL_PRESSURE,            /// Engine oil pressure, [Pa]
+	ED_FM_ENGINE_0_FUEL_FLOW,			    /// Engine fuel consumption, [kg per sec]
+	ED_FM_ENGINE_0_COMBUSTION,			    /// Level of combustion for engine, [0, 1], 1 indicates stable ignition and combustion, lower values indicate unstable burning or misfires
+	ED_FM_PISTON_ENGINE_0_MANIFOLD_PRESSURE,/// Manifold pressure, [Pa]
+    ED_FM_ENGINE_0_STARTER_RELATED_RPM,                     ///
+    ED_FM_ENGINE_0_STARTER_RELATED_TORQUE,                  ///
+    ED_FM_ENGINE_0_STARTER_SPIN_DOWN_RELATED_RPM,           ///
+    ED_FM_ENGINE_0_STARTER_SPIN_DOWN_RELATED_TORQUE,        ///
+    ED_FM_ENGINE_0_STARTER_CLUTCH_ENGAGED_RELATED_RPM,      ///
+    ED_FM_ENGINE_0_STARTER_CLUTCH_ENGAGED_RELATED_TORQUE,   ///
 
-	ED_FM_PROPELLER_1_RPM,    // propeller RPM , for helicopter it is main rotor RPM
-	ED_FM_PROPELLER_1_PITCH,  // propeller blade pitch
-	ED_FM_PROPELLER_1_TILT,   // for helicopter
-	ED_FM_PROPELLER_1_INTEGRITY_FACTOR,   // for 0 to 1 , 0 is fully broken , 
+	ED_FM_ENGINE_0_TORQUE,						/// Engine torque, [N*m]
+	ED_FM_ENGINE_0_RELATIVE_TORQUE,				/// Relative engine torque
+    ED_FM_ENGINE_0_MIXTURE_ALPHA,               /// Air-fuel equivalence factor, [0, +inf), 1.0 at stoichiometric mixture
+    ED_FM_ENGINE_0_OPERABILITY_FACTOR,          /// Engine operability factor, [0, 1]
+    ED_FM_ENGINE_0_FAN_PHASE,                   /// Fan rotational phase, [0, 2 * Pi)
+    ED_FM_ENGINE_0_GAIN,                        /// Engine (sound/power) gain factor
+    ED_FM_ENGINE_0_DETONATION,                  /// Detonation level for piston engines, 1 in detonation present, 0 otherwise
+    ED_FM_ENGINE_0_MAIN_BEARING_DAMAGE,         /// Main bearing damage level for radial engines, [0, 1]
+
+	ED_FM_ENGINE_0_FLOW_SPEED,					/// Engine Jet fLow speed or Propeller slipstream for piston and turboprop [m/s]
+	/*RESERVED PLACE FOR OTHER ENGINE PARAMS*/
+
+
+
+    // Engine #1 params
+	ED_FM_ENGINE_1_RPM = 100,				/// Engine Fan RPM (fan RPM for turbofan, propeller RPM for turboprop, etc.)
+	ED_FM_ENGINE_1_RELATED_RPM,				/// Relative Engine Fan RPM - as relation of RPM to maximum RPM of this engine
+	ED_FM_ENGINE_1_CORE_RPM,				/// For turbofan engine - Core RPM, for piston engine engine shaft RPM
+	ED_FM_ENGINE_1_CORE_RELATED_RPM,		/// For turbofan engine - Core Related RPM
+	ED_FM_ENGINE_1_THRUST,					/// Thrust of engine in newtons, [N]
+	ED_FM_ENGINE_1_RELATED_THRUST,			/// Related thrust in relation to "max" or also called "dry thrust" thrust of that engine
+	ED_FM_ENGINE_1_CORE_THRUST,				/// For turbofan engine - Core Thrust, [N]
+	ED_FM_ENGINE_1_CORE_RELATED_THRUST,		/// For turbofan engine - Related Core thrust in relation to "max" or also called "dry thrust" thrust of that engine
+
+	ED_FM_PROPELLER_1_RPM,                  /// Propeller RPM, for helicopters this is main rotor RPM
+	ED_FM_PROPELLER_1_PITCH,                /// Propeller blade pitch
+	ED_FM_PROPELLER_1_TILT,                 ///
+	ED_FM_PROPELLER_1_INTEGRITY_FACTOR,     /// Propeller integrity factor, [0, 1], 0 is fully broken
+
+	ED_FM_ENGINE_1_TEMPERATURE,			    /// Air temperature after combustion chamber, [degrees Celsius]
+	ED_FM_ENGINE_1_OIL_PRESSURE,            /// Engine oil pressure, [Pa]
+	ED_FM_ENGINE_1_FUEL_FLOW,			    /// Engine fuel consumption, [kg per sec]
+	ED_FM_ENGINE_1_COMBUSTION,			    /// Level of combustion for engine, [0, 1], 1 indicates stable ignition and combustion, lower values indicate unstable burning or misfires
+	ED_FM_PISTON_ENGINE_1_MANIFOLD_PRESSURE,/// Manifold pressure, [Pa]
+    ED_FM_ENGINE_1_STARTER_RELATED_RPM,                     ///
+    ED_FM_ENGINE_1_STARTER_RELATED_TORQUE,                  ///
+    ED_FM_ENGINE_1_STARTER_SPIN_DOWN_RELATED_RPM,           ///
+    ED_FM_ENGINE_1_STARTER_SPIN_DOWN_RELATED_TORQUE,        ///
+    ED_FM_ENGINE_1_STARTER_CLUTCH_ENGAGED_RELATED_RPM,      ///
+    ED_FM_ENGINE_1_STARTER_CLUTCH_ENGAGED_RELATED_TORQUE,   ///
+
+	ED_FM_ENGINE_1_TORQUE,						/// Engine torque, [N*m]
+	ED_FM_ENGINE_1_RELATIVE_TORQUE,				/// Relative engine torque
+    ED_FM_ENGINE_1_MIXTURE_ALPHA,               /// Air-fuel equivalence factor, [0, +inf), 1.0 at stoichiometric mixture
+    ED_FM_ENGINE_1_OPERABILITY_FACTOR,          /// Engine operability factor, [0, 1]
+    ED_FM_ENGINE_1_FAN_PHASE,                   /// Fan rotational phase, [0, 2 * Pi)
+    ED_FM_ENGINE_1_GAIN,                        /// Engine (sound/power) gain factor
+    ED_FM_ENGINE_1_DETONATION,                  /// Detonation level for piston engines, 1 in detonation present, 0 otherwise
+    ED_FM_ENGINE_1_MAIN_BEARING_DAMAGE,         /// Main bearing damage level for radial engines, [0, 1]
 	
-	ED_FM_ENGINE_1_TEMPERATURE,//Celcius
-	ED_FM_ENGINE_1_OIL_PRESSURE,
-	ED_FM_ENGINE_1_FUEL_FLOW,
-	//.................................
-	ED_FM_ENGINE_2_RPM = 2 * (ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM),
-	ED_FM_ENGINE_2_RELATED_RPM,				
-	ED_FM_ENGINE_2_CORE_RPM,				
-	ED_FM_ENGINE_2_CORE_RELATED_RPM,		
-	ED_FM_ENGINE_2_THRUST,					
-	ED_FM_ENGINE_2_RELATED_THRUST,			
-	ED_FM_ENGINE_2_CORE_THRUST,				
-	ED_FM_ENGINE_2_CORE_RELATED_THRUST,
+	ED_FM_ENGINE_1_FLOW_SPEED,					/// Engine Jet fLow speed or Propeller slipstream for piston and turboprop [m/s]
+	/*RESERVED PLACE FOR OTHER ENGINE PARAMS*/
 
-	ED_FM_PROPELLER_2_RPM,    // propeller RPM , for helicopter it is main rotor RPM
-	ED_FM_PROPELLER_2_PITCH,  // propeller blade pitch
-	ED_FM_PROPELLER_2_TILT,   // for helicopter
-	ED_FM_PROPELLER_2_INTEGRITY_FACTOR,   // for 0 to 1 , 0 is fully broken , 
 
-	ED_FM_ENGINE_2_TEMPERATURE,//Celcius
-	ED_FM_ENGINE_2_OIL_PRESSURE,
-	ED_FM_ENGINE_2_FUEL_FLOW,
 
+    // Engine #2 params
+	ED_FM_ENGINE_2_RPM = 2 * (ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM),	/// Engine Fan RPM (fan RPM for turbofan, propeller RPM for turboprop, etc.)
+	ED_FM_ENGINE_2_RELATED_RPM,											/// Relative Engine Fan RPM - as relation of RPM to maximum RPM of this engine
+	ED_FM_ENGINE_2_CORE_RPM,											/// For turbofan engine - Core RPM, for piston engine engine shaft RPM
+	ED_FM_ENGINE_2_CORE_RELATED_RPM,									/// For turbofan engine - Core Related RPM
+	ED_FM_ENGINE_2_THRUST,												/// Thrust of engine in newtons, [N]
+	ED_FM_ENGINE_2_RELATED_THRUST,										/// Related thrust in relation to "max" or also called "dry thrust" thrust of that engine
+	ED_FM_ENGINE_2_CORE_THRUST,											/// For turbofan engine - Core Thrust, [N]
+	ED_FM_ENGINE_2_CORE_RELATED_THRUST,									/// For turbofan engine - Related Core thrust in relation to "max" or also called "dry thrust" thrust of that engine
+
+	ED_FM_PROPELLER_2_RPM,                  /// Propeller RPM, for helicopters this is main rotor RPM
+	ED_FM_PROPELLER_2_PITCH,                /// Propeller blade pitch
+	ED_FM_PROPELLER_2_TILT,                 ///
+	ED_FM_PROPELLER_2_INTEGRITY_FACTOR,     /// Propeller integrity factor, [0, 1], 0 is fully broken
+
+	ED_FM_ENGINE_2_TEMPERATURE,			    /// Air temperature after combustion chamber, [degrees Celsius]
+	ED_FM_ENGINE_2_OIL_PRESSURE,            /// Engine oil pressure, [Pa]
+	ED_FM_ENGINE_2_FUEL_FLOW,			    /// Engine fuel consumption, [kg per sec]
+	ED_FM_ENGINE_2_COMBUSTION,			    /// Level of combustion for engine, [0, 1], 1 indicates stable ignition and combustion, lower values indicate unstable burning or misfires
+	ED_FM_PISTON_ENGINE_2_MANIFOLD_PRESSURE,/// Manifold pressure, [Pa]
+    ED_FM_ENGINE_2_STARTER_RELATED_RPM,                     ///
+    ED_FM_ENGINE_2_STARTER_RELATED_TORQUE,                  ///
+    ED_FM_ENGINE_2_STARTER_SPIN_DOWN_RELATED_RPM,           ///
+    ED_FM_ENGINE_2_STARTER_SPIN_DOWN_RELATED_TORQUE,        ///
+    ED_FM_ENGINE_2_STARTER_CLUTCH_ENGAGED_RELATED_RPM,      ///
+    ED_FM_ENGINE_2_STARTER_CLUTCH_ENGAGED_RELATED_TORQUE,   ///
+
+	ED_FM_ENGINE_2_TORQUE,						/// Engine torque, [N*m]
+	ED_FM_ENGINE_2_RELATIVE_TORQUE,				/// Relative engine torque
+    ED_FM_ENGINE_2_MIXTURE_ALPHA,               /// Air-fuel equivalence factor, [0, +inf), 1.0 at stoichiometric mixture
+    ED_FM_ENGINE_2_OPERABILITY_FACTOR,          /// Engine operability factor, [0, 1]
+    ED_FM_ENGINE_2_FAN_PHASE,                   /// Fan rotational phase, [0, 2 * Pi)
+    ED_FM_ENGINE_2_GAIN,                        /// Engine (sound/power) gain factor
+    ED_FM_ENGINE_2_DETONATION,                  /// Detonation level for piston engines, 1 in detonation present, 0 otherwise
+    ED_FM_ENGINE_2_MAIN_BEARING_DAMAGE,         /// Main bearing damage level for radial engines, [0, 1]
+    
+	ED_FM_ENGINE_2_FLOW_SPEED,					/// Engine Jet fLow speed or Propeller slipstream for piston and turboprop [m/s]
+	/*RESERVED PLACE FOR OTHER ENGINE PARAMS*/
+
+
+
+    // Engine #3 params
+	ED_FM_ENGINE_3_RPM = 3 * (ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM),	/// Engine Fan RPM (fan RPM for turbofan, propeller RPM for turboprop, etc.)
+	ED_FM_ENGINE_3_RELATED_RPM,											/// Relative Engine Fan RPM - as relation of RPM to maximum RPM of this engine
+	ED_FM_ENGINE_3_CORE_RPM,											/// For turbofan engine - Core RPM, for piston engine engine shaft RPM
+	ED_FM_ENGINE_3_CORE_RELATED_RPM,									/// For turbofan engine - Core Related RPM
+	ED_FM_ENGINE_3_THRUST,												/// Thrust of engine in newtons, [N]
+	ED_FM_ENGINE_3_RELATED_THRUST,										/// Related thrust in relation to "max" or also called "dry thrust" thrust of that engine
+	ED_FM_ENGINE_3_CORE_THRUST,											/// For turbofan engine - Core Thrust, [N]
+	ED_FM_ENGINE_3_CORE_RELATED_THRUST,									/// For turbofan engine - Related Core thrust in relation to "max" or also called "dry thrust" thrust of that engine
+
+	ED_FM_PROPELLER_3_RPM,                  /// Propeller RPM, for helicopters this is main rotor RPM
+	ED_FM_PROPELLER_3_PITCH,                /// Propeller blade pitch
+	ED_FM_PROPELLER_3_TILT,                 ///
+	ED_FM_PROPELLER_3_INTEGRITY_FACTOR,     /// Propeller integrity factor, [0, 1], 0 is fully broken
+
+	ED_FM_ENGINE_3_TEMPERATURE,			    /// Air temperature after combustion chamber, [degrees Celsius]
+	ED_FM_ENGINE_3_OIL_PRESSURE,            /// Engine oil pressure, [Pa]
+	ED_FM_ENGINE_3_FUEL_FLOW,			    /// Engine fuel consumption, [kg per sec]
+	ED_FM_ENGINE_3_COMBUSTION,			    /// Level of combustion for engine, [0, 1], 1 indicates stable ignition and combustion, lower values indicate unstable burning or misfires
+	ED_FM_PISTON_ENGINE_3_MANIFOLD_PRESSURE,/// Manifold pressure, [Pa]
+    ED_FM_ENGINE_3_STARTER_RELATED_RPM,                     ///
+    ED_FM_ENGINE_3_STARTER_RELATED_TORQUE,                  ///
+    ED_FM_ENGINE_3_STARTER_SPIN_DOWN_RELATED_RPM,           ///
+    ED_FM_ENGINE_3_STARTER_SPIN_DOWN_RELATED_TORQUE,        ///
+    ED_FM_ENGINE_3_STARTER_CLUTCH_ENGAGED_RELATED_RPM,      ///
+    ED_FM_ENGINE_3_STARTER_CLUTCH_ENGAGED_RELATED_TORQUE,   ///
+
+	ED_FM_ENGINE_3_TORQUE,						/// Engine torque, [N*m]
+	ED_FM_ENGINE_3_RELATIVE_TORQUE,				/// Relative engine torque
+    ED_FM_ENGINE_3_MIXTURE_ALPHA,               /// Air-fuel equivalence factor, [0, +inf), 1.0 at stoichiometric mixture
+    ED_FM_ENGINE_3_OPERABILITY_FACTOR,          /// Engine operability factor, [0, 1]
+    ED_FM_ENGINE_3_FAN_PHASE,                   /// Fan rotational phase, [0, 2 * Pi)
+    ED_FM_ENGINE_3_GAIN,                        /// Engine (sound/power) gain factor
+    ED_FM_ENGINE_3_DETONATION,                  /// Detonation level for piston engines, 1 in detonation present, 0 otherwise
+    ED_FM_ENGINE_3_MAIN_BEARING_DAMAGE,         /// Main bearing damage level for radial engines, [0, 1]
 	
-	//.................................
-	ED_FM_ENGINE_3_RPM = 3 * (ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM),
+	ED_FM_ENGINE_3_FLOW_SPEED,					/// Engine Jet fLow speed or Propeller slipstream for piston and turboprop [m/s]
+	/*RESERVED PLACE FOR OTHER ENGINE PARAMS*/
+
+
+
+    // Engine #4 params
+	ED_FM_ENGINE_4_RPM = 4 * (ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM),	/// Engine Fan RPM (fan RPM for turbofan, propeller RPM for turboprop, etc.)
+	ED_FM_ENGINE_4_RELATED_RPM,											/// Relative Engine Fan RPM - as relation of RPM to maximum RPM of this engine
+	ED_FM_ENGINE_4_CORE_RPM,											/// For turbofan engine - Core RPM, for piston engine engine shaft RPM
+	ED_FM_ENGINE_4_CORE_RELATED_RPM,									/// For turbofan engine - Core Related RPM
+	ED_FM_ENGINE_4_THRUST,												/// Thrust of engine in newtons, [N]
+	ED_FM_ENGINE_4_RELATED_THRUST,										/// Related thrust in relation to "max" or also called "dry thrust" thrust of that engine
+	ED_FM_ENGINE_4_CORE_THRUST,											/// For turbofan engine - Core Thrust, [N]
+	ED_FM_ENGINE_4_CORE_RELATED_THRUST,									/// For turbofan engine - Related Core thrust in relation to "max" or also called "dry thrust" thrust of that engine
+
+	ED_FM_PROPELLER_4_RPM,                  /// Propeller RPM, for helicopters this is main rotor RPM
+	ED_FM_PROPELLER_4_PITCH,                /// Propeller blade pitch
+	ED_FM_PROPELLER_4_TILT,                 ///
+	ED_FM_PROPELLER_4_INTEGRITY_FACTOR,     /// Propeller integrity factor, [0, 1], 0 is fully broken
+
+	ED_FM_ENGINE_4_TEMPERATURE,			    /// Air temperature after combustion chamber, [degrees Celsius]
+	ED_FM_ENGINE_4_OIL_PRESSURE,            /// Engine oil pressure, [Pa]
+	ED_FM_ENGINE_4_FUEL_FLOW,			    /// Engine fuel consumption, [kg per sec]
+	ED_FM_ENGINE_4_COMBUSTION,			    /// Level of combustion for engine, [0, 1], 1 indicates stable ignition and combustion, lower values indicate unstable burning or misfires
+	ED_FM_PISTON_ENGINE_4_MANIFOLD_PRESSURE,/// Manifold pressure, [Pa]
+    ED_FM_ENGINE_4_STARTER_RELATED_RPM,                     ///
+    ED_FM_ENGINE_4_STARTER_RELATED_TORQUE,                  ///
+    ED_FM_ENGINE_4_STARTER_SPIN_DOWN_RELATED_RPM,           ///
+    ED_FM_ENGINE_4_STARTER_SPIN_DOWN_RELATED_TORQUE,        ///
+    ED_FM_ENGINE_4_STARTER_CLUTCH_ENGAGED_RELATED_RPM,      ///
+    ED_FM_ENGINE_4_STARTER_CLUTCH_ENGAGED_RELATED_TORQUE,   ///
+
+	ED_FM_ENGINE_4_TORQUE,						/// Engine torque, [N*m]
+	ED_FM_ENGINE_4_RELATIVE_TORQUE,				/// Relative engine torque
+    ED_FM_ENGINE_4_MIXTURE_ALPHA,               /// Air-fuel equivalence factor, [0, +inf), 1.0 at stoichiometric mixture
+    ED_FM_ENGINE_4_OPERABILITY_FACTOR,          /// Engine operability factor, [0, 1]
+    ED_FM_ENGINE_4_FAN_PHASE,                   /// Fan rotational phase, [0, 2 * Pi)
+    ED_FM_ENGINE_4_GAIN,                        /// Engine (sound/power) gain factor
+    ED_FM_ENGINE_4_DETONATION,                  /// Detonation level for piston engines, 1 in detonation present, 0 otherwise
+    ED_FM_ENGINE_4_MAIN_BEARING_DAMAGE,         /// Main bearing damage level for radial engines, [0, 1]
+	
+	ED_FM_ENGINE_4_FLOW_SPEED,					/// Engine Jet fLow speed or Propeller slipstream for piston and turboprop [m/s]
+	/*RESERVED PLACE FOR OTHER ENGINE PARAMS*/
+
+
+
+    // Engine #5 params
+	ED_FM_ENGINE_5_RPM = 5 * (ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM),	/// Engine Fan RPM (fan RPM for turbofan, propeller RPM for turboprop, etc.)
+	ED_FM_ENGINE_5_RELATED_RPM,											/// Relative Engine Fan RPM - as relation of RPM to maximum RPM of this engine
+	ED_FM_ENGINE_5_CORE_RPM,											/// For turbofan engine - Core RPM, for piston engine engine shaft RPM
+	ED_FM_ENGINE_5_CORE_RELATED_RPM,									/// For turbofan engine - Core Related RPM
+	ED_FM_ENGINE_5_THRUST,												/// Thrust of engine in newtons, [N]
+	ED_FM_ENGINE_5_RELATED_THRUST,										/// Related thrust in relation to "max" or also called "dry thrust" thrust of that engine
+	ED_FM_ENGINE_5_CORE_THRUST,											/// For turbofan engine - Core Thrust, [N]
+	ED_FM_ENGINE_5_CORE_RELATED_THRUST,									/// For turbofan engine - Related Core thrust in relation to "max" or also called "dry thrust" thrust of that engine
+
+	ED_FM_PROPELLER_5_RPM,                  /// Propeller RPM, for helicopters this is main rotor RPM
+	ED_FM_PROPELLER_5_PITCH,                /// Propeller blade pitch
+	ED_FM_PROPELLER_5_TILT,                 ///
+	ED_FM_PROPELLER_5_INTEGRITY_FACTOR,     /// Propeller integrity factor, [0, 1], 0 is fully broken
+
+	ED_FM_ENGINE_5_TEMPERATURE,			    /// Air temperature after combustion chamber, [degrees Celsius]
+	ED_FM_ENGINE_5_OIL_PRESSURE,            /// Engine oil pressure, [Pa]
+	ED_FM_ENGINE_5_FUEL_FLOW,			    /// Engine fuel consumption, [kg per sec]
+	ED_FM_ENGINE_5_COMBUSTION,			    /// Level of combustion for engine, [0, 1], 1 indicates stable ignition and combustion, lower values indicate unstable burning or misfires
+	ED_FM_PISTON_ENGINE_5_MANIFOLD_PRESSURE,/// Manifold pressure, [Pa]
+    ED_FM_ENGINE_5_STARTER_RELATED_RPM,                     ///
+    ED_FM_ENGINE_5_STARTER_RELATED_TORQUE,                  ///
+    ED_FM_ENGINE_5_STARTER_SPIN_DOWN_RELATED_RPM,           ///
+    ED_FM_ENGINE_5_STARTER_SPIN_DOWN_RELATED_TORQUE,        ///
+    ED_FM_ENGINE_5_STARTER_CLUTCH_ENGAGED_RELATED_RPM,      ///
+    ED_FM_ENGINE_5_STARTER_CLUTCH_ENGAGED_RELATED_TORQUE,   ///
+
+	ED_FM_ENGINE_5_TORQUE,						/// Engine torque, [N*m]
+	ED_FM_ENGINE_5_RELATIVE_TORQUE,				/// Relative engine torque
+    ED_FM_ENGINE_5_MIXTURE_ALPHA,               /// Air-fuel equivalence factor, [0, +inf), 1.0 at stoichiometric mixture
+    ED_FM_ENGINE_5_OPERABILITY_FACTOR,          /// Engine operability factor, [0, 1]
+    ED_FM_ENGINE_5_FAN_PHASE,                   /// Fan rotational phase, [0, 2 * Pi)
+    ED_FM_ENGINE_5_GAIN,                        /// Engine (sound/power) gain factor
+    ED_FM_ENGINE_5_DETONATION,                  /// Detonation level for piston engines, 1 in detonation present, 0 otherwise
+    ED_FM_ENGINE_5_MAIN_BEARING_DAMAGE,         /// Main bearing damage level for radial engines, [0, 1]
+	
+	ED_FM_ENGINE_5_FLOW_SPEED,					/// Engine Jet fLow speed or Propeller slipstream for piston and turboprop [m/s]
+	/*RESERVED PLACE FOR OTHER ENGINE PARAMS*/
+
+
+
+    // Engine #6 params
+	ED_FM_ENGINE_6_RPM = 6 * (ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM),	/// Engine Fan RPM (fan RPM for turbofan, propeller RPM for turboprop, etc.)
+	ED_FM_ENGINE_6_RELATED_RPM,											/// Relative Engine Fan RPM - as relation of RPM to maximum RPM of this engine
+	ED_FM_ENGINE_6_CORE_RPM,											/// For turbofan engine - Core RPM, for piston engine engine shaft RPM
+	ED_FM_ENGINE_6_CORE_RELATED_RPM,									/// For turbofan engine - Core Related RPM
+	ED_FM_ENGINE_6_THRUST,												/// Thrust of engine in newtons, [N]
+	ED_FM_ENGINE_6_RELATED_THRUST,										/// Related thrust in relation to "max" or also called "dry thrust" thrust of that engine
+	ED_FM_ENGINE_6_CORE_THRUST,											/// For turbofan engine - Core Thrust, [N]
+	ED_FM_ENGINE_6_CORE_RELATED_THRUST,									/// For turbofan engine - Related Core thrust in relation to "max" or also called "dry thrust" thrust of that engine
+
+	ED_FM_PROPELLER_6_RPM,                  /// Propeller RPM, for helicopters this is main rotor RPM
+	ED_FM_PROPELLER_6_PITCH,                /// Propeller blade pitch
+	ED_FM_PROPELLER_6_TILT,                 ///
+	ED_FM_PROPELLER_6_INTEGRITY_FACTOR,     /// Propeller integrity factor, [0, 1], 0 is fully broken
+
+	ED_FM_ENGINE_6_TEMPERATURE,			    /// Air temperature after combustion chamber, [degrees Celsius]
+	ED_FM_ENGINE_6_OIL_PRESSURE,            /// Engine oil pressure, [Pa]
+	ED_FM_ENGINE_6_FUEL_FLOW,			    /// Engine fuel consumption, [kg per sec]
+	ED_FM_ENGINE_6_COMBUSTION,			    /// Level of combustion for engine, [0, 1], 1 indicates stable ignition and combustion, lower values indicate unstable burning or misfires
+	ED_FM_PISTON_ENGINE_6_MANIFOLD_PRESSURE,/// Manifold pressure, [Pa]
+    ED_FM_ENGINE_6_STARTER_RELATED_RPM,                     ///
+    ED_FM_ENGINE_6_STARTER_RELATED_TORQUE,                  ///
+    ED_FM_ENGINE_6_STARTER_SPIN_DOWN_RELATED_RPM,           ///
+    ED_FM_ENGINE_6_STARTER_SPIN_DOWN_RELATED_TORQUE,        ///
+    ED_FM_ENGINE_6_STARTER_CLUTCH_ENGAGED_RELATED_RPM,      ///
+    ED_FM_ENGINE_6_STARTER_CLUTCH_ENGAGED_RELATED_TORQUE,   ///
+
+	ED_FM_ENGINE_6_TORQUE,						/// Engine torque, [N*m]
+	ED_FM_ENGINE_6_RELATIVE_TORQUE,				/// Relative engine torque
+    ED_FM_ENGINE_6_MIXTURE_ALPHA,               /// Air-fuel equivalence factor, [0, +inf), 1.0 at stoichiometric mixture
+    ED_FM_ENGINE_6_OPERABILITY_FACTOR,          /// Engine operability factor, [0, 1]
+    ED_FM_ENGINE_6_FAN_PHASE,                   /// Fan rotational phase, [0, 2 * Pi)
+    ED_FM_ENGINE_6_GAIN,                        /// Engine (sound/power) gain factor
+    ED_FM_ENGINE_6_DETONATION,                  /// Detonation level for piston engines, 1 in detonation present, 0 otherwise
+    ED_FM_ENGINE_6_MAIN_BEARING_DAMAGE,         /// Main bearing damage level for radial engines, [0, 1]
+	
+	ED_FM_ENGINE_6_FLOW_SPEED,					/// Engine Jet fLow speed or Propeller slipstream for piston and turboprop [m/s]
+	/*RESERVED PLACE FOR OTHER ENGINE PARAMS*/
+
+
+
+    // Engine #7 params
+	ED_FM_ENGINE_7_RPM = 7 * (ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM),	/// Engine Fan RPM (fan RPM for turbofan, propeller RPM for turboprop, etc.)
+	ED_FM_ENGINE_7_RELATED_RPM,											/// Relative Engine Fan RPM - as relation of RPM to maximum RPM of this engine
+	ED_FM_ENGINE_7_CORE_RPM,											/// For turbofan engine - Core RPM, for piston engine engine shaft RPM
+	ED_FM_ENGINE_7_CORE_RELATED_RPM,									/// For turbofan engine - Core Related RPM
+	ED_FM_ENGINE_7_THRUST,												/// Thrust of engine in newtons, [N]
+	ED_FM_ENGINE_7_RELATED_THRUST,										/// Related thrust in relation to "max" or also called "dry thrust" thrust of that engine
+	ED_FM_ENGINE_7_CORE_THRUST,											/// For turbofan engine - Core Thrust, [N]
+	ED_FM_ENGINE_7_CORE_RELATED_THRUST,									/// For turbofan engine - Related Core thrust in relation to "max" or also called "dry thrust" thrust of that engine
+
+	ED_FM_PROPELLER_7_RPM,                  /// Propeller RPM, for helicopters this is main rotor RPM
+	ED_FM_PROPELLER_7_PITCH,                /// Propeller blade pitch
+	ED_FM_PROPELLER_7_TILT,                 ///
+	ED_FM_PROPELLER_7_INTEGRITY_FACTOR,     /// Propeller integrity factor, [0, 1], 0 is fully broken
+
+	ED_FM_ENGINE_7_TEMPERATURE,			    /// Air temperature after combustion chamber, [degrees Celsius]
+	ED_FM_ENGINE_7_OIL_PRESSURE,            /// Engine oil pressure, [Pa]
+	ED_FM_ENGINE_7_FUEL_FLOW,			    /// Engine fuel consumption, [kg per sec]
+	ED_FM_ENGINE_7_COMBUSTION,			    /// Level of combustion for engine, [0, 1], 1 indicates stable ignition and combustion, lower values indicate unstable burning or misfires
+	ED_FM_PISTON_ENGINE_7_MANIFOLD_PRESSURE,/// Manifold pressure, [Pa]
+    ED_FM_ENGINE_7_STARTER_RELATED_RPM,                     ///
+    ED_FM_ENGINE_7_STARTER_RELATED_TORQUE,                  ///
+    ED_FM_ENGINE_7_STARTER_SPIN_DOWN_RELATED_RPM,           ///
+    ED_FM_ENGINE_7_STARTER_SPIN_DOWN_RELATED_TORQUE,        ///
+    ED_FM_ENGINE_7_STARTER_CLUTCH_ENGAGED_RELATED_RPM,      ///
+    ED_FM_ENGINE_7_STARTER_CLUTCH_ENGAGED_RELATED_TORQUE,   ///
+
+	ED_FM_ENGINE_7_TORQUE,						/// Engine torque, [N*m]
+	ED_FM_ENGINE_7_RELATIVE_TORQUE,				/// Relative engine torque
+    ED_FM_ENGINE_7_MIXTURE_ALPHA,               /// Air-fuel equivalence factor, [0, +inf), 1.0 at stoichiometric mixture
+    ED_FM_ENGINE_7_OPERABILITY_FACTOR,          /// Engine operability factor, [0, 1]
+    ED_FM_ENGINE_7_FAN_PHASE,                   /// Fan rotational phase, [0, 2 * Pi)
+    ED_FM_ENGINE_7_GAIN,                        /// Engine (sound/power) gain factor
+    ED_FM_ENGINE_7_DETONATION,                  /// Detonation level for piston engines, 1 in detonation present, 0 otherwise
+    ED_FM_ENGINE_7_MAIN_BEARING_DAMAGE,         /// Main bearing damage level for radial engines, [0, 1]
+	
+	ED_FM_ENGINE_7_FLOW_SPEED,					/// Engine Jet fLow speed or Propeller slipstream for piston and turboprop [m/s]
+	/*RESERVED PLACE FOR OTHER ENGINE PARAMS*/
+
+
+
+    // Engine #8 params
+	ED_FM_ENGINE_8_RPM = 8 * (ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM),	/// Engine Fan RPM (fan RPM for turbofan, propeller RPM for turboprop, etc.)
+	ED_FM_ENGINE_8_RELATED_RPM,											/// Relative Engine Fan RPM - as relation of RPM to maximum RPM of this engine
+	ED_FM_ENGINE_8_CORE_RPM,											/// For turbofan engine - Core RPM, for piston engine engine shaft RPM
+	ED_FM_ENGINE_8_CORE_RELATED_RPM,									/// For turbofan engine - Core Related RPM
+	ED_FM_ENGINE_8_THRUST,												/// Thrust of engine in newtons, [N]
+	ED_FM_ENGINE_8_RELATED_THRUST,										/// Related thrust in relation to "max" or also called "dry thrust" thrust of that engine
+	ED_FM_ENGINE_8_CORE_THRUST,											/// For turbofan engine - Core Thrust, [N]
+	ED_FM_ENGINE_8_CORE_RELATED_THRUST,									/// For turbofan engine - Related Core thrust in relation to "max" or also called "dry thrust" thrust of that engine
+
+	ED_FM_PROPELLER_8_RPM,                  /// Propeller RPM, for helicopters this is main rotor RPM
+	ED_FM_PROPELLER_8_PITCH,                /// Propeller blade pitch
+	ED_FM_PROPELLER_8_TILT,                 ///
+	ED_FM_PROPELLER_8_INTEGRITY_FACTOR,     /// Propeller integrity factor, [0, 1], 0 is fully broken
+
+	ED_FM_ENGINE_8_TEMPERATURE,			    /// Air temperature after combustion chamber, [degrees Celsius]
+	ED_FM_ENGINE_8_OIL_PRESSURE,            /// Engine oil pressure, [Pa]
+	ED_FM_ENGINE_8_FUEL_FLOW,			    /// Engine fuel consumption, [kg per sec]
+	ED_FM_ENGINE_8_COMBUSTION,			    /// Level of combustion for engine, [0, 1], 1 indicates stable ignition and combustion, lower values indicate unstable burning or misfires
+	ED_FM_PISTON_ENGINE_8_MANIFOLD_PRESSURE,/// Manifold pressure, [Pa]
+    ED_FM_ENGINE_8_STARTER_RELATED_RPM,                     ///
+    ED_FM_ENGINE_8_STARTER_RELATED_TORQUE,                  ///
+    ED_FM_ENGINE_8_STARTER_SPIN_DOWN_RELATED_RPM,           ///
+    ED_FM_ENGINE_8_STARTER_SPIN_DOWN_RELATED_TORQUE,        ///
+    ED_FM_ENGINE_8_STARTER_CLUTCH_ENGAGED_RELATED_RPM,      ///
+    ED_FM_ENGINE_8_STARTER_CLUTCH_ENGAGED_RELATED_TORQUE,   ///
+
+	ED_FM_ENGINE_8_TORQUE,						/// Engine torque, [N*m]
+	ED_FM_ENGINE_8_RELATIVE_TORQUE,				/// Relative engine torque
+    ED_FM_ENGINE_8_MIXTURE_ALPHA,               /// Air-fuel equivalence factor, [0, +inf), 1.0 at stoichiometric mixture
+    ED_FM_ENGINE_8_OPERABILITY_FACTOR,          /// Engine operability factor, [0, 1]
+    ED_FM_ENGINE_8_FAN_PHASE,                   /// Fan rotational phase, [0, 2 * Pi)
+    ED_FM_ENGINE_8_GAIN,                        /// Engine (sound/power) gain factor
+    ED_FM_ENGINE_8_DETONATION,                  /// Detonation level for piston engines, 1 in detonation present, 0 otherwise
+    ED_FM_ENGINE_8_MAIN_BEARING_DAMAGE,         /// Main bearing damage level for radial engines, [0, 1]
+	
+	ED_FM_ENGINE_8_FLOW_SPEED,					/// Engine Jet fLow speed or Propeller slipstream for piston and turboprop [m/s]
+	/*RESERVED PLACE FOR OTHER ENGINE PARAMS*/
+
+
+
 	/*	
 		up to 20 engines
 	*/
@@ -379,30 +817,54 @@ enum ed_fm_param_enum
 	ED_FM_SUSPENSION_10_RELATIVE_BRAKE_MOMENT = ED_FM_SUSPENSION_9_RELATIVE_BRAKE_MOMENT + (ED_FM_SUSPENSION_1_RELATIVE_BRAKE_MOMENT - ED_FM_SUSPENSION_0_RELATIVE_BRAKE_MOMENT),
 
 
-	ED_FM_OXYGEN_SUPPLY, // oxygen provided from on board oxygen system in kg/s
-	ED_FM_FLOW_VELOCITY,
+	ED_FM_OXYGEN_SUPPLY, // oxygen provided from on board oxygen system, pressure - pascal
+	ED_FM_FLOW_VELOCITY, //common flow speed (Rotor's for helicpter or maximum engine's jet or prop flow speed for fixed-wing)
 
 	ED_FM_CAN_ACCEPT_FUEL_FROM_TANKER,// return positive value if all conditions are matched to connect to tanker and get fuel
+
+	// Groups for fuel indicator
+	ED_FM_FUEL_FUEL_TANK_GROUP_0_LEFT,			// Values from different group of tanks
+	ED_FM_FUEL_FUEL_TANK_GROUP_0_RIGHT,
+	ED_FM_FUEL_FUEL_TANK_GROUP_1_LEFT,
+	ED_FM_FUEL_FUEL_TANK_GROUP_1_RIGHT,
+	ED_FM_FUEL_FUEL_TANK_GROUP_2_LEFT,
+	ED_FM_FUEL_FUEL_TANK_GROUP_2_RIGHT,
+	ED_FM_FUEL_FUEL_TANK_GROUP_3_LEFT,
+	ED_FM_FUEL_FUEL_TANK_GROUP_3_RIGHT,
+	ED_FM_FUEL_FUEL_TANK_GROUP_4_LEFT,
+	ED_FM_FUEL_FUEL_TANK_GROUP_4_RIGHT,
+	ED_FM_FUEL_FUEL_TANK_GROUP_5_LEFT,
+	ED_FM_FUEL_FUEL_TANK_GROUP_5_RIGHT,
+	ED_FM_FUEL_FUEL_TANK_GROUP_6_LEFT,
+	ED_FM_FUEL_FUEL_TANK_GROUP_6_RIGHT,
+	ED_FM_FUEL_INTERNAL_FUEL,
+	ED_FM_FUEL_TOTAL_FUEL,
+	ED_FM_FUEL_LOW_SIGNAL,						// Low fuel signal
+
 	
 	
-	ED_FM_ANTI_SKID_ENABLE,/* return positive value if anti skid system is on , it also corresspond with suspension table "anti_skid_installed"  parameter for each gear post .i.e 
+	ED_FM_ANTI_SKID_ENABLE,/* return positive value if anti skid system is on , it also correspond with suspension table "anti_skid_installed"  parameter for each gear post .i.e 
 	
 	anti skid system will be applied only for those wheels who marked with   anti_skid_installed = true
 	
 	*/
 
-	ED_FM_FUEL_INTERNAL_FUEL,
-	ED_FM_FUEL_TOTAL_FUEL,
-
-	ED_FM_STICK_FORCE_CENTRAL_PITCH,  // i.e. trimmered position where force feeled by pilot is zero
+	ED_FM_STICK_FORCE_CENTRAL_PITCH,  // i.e. trimmered position where force felt by pilot is zero
 	ED_FM_STICK_FORCE_FACTOR_PITCH,
 	ED_FM_STICK_FORCE_SHAKE_AMPLITUDE_PITCH,
 	ED_FM_STICK_FORCE_SHAKE_FREQUENCY_PITCH,
 	
-	ED_FM_STICK_FORCE_CENTRAL_ROLL,   // i.e. trimmered position where force feeled by pilot is zero
+	ED_FM_STICK_FORCE_CENTRAL_ROLL,   // i.e. trimmered position where force felt by pilot is zero
 	ED_FM_STICK_FORCE_FACTOR_ROLL,
 	ED_FM_STICK_FORCE_SHAKE_AMPLITUDE_ROLL,
 	ED_FM_STICK_FORCE_SHAKE_FREQUENCY_ROLL,
+	
+	
+	ED_FM_COCKPIT_PRESSURIZATION_OVER_EXTERNAL, // additional pressure from pressurization system , pascal , actual cabin pressure will be AtmoPressure + COCKPIT_PRESSURIZATION_OVER_EXTERNAL
+
+	ED_FM_COCKPIT_ALTIMETER_PRESSURE_SETTING_MM_HG, // baro altimeter setting in mm hg
+
+	ED_FM_INTERRUPT_REFUEL,    //called when refueling process active , return positive value if you want  to stop refuleing process by internal reasons 
 
 	//params to integrate with old FC style cockpits
 	ED_FM_FC3_RESERVED_SPACE 	 = 10000,
@@ -423,8 +885,26 @@ enum ed_fm_param_enum
 	ED_FM_FC3_AUTOPILOT_STATUS,
 	ED_FM_FC3_AUTOPILOT_FAILURE_ATTITUDE_STABILIZATION,
 
+	ED_FM_FC3_STICK_PITCH_LIMITER,	// stick pitch limit (-1 .. 0 .. 1, 1 - no limit)
+	ED_FM_FC3_STICK_ROLL_L_LIMITER,	// stick bank limit (0 .. 1, 1 - no limit)
+	ED_FM_FC3_PEDAL_L_LIMITER,		// left pedal limit (0 .. 1, 1 - no limit)
+	ED_FM_FC3_PEDAL_R_LIMITER,		// right pedal limit (0 .. 1, 1 - no limit)
+
+	ED_FM_FC3_BREAKE_CHUTE_STATUS,
+	ED_FM_FC3_BREAKE_CHUTE_VALUE,
+
+	ED_FM_FC3_WHEEL_BRAKE_LEFT,
+    ED_FM_FC3_WHEEL_BRAKE_RIGHT,
+	ED_FM_FC3_WHEEL_BRAKE_COMMAND_LEFT,
+    ED_FM_FC3_WHEEL_BRAKE_COMMAND_RIGHT,
+
+	ED_FM_FC3_AR_DOOR_PROBE_HANDLE_POS, // Air refuel door/probe commanded position
+
 	ED_FM_FC3_RESERVED_SPACE_END = 11000,
 };
+
+constexpr unsigned ED_FIRST_ENGINE_PARAM(unsigned idx_param) { return  1 * (ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM) + idx_param; }
+constexpr unsigned ED_SECND_ENGINE_PARAM(unsigned idx_param) { return  2 * (ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM) + idx_param; }
 
 typedef double (*PFN_GET_PARAM)  (unsigned param_enum);
 
@@ -574,6 +1054,9 @@ enum ed_fm_simulation_event_type
 	ED_FM_EVENT_FAILURE,
 	ED_FM_EVENT_STRUCTURE_DAMAGE,
 	ED_FM_EVENT_FIRE,
+	ED_FM_EVENT_CARRIER_CATAPULT,
+	ED_FM_EVENT_CARRIER_HOOKED,
+    ED_FM_EVENT_EFFECT,
 };
 /*
 ED_FM_EVENT_FAILURE 
@@ -606,9 +1089,168 @@ event_params[7]  emitted particles speed
 event_params[8]  scale of fire , if scale will less or equal to zero , fire with this index will be stopped 
 
 
+ED_FM_EVENT_CARRIER_CATAPULT
+--event_message - "engine fire" or "left wing tank fire"
+--event_params[0] fire control handle, index used to control change of effect in time 
+--event_params[1] 
+--event_params[2] 
+--event_params[3]  x , y ,z  coordinates of fire origin in aircraft body space
+
+ED_FM_EVENT_CARRIER_HOOKED
+--
+
+
+
+ED_FM_EVENT_EFFECT
+event_message     - effect id, i.e. "JetEngineStartup"
+event_params[0]   - effect subtype, where applicable, or -1
+event_params[1]   - effect gain, [0, 1], value of 1.0f starts the effect at full, value of 0.0f stops and shuts continuous effect if applicable
+event_params[...] - parameters specific to the effect in question, refer to effect description
+*/
+/*
+
+ED_FM_EVENT_CARRIER_CATAPULT
+
+comments from developer for latest available realization - from 2.5.1
+For takeoff from carrier:
+
+ 1. Add connector "launch_bar_point" to nose gearpost connect point to catapult shuttle. Use draw argument 85 for launch bar animation.
+
+ 2. Catch the event after born on carrier with catapult (use ed_fm_push_simulation_event) 
+ you can use it for example to init launch bar state
+
+ in.event_type = ED_FM_EVENT_CARRIER_CATAPULT 
+ in.event_params[0] = 1; 
+
+ 3. Catapult will ask you start conditions (throttle or thrust has takeoff value), so throw the event any time that conditions changed:
+
+ out.event_type = ED_FM_EVENT_CARRIER_CATAPULT 
+ out.event_params[0] = (1 if ready for takeoff, 0 if not) 
+
+
+ and here you can give additional params for physics (if not or zero - then default):
+
+ out.event_params[1] = 3; //start delay [sec] 
+ out.event_params[2] = 67; //required velocity after takeoff [meters per sec] (+ with safety reserve; func of mass) 
+ out.event_params[3] = 0.5*9.8*mass; //mean engines thrust during takeoff [N] (func of mass) 
+
+ without this event catapult is waiting for afterburner flag
+
+ 4. Catch the event after start running if you want:
+
+ in.event_type = ED_FM_EVENT_CARRIER_CATAPULT 
+ in.event_params[0] = 2; 
+
+ 5. Catch the event after end of running (leaving carrier) if you want:
+
+ in.event_type = ED_FM_EVENT_CARRIER_CATAPULT 
+ in.event_params[0] = 3; 
+
+
+ ---------------------------------------------------------------------------
+ For landing to carrier:
+
+ 1. Add connector "hook_point" to the end of hook. Use draw argument 25 for hook animation.
+ 
+ 2. Add the segment element "HOOK" to collision model.
+
+ -- from 2.7.1
+
+ 3. Catch the event after hooked the rope (success landing on carrier) if you want:
+
+ in.event_type = ED_FM_EVENT_CARRIER_HOOKED
+ in.event_params[0] = 1;
+ 
+ 4. Throw the event is you need to unhooked:
+
+ out.event_type = ED_FM_EVENT_CARRIER_HOOKED
+ out.event_params[0] = 0; (that means that main condition for hooking is false - rope's phys will disappear immediately, if = 1 - nothing will change)
+
+ 5. Catch the event after unhooking (finished or canceled) if you want:
+
+ in.event_type = ED_FM_EVENT_CARRIER_HOOKED
+ in.event_params[0] = 2;
 
 */
 
+// bool ed_fm_push_simulation_event(const ed_fm_simulation_event & in) // same as pop . but function direction is reversed -> DCS will call it for your FM when ingame event occurs
+typedef bool (*PFN_FM_PUSH_SIMULATION_EVENT) (const ed_fm_simulation_event & in);
 
 
+struct ed_fm_suspension_info
+{
+	double acting_force		[3];
+	double acting_force_point[3];
+	double integrity_factor;
+	double struct_compression;
+	double wheel_speed_X;
+};
+/*
+	void ed_fm_suspension_feedback(int idx,const ed_fm_suspension_info * info)
+	feedback to your fm about suspension state
+*/
+typedef void (*PFN_FM_SUSPENSION_FEEDBACK) (int idx,const ed_fm_suspension_info * info);
+
+
+
+/*
+LERX VORTEX EFFECT DATA , as it complex effect with very specific realization for each aircraft , we decide to make separate API
+*/
+struct LERX_vortex_spline_point
+{
+	///location in aircraft body frame
+	float pos[3];
+	///speed in aircraft body frame
+	float vel[3];
+	///vortex radius in that point
+	float radius;
+	///opacity per point , will be modulated by LERX_vortex::opacity , used only in LERX_vortex::version > 0
+	float opacity;
+	
+};
+
+const unsigned LERX_vortex_spline_point_size = sizeof(LERX_vortex_spline_point);
+
+struct LERX_vortex
+{	
+	///overall vortex opacity level
+	float opacity 											= 1.0f;
+	///distance of vortex burst point location - in meters from spline start
+	float explosion_start									= 1.0f;
+	//pointer to points data , when spline is NULL - existed vortex will be detached 
+	LERX_vortex_spline_point * spline 			   		   = nullptr;
+	//amount of points
+	unsigned 				   spline_points_count 		   = 0;
+	///sizeof  LERX_vortex_spline_point 
+	///used when you store more data in derived structure
+	unsigned 				   spline_point_size_in_bytes = LERX_vortex_spline_point_size;
+	///versioning : > 0 - per point opacity 
+	unsigned 				   version 					  = 0;
+};
+
+/*
+	bool ed_fm_LERX_vortex_update(unsigned idx,LERX_vortex & out)
+	idx - index of vortex ; 0 - left side , 1 - right side , others is not specified 
+	control animation of lerx vortex effects of your airframe
+
+	LERX_vortex out;
+
+	while (ed_fm_LERX_vortex_update(idx,out))
+	{	
+		if (!out.spline || !out.spline_points_count)
+		{
+			if (vortex_exist(idx))
+				vortex_detach(idx);
+		}
+		else
+		{
+			if (vortex_exist(idx))
+				vortex_update(idx,out);
+			else
+				vortex_create(idx,out);
+		}
+		++idx;
+	}
+*/
+typedef bool (*PFN_FM_LERX_VORTEX_UPDATE) (unsigned idx,LERX_vortex & out);
 

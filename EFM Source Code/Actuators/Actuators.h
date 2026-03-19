@@ -160,7 +160,7 @@ namespace F117
 			return tailhook_state;
 		}
 
-		double dragchute_actuator(double dragchute_command, double frameTime, double velocity_fps, double gear_down,
+		double dragchute_actuator(double dragchute_command, double frameTime, double velocity_mps, double gear_down,
 			bool weight_on_wheels)
 		{
 			if (actuators_need_init())
@@ -172,17 +172,17 @@ namespace F117
 			// Drag chute deployment safety checks
 			// Only allow deployment if:
 			// 1. On the ground (weight on wheels)
-			// 2. Speed between 60-180 knots (100-300 fps)
+			// 2. Speed between ~60-140 knots (30-72 m/s)
 			// 3. Once deployed, can stay deployed until retracted or speed drops too low
 
-			double minDeploySpeed_FPS = 100.0;  // ~60 knots minimum
-			double maxDeploySpeed_FPS = 270.0;  // ~180 knots maximum (chute will tear off above this)
-			double minSustainSpeed_FPS = 30.0;  // ~18 knots - auto-retract below this
+			constexpr double minDeploySpeed_MPS  = 30.87; // ~60 knots
+			constexpr double maxDeploySpeed_MPS  = 82.31; // ~160 knots (chute will tear off above this)
+			constexpr double minSustainSpeed_MPS =  9.14; // ~18 knots - auto-retract below this
 
-			bool speedOkForDeploy = (velocity_fps >= minDeploySpeed_FPS &&
-				velocity_fps <= maxDeploySpeed_FPS);
-			bool speedTooSlow = (velocity_fps < minSustainSpeed_FPS);
-			bool speedTooFast = (velocity_fps > maxDeploySpeed_FPS);
+			bool speedOkForDeploy = (velocity_mps >= minDeploySpeed_MPS &&
+				velocity_mps <= maxDeploySpeed_MPS);
+			bool speedTooSlow = (velocity_mps < minSustainSpeed_MPS);
+			bool speedTooFast = (velocity_mps > maxDeploySpeed_MPS);
 
 			// Override the command when deployment conditions are not met.
 			double safeCommand = dragchute_command;
