@@ -176,5 +176,11 @@ extern "C"
 	ED_FM_TEMPLATE_API void ed_fm_set_easy_flight(bool value);
 	ED_FM_TEMPLATE_API double ed_fm_get_shake_amplitude();
 
+	/*
+	debug watch output — shown in top-left DCS overlay (Ctrl+Pause)
+	level: 0=brief, 1=normal, 2=full
+	*/
+	ED_FM_TEMPLATE_API size_t ed_fm_debug_watch(int level, char* buffer, size_t maxlen);
+
 };
 

@@ -20,6 +20,7 @@
 #include "FlightControls/FlightControls.h"	//Flight Controls model functions
 #include "Engine/Engine.h"					//Engine model functions
 #include "param_functions.h"
+#include "Avionics/CockpitBase_Interop.h"
 
 using namespace F117;
 
@@ -37,6 +38,8 @@ Vec3	inertia;
 
 Vec3	wind;
 
+Vec3	position_world_cs;
+
 Vec3	velocity_world_cs;
 
 //-------------------------------------------------------
@@ -46,6 +49,10 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 {
 	double		ambientTemperature_DegK = 0.0;			// Ambient temperature (kelvin)
 	double		ambientDensity_KgPerM3	= 0.0;			// Ambient density (kg/m^3)
+	double		aircraftQuaternionX		= 0.0;			// World-frame orientation quaternion
+	double		aircraftQuaternionY		= 0.0;
+	double		aircraftQuaternionZ		= 0.0;
+	double		aircraftQuaternionW		= 1.0;
 	double		wingSpan_M				= 13.205;		// F-117A wing-span (m)
 	double		wingArea_M2				= 84.77;		// F-117A wing area (m²)
 	double		meanChord_M				= 6.422;		// F-117A mean aerodynamic chord (m)
@@ -111,6 +118,7 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	float		misc_stateH				= 0.0;
     bool        weapon_release_pickle_held = false;
     bool        weapon_release_gate = false;
+    bool        weapon_release_gate_fired = false;
     bool        weapon_bay_owned_by_release = false;
     bool        weapon_bay_close_pending = false;
     double      weapon_bay_close_delay = 0.0;
@@ -162,10 +170,46 @@ static F117::DamageState g_damage;
 static std::queue<ed_fm_simulation_event> g_simEvents;
 static void* g_weaponReleaseGateParam = nullptr;
 static bool g_weaponReleaseGateParamInitialized = false;
+static void* g_iradsLockValidParam = nullptr;
+static void* g_iradsLockWorldXParam = nullptr;
+static void* g_iradsLockWorldYParam = nullptr;
+static void* g_iradsLockWorldZParam = nullptr;
+static void* g_iradsLockRangeParam = nullptr;
+static void* g_iradsLockAzimuthParam = nullptr;
+static void* g_iradsLockElevationParam = nullptr;
+static bool g_iradsLockParamsInitialized = false;
+static void* g_releaseCueValidParam = nullptr;
+static void* g_releaseCueErrorParam = nullptr;
+static void* g_releaseCueTimeToGoParam = nullptr;
+static void* g_releaseCueRangeParam = nullptr;
+static void* g_releaseCueInZoneParam = nullptr;
+static bool g_releaseCueParamsInitialized = false;
+static void* g_ccrpProfileParam = nullptr;
+static bool g_ccrpProfileParamInitialized = false;
 
 
 namespace
 {
+    struct CcrpStoreModel
+    {
+        const char* name;
+        double massKg;
+        double dragCd;
+        double referenceAreaM2;
+        double releaseWindowMeters;
+        double minSpeedMPS;
+        double minDropMeters;
+    };
+
+    constexpr CcrpStoreModel kCcrpStoreModels[] =
+    {
+        { "GBU-31(V)1/B",   934.0, 0.00264, 0.45,  75.0, 30.0,  10.0 },
+        { "GBU-31(V)3/B",   981.0, 0.00170, 0.45,  90.0, 30.0,  10.0 },
+        { "GBU-32(V)2/B",   467.0, 0.00035, 0.30,  65.0, 30.0,  10.0 },
+        { "GBU-12",         277.0, 0.000413, 0.22,  55.0, 30.0,  10.0 },
+        { "GBU-27",         991.0, 0.00071,  0.45,  80.0, 30.0,  10.0 },
+    };
+
     std::string build_saved_games_dcs_path(const char* dcsFolderName, const char* relativePath)
     {
         const char* userProfile = getenv("USERPROFILE");
@@ -194,6 +238,25 @@ namespace
     constexpr double kWeaponBayClosedThreshold = 0.005;
     constexpr double kWeaponBayHoldAfterReleaseSeconds = 1.0;
     constexpr char kWeaponReleaseGateParamName[] = "F117_WEAPON_RELEASE_GATE";
+    constexpr char kIRADSLockValidParamName[] = "F117_IRADS_LOCK_VALID";
+    constexpr char kIRADSLockWorldXParamName[] = "F117_IRADS_LOCK_X";
+    constexpr char kIRADSLockWorldYParamName[] = "F117_IRADS_LOCK_Y";
+    constexpr char kIRADSLockWorldZParamName[] = "F117_IRADS_LOCK_Z";
+    constexpr char kIRADSLockRangeParamName[] = "F117_IRADS_LOCK_RANGE";
+    constexpr char kIRADSLockAzimuthParamName[] = "F117_IRADS_LOCK_AZ";
+    constexpr char kIRADSLockElevationParamName[] = "F117_IRADS_LOCK_EL";
+    constexpr char kReleaseCueValidParamName[] = "F117_RELEASE_CUE_VALID";
+    constexpr char kReleaseCueErrorParamName[] = "F117_RELEASE_CUE_ERROR";
+    constexpr char kReleaseCueTimeToGoParamName[] = "F117_RELEASE_CUE_TTG";
+    constexpr char kReleaseCueRangeParamName[] = "F117_RELEASE_CUE_RANGE";
+    constexpr char kReleaseCueInZoneParamName[] = "F117_RELEASE_CUE_IN_ZONE";
+    constexpr char kCcrpProfileParamName[] = "F117_CCRP_PROFILE";
+    constexpr double kGravity_MPS2 = 9.81;
+    constexpr double kReleaseCueMinSpeedMPS = 30.0;
+    constexpr double kReleaseCueMinDropMeters = 10.0;
+    constexpr double kAtmosphereScaleHeight_M = 8500.0;
+    constexpr double kReleaseIntegrationStepSeconds = 0.02;
+    constexpr double kReleaseIntegrationMaxSeconds = 180.0;
 
     constexpr double kLuaDamageDose = 0.25;
     constexpr double kWingDamageDoseScale = 0.6;
@@ -535,6 +598,336 @@ namespace
         }
     }
 
+    void initialize_irads_lock_params()
+    {
+        if (g_iradsLockParamsInitialized)
+        {
+            return;
+        }
+
+        F117::cockpitAPI.ed_param_api = ed_get_cockpit_param_api();
+        if (F117::cockpitAPI.ed_param_api.pfn_ed_cockpit_get_parameter_handle == nullptr ||
+            F117::cockpitAPI.ed_param_api.pfn_ed_cockpit_update_parameter_with_number == nullptr)
+        {
+            return;
+        }
+
+        g_iradsLockValidParam = F117::cockpitAPI.getParamHandle(kIRADSLockValidParamName);
+        g_iradsLockWorldXParam = F117::cockpitAPI.getParamHandle(kIRADSLockWorldXParamName);
+        g_iradsLockWorldYParam = F117::cockpitAPI.getParamHandle(kIRADSLockWorldYParamName);
+        g_iradsLockWorldZParam = F117::cockpitAPI.getParamHandle(kIRADSLockWorldZParamName);
+        g_iradsLockRangeParam = F117::cockpitAPI.getParamHandle(kIRADSLockRangeParamName);
+        g_iradsLockAzimuthParam = F117::cockpitAPI.getParamHandle(kIRADSLockAzimuthParamName);
+        g_iradsLockElevationParam = F117::cockpitAPI.getParamHandle(kIRADSLockElevationParamName);
+        g_iradsLockParamsInitialized =
+            (g_iradsLockValidParam != nullptr) &&
+            (g_iradsLockWorldXParam != nullptr) &&
+            (g_iradsLockWorldYParam != nullptr) &&
+            (g_iradsLockWorldZParam != nullptr) &&
+            (g_iradsLockRangeParam != nullptr) &&
+            (g_iradsLockAzimuthParam != nullptr) &&
+            (g_iradsLockElevationParam != nullptr);
+    }
+
+    void initialize_release_cue_params()
+    {
+        if (g_releaseCueParamsInitialized)
+        {
+            return;
+        }
+
+        F117::cockpitAPI.ed_param_api = ed_get_cockpit_param_api();
+        if (F117::cockpitAPI.ed_param_api.pfn_ed_cockpit_get_parameter_handle == nullptr ||
+            F117::cockpitAPI.ed_param_api.pfn_ed_cockpit_update_parameter_with_number == nullptr)
+        {
+            return;
+        }
+
+        g_releaseCueValidParam = F117::cockpitAPI.getParamHandle(kReleaseCueValidParamName);
+        g_releaseCueErrorParam = F117::cockpitAPI.getParamHandle(kReleaseCueErrorParamName);
+        g_releaseCueTimeToGoParam = F117::cockpitAPI.getParamHandle(kReleaseCueTimeToGoParamName);
+        g_releaseCueRangeParam = F117::cockpitAPI.getParamHandle(kReleaseCueRangeParamName);
+        g_releaseCueInZoneParam = F117::cockpitAPI.getParamHandle(kReleaseCueInZoneParamName);
+        g_releaseCueParamsInitialized =
+            (g_releaseCueValidParam != nullptr) &&
+            (g_releaseCueErrorParam != nullptr) &&
+            (g_releaseCueTimeToGoParam != nullptr) &&
+            (g_releaseCueRangeParam != nullptr) &&
+            (g_releaseCueInZoneParam != nullptr);
+    }
+
+    void initialize_ccrp_profile_param()
+    {
+        if (g_ccrpProfileParamInitialized)
+        {
+            return;
+        }
+
+        F117::cockpitAPI.ed_param_api = ed_get_cockpit_param_api();
+        if (F117::cockpitAPI.ed_param_api.pfn_ed_cockpit_get_parameter_handle == nullptr ||
+            F117::cockpitAPI.ed_param_api.pfn_ed_cockpit_update_parameter_with_number == nullptr)
+        {
+            return;
+        }
+
+        g_ccrpProfileParam = F117::cockpitAPI.getParamHandle(kCcrpProfileParamName);
+        g_ccrpProfileParamInitialized = (g_ccrpProfileParam != nullptr);
+    }
+
+    int get_ccrp_profile_index()
+    {
+        initialize_ccrp_profile_param();
+        if (!g_ccrpProfileParamInitialized)
+        {
+            return 0;
+        }
+
+        const double rawIndex = F117::cockpitAPI.getParamNumber(g_ccrpProfileParam);
+        int profileIndex = (int)floor(rawIndex + 0.5);
+        const int profileCount = (int)(sizeof(kCcrpStoreModels) / sizeof(kCcrpStoreModels[0]));
+        if (profileIndex < 0)
+        {
+            profileIndex = 0;
+        }
+        if (profileIndex >= profileCount)
+        {
+            profileIndex = profileCount - 1;
+        }
+
+        return profileIndex;
+    }
+
+    const CcrpStoreModel& get_ccrp_profile()
+    {
+        return kCcrpStoreModels[get_ccrp_profile_index()];
+    }
+
+    Vec3 quaternion_to_world(const Vec3& bodyVector)
+    {
+        const double qx = F117::aircraftQuaternionX;
+        const double qy = F117::aircraftQuaternionY;
+        const double qz = F117::aircraftQuaternionZ;
+        const double qw = F117::aircraftQuaternionW;
+
+        const double mag = sqrt((qx * qx) + (qy * qy) + (qz * qz) + (qw * qw));
+        if (mag < 1.0e-6)
+        {
+            return bodyVector;
+        }
+
+        const double x = qx / mag;
+        const double y = qy / mag;
+        const double z = qz / mag;
+        const double w = qw / mag;
+
+        Vec3 worldVector{};
+        worldVector.x = ((1.0 - (2.0 * y * y) - (2.0 * z * z)) * bodyVector.x) + ((2.0 * x * y - 2.0 * z * w) * bodyVector.y) + ((2.0 * x * z + 2.0 * y * w) * bodyVector.z);
+        worldVector.y = ((2.0 * x * y + 2.0 * z * w) * bodyVector.x) + ((1.0 - (2.0 * x * x) - (2.0 * z * z)) * bodyVector.y) + ((2.0 * y * z - 2.0 * x * w) * bodyVector.z);
+        worldVector.z = ((2.0 * x * z - 2.0 * y * w) * bodyVector.x) + ((2.0 * y * z + 2.0 * x * w) * bodyVector.y) + ((1.0 - (2.0 * x * x) - (2.0 * y * y)) * bodyVector.z);
+        return worldVector;
+    }
+
+    Vec3 get_world_wind_vector()
+    {
+        return quaternion_to_world(wind);
+    }
+
+    bool simulate_bomb_impact_point(const CcrpStoreModel& profile, const Vec3& releasePos, const Vec3& releaseVel, const Vec3& worldWind, double targetAltMeters, Vec3* outImpactPos, double* outImpactTime)
+    {
+        if (outImpactPos == nullptr || outImpactTime == nullptr || profile.massKg <= 0.0 || profile.referenceAreaM2 <= 0.0)
+        {
+            return false;
+        }
+
+        if (releasePos.y <= targetAltMeters)
+        {
+            return false;
+        }
+
+        const double altitudeReference = max(releasePos.y, 0.0);
+        const double seaLevelDensity = max(F117::ambientDensity_KgPerM3, 0.05) * exp(altitudeReference / kAtmosphereScaleHeight_M);
+
+        Vec3 pos = releasePos;
+        Vec3 vel = releaseVel;
+        Vec3 prevPos = pos;
+        double elapsed = 0.0;
+
+        while (elapsed < kReleaseIntegrationMaxSeconds)
+        {
+            prevPos = pos;
+
+            Vec3 relVel{};
+            relVel.x = vel.x - worldWind.x;
+            relVel.y = vel.y - worldWind.y;
+            relVel.z = vel.z - worldWind.z;
+
+            const double relSpeed = sqrt((relVel.x * relVel.x) + (relVel.y * relVel.y) + (relVel.z * relVel.z));
+            Vec3 acc{};
+            acc.x = 0.0;
+            acc.y = -kGravity_MPS2;
+            acc.z = 0.0;
+
+            if (relSpeed > 0.25)
+            {
+                const double rho = seaLevelDensity * exp(-max(pos.y, 0.0) / kAtmosphereScaleHeight_M);
+                const double dragScale = 0.5 * rho * profile.dragCd * profile.referenceAreaM2 / profile.massKg;
+                const double dragAccel = dragScale * relSpeed * relSpeed;
+                const double invRelSpeed = 1.0 / relSpeed;
+                acc.x -= dragAccel * relVel.x * invRelSpeed;
+                acc.y -= dragAccel * relVel.y * invRelSpeed;
+                acc.z -= dragAccel * relVel.z * invRelSpeed;
+            }
+
+            vel.x += acc.x * kReleaseIntegrationStepSeconds;
+            vel.y += acc.y * kReleaseIntegrationStepSeconds;
+            vel.z += acc.z * kReleaseIntegrationStepSeconds;
+
+            pos.x += vel.x * kReleaseIntegrationStepSeconds;
+            pos.y += vel.y * kReleaseIntegrationStepSeconds;
+            pos.z += vel.z * kReleaseIntegrationStepSeconds;
+            elapsed += kReleaseIntegrationStepSeconds;
+
+            if (pos.y <= targetAltMeters)
+            {
+                const double denom = prevPos.y - pos.y;
+                const double fraction = (fabs(denom) > 1.0e-6) ? ((prevPos.y - targetAltMeters) / denom) : 1.0;
+                outImpactPos->x = prevPos.x + ((pos.x - prevPos.x) * fraction);
+                outImpactPos->y = targetAltMeters;
+                outImpactPos->z = prevPos.z + ((pos.z - prevPos.z) * fraction);
+                *outImpactTime = max(0.0, elapsed - kReleaseIntegrationStepSeconds + (kReleaseIntegrationStepSeconds * fraction));
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool compute_release_solution(double* outErrorMeters, double* outTimeToGoSeconds, double* outRangeMeters, bool* outInZone)
+    {
+        if (outErrorMeters == nullptr || outTimeToGoSeconds == nullptr || outRangeMeters == nullptr || outInZone == nullptr)
+        {
+            return false;
+        }
+
+        double targetWorld[3] = {0.0, 0.0, 0.0};
+        if (!CockpitInterop::GetIRADSLockWorldPoint(targetWorld))
+        {
+            return false;
+        }
+
+        const CcrpStoreModel& profile = get_ccrp_profile();
+        const double dx = targetWorld[0] - position_world_cs.x;
+        const double dz = targetWorld[2] - position_world_cs.z;
+        const double horizSpeed = sqrt((velocity_world_cs.x * velocity_world_cs.x) + (velocity_world_cs.z * velocity_world_cs.z));
+        const double horizRange = sqrt((dx * dx) + (dz * dz));
+        const double dropMeters = position_world_cs.y - targetWorld[1];
+
+        if (horizSpeed < max(kReleaseCueMinSpeedMPS, profile.minSpeedMPS) || dropMeters < max(kReleaseCueMinDropMeters, profile.minDropMeters))
+        {
+            return false;
+        }
+
+        const double vx = velocity_world_cs.x / horizSpeed;
+        const double vz = velocity_world_cs.z / horizSpeed;
+        const double alongTrack = (dx * vx) + (dz * vz);
+        if (alongTrack <= 0.0)
+        {
+            return false;
+        }
+
+        const double crossTrackSq = (horizRange * horizRange) - (alongTrack * alongTrack);
+        const double crossTrack = sqrt((crossTrackSq > 0.0) ? crossTrackSq : 0.0);
+        const Vec3 worldWind = get_world_wind_vector();
+        Vec3 impactPos{};
+        double impactTime = 0.0;
+        if (!simulate_bomb_impact_point(profile, position_world_cs, velocity_world_cs, worldWind, targetWorld[1], &impactPos, &impactTime))
+        {
+            return false;
+        }
+        (void)impactTime;
+
+        const Vec3 impactDelta
+        {
+            impactPos.x - position_world_cs.x,
+            impactPos.y - position_world_cs.y,
+            impactPos.z - position_world_cs.z
+        };
+        const double impactAlongTrack = (impactDelta.x * vx) + (impactDelta.z * vz);
+        const double errorMeters = alongTrack - impactAlongTrack;
+        const double timeToGo = (errorMeters > 0.0) ? (errorMeters / max(horizSpeed, profile.minSpeedMPS)) : 0.0;
+        const double acceptableWindow = max(profile.releaseWindowMeters, max(25.0, alongTrack * 0.02));
+        const bool inZone = (fabs(errorMeters) <= acceptableWindow) && (crossTrack <= max(100.0, alongTrack * 0.15));
+
+        *outErrorMeters = errorMeters;
+        *outTimeToGoSeconds = timeToGo;
+        *outRangeMeters = alongTrack;
+        *outInZone = inZone;
+        return true;
+    }
+
+    void publish_release_cue_params()
+    {
+        initialize_release_cue_params();
+        if (!g_releaseCueParamsInitialized)
+        {
+            return;
+        }
+
+        double errorMeters = 0.0;
+        double timeToGoSeconds = 0.0;
+        double rangeMeters = 0.0;
+        bool inZone = false;
+        const bool valid = CockpitInterop::HasIRADSLock() &&
+            compute_release_solution(&errorMeters, &timeToGoSeconds, &rangeMeters, &inZone);
+
+        if (valid)
+        {
+            F117::cockpitAPI.setParamNumber(g_releaseCueValidParam, 1.0);
+            F117::cockpitAPI.setParamNumber(g_releaseCueErrorParam, errorMeters);
+            F117::cockpitAPI.setParamNumber(g_releaseCueTimeToGoParam, timeToGoSeconds);
+            F117::cockpitAPI.setParamNumber(g_releaseCueRangeParam, rangeMeters);
+            F117::cockpitAPI.setParamNumber(g_releaseCueInZoneParam, inZone ? 1.0 : 0.0);
+        }
+        else
+        {
+            F117::cockpitAPI.setParamNumber(g_releaseCueValidParam, 0.0);
+            F117::cockpitAPI.setParamNumber(g_releaseCueErrorParam, 0.0);
+            F117::cockpitAPI.setParamNumber(g_releaseCueTimeToGoParam, 0.0);
+            F117::cockpitAPI.setParamNumber(g_releaseCueRangeParam, 0.0);
+            F117::cockpitAPI.setParamNumber(g_releaseCueInZoneParam, 0.0);
+        }
+    }
+
+    void publish_irads_lock_params()
+    {
+        initialize_irads_lock_params();
+        if (!g_iradsLockParamsInitialized)
+        {
+            return;
+        }
+
+        double world[3] = {0.0, 0.0, 0.0};
+        double polar[3] = {0.0, 0.0, 0.0};
+        const bool valid = CockpitInterop::HasIRADSLock() &&
+            CockpitInterop::GetIRADSLockWorldPoint(world) &&
+            CockpitInterop::GetIRADSLockPolar(polar);
+
+        if (valid)
+        {
+            F117::cockpitAPI.setParamNumber(g_iradsLockValidParam, 1.0);
+            F117::cockpitAPI.setParamNumber(g_iradsLockWorldXParam, world[0]);
+            F117::cockpitAPI.setParamNumber(g_iradsLockWorldYParam, world[1]);
+            F117::cockpitAPI.setParamNumber(g_iradsLockWorldZParam, world[2]);
+            F117::cockpitAPI.setParamNumber(g_iradsLockRangeParam, polar[2]);
+            F117::cockpitAPI.setParamNumber(g_iradsLockAzimuthParam, polar[0]);
+            F117::cockpitAPI.setParamNumber(g_iradsLockElevationParam, polar[1]);
+        }
+        else
+        {
+            F117::cockpitAPI.setParamNumber(g_iradsLockValidParam, 0.0);
+        }
+    }
+
     bool weapon_bay_is_open()
     {
         return F117::misc_state >= kWeaponBayOpenThreshold;
@@ -559,6 +952,7 @@ namespace
     {
         F117::weapon_release_pickle_held = false;
         F117::weapon_release_gate = false;
+        F117::weapon_release_gate_fired = false;
         F117::weapon_bay_owned_by_release = false;
         F117::weapon_bay_close_pending = false;
         F117::weapon_bay_close_delay = 0.0;
@@ -571,15 +965,16 @@ namespace
         F117::weapon_bay_close_delay = 0.0;
         F117::weapon_release_pickle_held = true;
         F117::weapon_release_gate = false;
+        F117::weapon_release_gate_fired = false;
 
-        if (weapon_bay_is_open())
-        {
-            F117::weapon_release_gate = true;
-        }
-        else
+        if (!weapon_bay_is_open())
         {
             command_weapon_bay_open();
             F117::weapon_bay_owned_by_release = true;
+        }
+        else
+        {
+            F117::weapon_bay_owned_by_release = false;
         }
 
         publish_weapon_release_gate_param();
@@ -589,6 +984,7 @@ namespace
     {
         F117::weapon_release_pickle_held = false;
         F117::weapon_release_gate = false;
+        F117::weapon_release_gate_fired = false;
 
         if (F117::weapon_bay_owned_by_release)
         {
@@ -615,11 +1011,23 @@ namespace
 
     void update_weapon_release_sequence(double dt)
     {
-        if (F117::weapon_release_pickle_held &&
-            !F117::weapon_release_gate &&
-            weapon_bay_is_open())
+        double errorMeters = 0.0;
+        double timeToGoSeconds = 0.0;
+        double rangeMeters = 0.0;
+        bool inZone = false;
+        const bool hasSolution = CockpitInterop::HasIRADSLock() &&
+            compute_release_solution(&errorMeters, &timeToGoSeconds, &rangeMeters, &inZone);
+
+        const bool releaseReady = F117::weapon_release_pickle_held &&
+            weapon_bay_is_open() &&
+            hasSolution &&
+            inZone &&
+            !F117::weapon_release_gate_fired;
+
+        F117::weapon_release_gate = releaseReady;
+        if (releaseReady)
         {
-            F117::weapon_release_gate = true;
+            F117::weapon_release_gate_fired = true;
         }
 
         if (!F117::weapon_release_pickle_held &&
@@ -641,6 +1049,7 @@ namespace
             }
         }
 
+        publish_release_cue_params();
         publish_weapon_release_gate_param();
     }
     bool handle_engine_and_throttle_command(int command, float value)
@@ -1223,6 +1632,12 @@ void ed_fm_simulate(double dt)
 {
 	F117::DeltaTime = dt;
 
+	CockpitInterop::ForceIRADSIndicatorActive();
+	CockpitInterop::UpdateIRADSSensorFrame(dt,
+		position_world_cs.x, position_world_cs.y, position_world_cs.z,
+		F117::aircraftQuaternionX, F117::aircraftQuaternionY,
+		F117::aircraftQuaternionZ, F117::aircraftQuaternionW);
+	publish_irads_lock_params();
 
 log_simulation_frame(dt);
 
@@ -1405,6 +1820,13 @@ void ed_fm_set_current_state (double ax,//linear acceleration component in world
 	vx_world = vx;
 	vy_world = vy;
 	vz_world = vz;
+	position_world_cs.x = px;
+	position_world_cs.y = py;
+	position_world_cs.z = pz;
+	F117::aircraftQuaternionX = quaternion_x;
+	F117::aircraftQuaternionY = quaternion_y;
+	F117::aircraftQuaternionZ = quaternion_z;
+	F117::aircraftQuaternionW = quaternion_w;
 
 	F117::vspeed = vy -3.25; // Bias retained to match the current autopilot tuning.
 }
@@ -1473,6 +1895,11 @@ void ed_fm_set_current_state_body_axis(
 
 void ed_fm_set_command(int command, float value)	// Command = Command Index (See Export.lua), Value = Signal Value (-1 to 1 for Joystick Axis)
 {
+    if (CockpitInterop::HandleIRADSCommand(command, value))
+    {
+        return;
+    }
+
     if (handle_roll_command(command, value))
     {
         return;
@@ -2126,6 +2553,7 @@ void ed_fm_cold_start()
 {
     apply_ground_start_state(false);
     log_damage_lifecycle_event("ed_fm_cold_start");
+    CockpitInterop::InjectIRADSSensor_Late();
 }
 
 
@@ -2135,6 +2563,7 @@ void ed_fm_hot_start()
 {
     apply_ground_start_state(true);
     log_damage_lifecycle_event("ed_fm_hot_start");
+    CockpitInterop::InjectIRADSSensor_Late();
 }
 
 
@@ -2144,6 +2573,7 @@ void ed_fm_hot_start_in_air()
 {
     apply_air_start_state();
     log_damage_lifecycle_event("ed_fm_hot_start_in_air");
+    CockpitInterop::InjectIRADSSensor_Late();
 }
 
 

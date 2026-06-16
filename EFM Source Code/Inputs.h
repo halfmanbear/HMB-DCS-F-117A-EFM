@@ -109,6 +109,19 @@ enum InputCommands
 	autopilot_alt_roll = 387,  // [Left alt + 6]
 	autopilot_reset = 408,  // [Left alt + 9]
 
+	// stock DCS TV sensor commands used by cockpit Lua
+	TVSensorZoomIn = 103,
+	TVSensorZoomOut = 104,
+
+	// IRADS / DLIR custom commands
+	IRADSSlewLeft = 10110,
+	IRADSSlewRight = 10111,
+	IRADSSlewUp = 10112,
+	IRADSSlewDown = 10113,
+	IRADSSlewStop = 10114,
+	IRADSZoomIn = 10008,  // matches Keys.IRADSZoomIn in command_defs.lua
+	IRADSZoomOut = 10009, // matches Keys.IRADSZoomOut in command_defs.lua
+	IRADSDesignationClear = 10117,
+
 	Reserved // placeholder
 };
-
