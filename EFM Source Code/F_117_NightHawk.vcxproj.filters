@@ -3,12 +3,13 @@
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="F_117_NightHawk.cpp" />
-    <ClCompile Include="FlightControls\FlightControls.cpp">
-      <Filter>FlightControls</Filter>
-    </ClCompile>
     <ClCompile Include="stdafx.cpp">
       <Filter>include</Filter>
     </ClCompile>
+    <ClCompile Include="FlightControls\FlightControls.cpp">
+      <Filter>FlightControls</Filter>
+    </ClCompile>
+    <ClCompile Include="Avionics\CockpitBase_Interop.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="F_117_NightHawk.h" />
@@ -54,6 +55,7 @@
     <ClInclude Include="targetver.h">
       <Filter>Headers</Filter>
     </ClInclude>
+    <ClInclude Include="Avionics\CockpitBase_Interop.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Aerodynamics">

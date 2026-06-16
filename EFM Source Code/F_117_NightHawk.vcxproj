@@ -109,6 +109,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;ED_FM_TEMPLATE_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)\Avionics;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -157,6 +158,7 @@
     <ClInclude Include="Aerodynamics\Aero.h" />
     <ClInclude Include="Aerodynamics\AeroData.h" />
     <ClInclude Include="Atmosphere\Atmosphere.h" />
+    <ClInclude Include="Avionics\CockpitBase_Interop.h" />
     <ClInclude Include="Engine\Engine.h" />
     <ClInclude Include="FlightControls\FlightControls.h" />
     <ClInclude Include="F_117_NightHawk.h" />
@@ -170,6 +172,7 @@
     <ClInclude Include="UtilityFunctions.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Avionics\CockpitBase_Interop.cpp" />
     <ClCompile Include="dllmain.cpp">
       <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</CompileAsManaged>
       <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</CompileAsManaged>
