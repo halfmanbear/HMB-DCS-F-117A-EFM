@@ -1,71 +1,5 @@
-// ============================================================================
-// CockpitBase_Interop.cpp — two-phase avTVSensor injection
-// ============================================================================
-// Phase A (DllMain): construct avTVSensor + devices_keeper::add()
-//   Runs as early as possible. If ccCockpitContext is not yet initialised
-//   (contexts_ptr is NULL), the attempt is silently skipped; Phase B will
-//   retry before doing anything else.
-//   device_init.lua must have NO creators[devices.IRADS] entry.
-//
-// Phase B (ed_fm_cold/hot_start):
-//   1. Retry Phase A if it was skipped (contexts_ptr was NULL at DllMain time).
-//   2. Verify devices_keeper[9] still holds our sensor.
-//   3. Ensure avTVSensor::initialize() has run — check byte+0x260 (active flag).
-//      If not, call it explicitly.  initialize() creates the search timer,
-//      calls initLimits (→ "TV_SENSOR_V_70X100"), and cages the gimbal.
-//   4. Override the camera mount position via vtable[4] with the F-117A DLIR
-//      belly coordinates. This overrides whatever avPlatform::initialize()
-//      read from the (absent) model sensor station.
-//   5. Call SET_FLIR_TECHINIQE_DEFAULT to activate the IR render pass.
-//
-// Crash fix A — avDevice+0x50 (lua_State*):
-//   avTVSensor ctor writes double -1.0 (0xBFF0000000000000) at +0x50, which
-//   overlays the avDevice base-class lua_State* slot.  avDevice::start() passes
-//   that pointer to Lua::Config::Config → lua_gettop → ACCESS_VIOLATION.
-//   Fix: zero +0x50 immediately after the ctor returns.
-//
-// Crash fix B — avDevice+0x58 (subsystem pointer vs. camera zoom double):
-//   Ghidra decompilation of avDevice::start (RVA 0x236570) shows:
-//
-//     (**(code **)(*(longlong *)this + 0x38))();     // vtable[7](this)
-//     ...
-//     plVar1 = *(longlong **)(this + 0x58);
-//     if (plVar1 != NULL) {
-//         (**(code **)(*plVar1 + 0x20))(plVar1, 0); // ← CRASH
-//     }
-//
-//   avDevice uses +0x58 as a subsystem object pointer (null = no subsystem).
-//   avTVSensor ctor writes double 1.0 (0x3FF0000000000000) there as a camera
-//   zoom/scale parameter. Non-null → avDevice::start dereferences 1.0 as an
-//   address → ACCESS_VIOLATION.
-//
-//   vtable[7] is called first and reads +0x58 = 1.0 for camera setup, so we
-//   cannot zero it before that virtual call.
-//
-//   Fix: install a per-instance vtable hook on slot 7. Our wrapper calls the
-//   real virtual function with all camera params intact, then zeros +0x50 and
-//   +0x58 before avDevice::start reads them as pointers.
-//
-// avTVSensor object layout (from CockpitBase.dll decompilation):
-//   +0x000  primary vtable ptr (avPlatform face)
-//   +0x050  double -1.0 written by ctor → avDevice lua_State* slot (zero it)
-//   +0x058  double  1.0 written by ctor → avDevice subsystem* slot (zero after vtable[7])
-//   +0x260  byte active flag — set to 1 only by initialize()
-//   +0x268  avBasicSensor_SearchTimer*  — null until initialize() runs
-//   +0x2C8  avMotor_Additive  (azimuth slew, offset 712)
-//   +0x2F8  avMotor_Additive  (elevation slew, offset 760)
-//   +0x328  Vec3d cached tracked/designated world point
-//   +0x340  byte mode — 3 means actively tracking
-//   +0x348  base FOV
-//   +0x358  current zoom
-//   +0x3B0  avTrackData       (tracking state, offset 944)
-//   +0x4C0  camera aspect ratio
-//   +0x4C8  sensor_frame      (current video frame, offset 1224)
-//   +0x610  hat-lock flag
-//   +0x648  avSensorLimits    ("EMPTY" after ctor, "TV_SENSOR_V_70X100" after initLimits)
-//   total object size: 1776 bytes (alloc 0x800 = 2048 — sufficient)
-// ============================================================================
-
+﻿// Standalone avTVSensor and explicit ccIndicator camera bridge.
+// avTVSensor is NOT an avDevice: never register/start it through devices_keeper.
 #include "stdafx.h"
 #include "CockpitBase_Interop.h"
 #include "CockpitBase_Layouts.h"
@@ -73,14 +7,15 @@
 #include <cstring>
 #include <cstdio>
 #include <cmath>
+#include <limits>
 #include <malloc.h>
 #include <string>
 
 namespace CockpitInterop
 {
-    static constexpr const char* kIRADSBuildMarker = "2026-04-23-1638-diag-groundstab-v1";
+    static constexpr const char* kIRADSBuildMarker = "2026-10-28-terrain-lock-v11";
 
-    // ── Globals ───────────────────────────────────────────────────────────────
+    // â”€â”€ Globals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     HMODULE                   g_hDLL                   = nullptr;
     PFN_avTVSensor_ctor       g_avTVSensor_ctor        = nullptr;
     PFN_avTVSensor_initialize g_avTVSensor_initialize  = nullptr;
@@ -126,17 +61,32 @@ namespace CockpitInterop
     static FILE* s_log          = nullptr;
     static float s_irads_horizontal_axis = 0.0f;
     static float s_irads_vertical_axis   = 0.0f;
+    // Keep centered analog input from cancelling a held keyboard direction.
+    static float s_irads_analog_horizontal = 0.0f, s_irads_analog_vertical = 0.0f;
+    static float s_irads_keyboard_horizontal = 0.0f, s_irads_keyboard_vertical = 0.0f;
+    static int s_irads_zoom_level = 1;
+    static bool s_irads_power = true;
     static bool  s_irads_lock_valid      = false;
+    static bool s_irads_ray_valid=false, s_irads_terrain_pending=false;
+    static double s_irads_render_ray[6]={}, s_irads_request_ray[6]={};
+    static unsigned s_irads_terrain_sequence=0;
+    static double s_irads_terrain_wait=0;
+
     static bool  s_irads_designating     = false;
     static double s_last_aircraft_pos[3]  = {0.0, 0.0, 0.0};
     static double s_last_aircraft_quat[4] = {0.0, 0.0, 0.0, 1.0};
     static double s_irads_lock_world[3]   = {0.0, 0.0, 0.0};
     static double s_irads_lock_polar[3]   = {0.0, 0.0, 0.0};
+    // When designation could not run stabilizeOnGround (which rewrites +0x328
+    // synchronously), the cached point may still hold the previous designation.
+    // Reject a capture until +0x328 differs from this snapshot.
+    static bool   s_require_fresh_point   = false;
+    static double s_stale_point[3]        = {0.0, 0.0, 0.0};
+    static void*  s_our_ind               = nullptr;   // cached DLIR indicator (owned by DCS)
 
-    // ── Sensor state accessors ────────────────────────────────────────────────
+    // â”€â”€ Sensor state accessors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Vtable slot indices (multiply by 8 for byte offset into vtable).
     static constexpr size_t VTABLE_SLOT_SET_POS  = 4;     // avPlatform::setPlatformLocalPosition
-    static constexpr size_t VTABLE_SLOT_LOAD_CFG = 7;     // avDevice::start calls this first
 
     static AvTVSensorLayout* AsSensor(void* sensor)
     {
@@ -199,32 +149,11 @@ namespace CockpitInterop
                     continue;
 
                 CcIndicatorLayout* v = AsIndicator(ind);
-                if (v->controller == g_avTVSensor_instance)
+                if (v->indicatorType == 0 && static_cast<int32_t>(v->renderTargetId) == 0)
                 {
                     *out_indicator = ind;
                     if (out_depth) *out_depth = depth;
                     return true;
-                }
-            }
-
-            if (allow_force_link)
-            {
-                for (void** p = arr_start; p < arr_end; ++p)
-                {
-                    void* ind = *p;
-                    if (!ind)
-                        continue;
-
-                    CcIndicatorLayout* v = AsIndicator(ind);
-                    if (v->indicatorType == 0 &&
-                        static_cast<int32_t>(v->renderTargetId) == 0 &&
-                        (v->controller == nullptr || v->controller == g_avTVSensor_instance))
-                    {
-                        v->controller = g_avTVSensor_instance;
-                        *out_indicator = ind;
-                        if (out_depth) *out_depth = depth;
-                        return true;
-                    }
                 }
             }
         }
@@ -279,7 +208,7 @@ namespace CockpitInterop
         }
 
         // Non-tracking modes: read cached designated/stabilised point at +0x328.
-        // This is populated by set_external_designation → mode 4/5 stabilisation loop.
+        // This is populated by set_external_designation â†’ mode 4/5 stabilisation loop.
         out_point[0] = sensor->cachedTrackedPoint[0];
         out_point[1] = sensor->cachedTrackedPoint[1];
         out_point[2] = sensor->cachedTrackedPoint[2];
@@ -304,32 +233,7 @@ namespace CockpitInterop
         out_polar[2] = track->relativeRange;
     }
 
-    static bool TryCaptureIRADSLock()
-    {
-        double world[3];
-        if (!GetSensorTrackPoint(world))
-            return false;
 
-        s_irads_lock_world[0] = world[0];
-        s_irads_lock_world[1] = world[1];
-        s_irads_lock_world[2] = world[2];
-        GetSensorPolar(s_irads_lock_polar);
-        s_irads_lock_valid = true;
-        if (s_designation_diag_logs < 8)
-        {
-            AvTVSensorLayout* sensor = AsSensor(g_avTVSensor_instance);
-            void* sensorLink = *reinterpret_cast<void**>(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x20);
-            Log("TryCaptureIRADSLock: mode=%u cached=(%.2f, %.2f, %.2f) polar=(%.2f, %.2f, %.2f) frame=(%.4f, %.4f) pose=(%.2f, %.2f, %.2f) link=%p",
-                (unsigned)sensor->trackMode,
-                sensor->cachedTrackedPoint[0], sensor->cachedTrackedPoint[1], sensor->cachedTrackedPoint[2],
-                s_irads_lock_polar[0], s_irads_lock_polar[1], s_irads_lock_polar[2],
-                sensor->currentFrame.halfAzimuth, sensor->currentFrame.halfElevation,
-                sensor->platformWorldPose.m[12], sensor->platformWorldPose.m[13], sensor->platformWorldPose.m[14],
-                sensorLink);
-            ++s_designation_diag_logs;
-        }
-        return true;
-    }
 
     static bool SeedInjectedSensorLinkHost()
     {
@@ -415,9 +319,9 @@ namespace CockpitInterop
             return false;
         }
 
-        // IDA shows ccCockpitContext::init_unit() copies a LinkBase object from
-        // a temporary into context+0x18, and avPlatform::set_carrier() copies an
-        // equivalent LinkBase into sensor+0x10. Recreate that object directly.
+        // ccCockpitContext::init_unit() initializes a LinkBase object from
+        // a temporary into context+0x18, and avPlatform::set_carrier() expects an
+        // equivalent LinkBase at sensor+0x10. Recreate that object directly.
         std::memcpy(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x10,
                     sourceCtx->carrierLinkBaseStorage,
                     sizeof(sourceCtx->carrierLinkBaseStorage));
@@ -435,46 +339,34 @@ namespace CockpitInterop
 
     static bool GroundStabilizeIRADS()
     {
-        if (!g_avTVSensor_instance)
-            return false;
-
-        SeedInjectedSensorPose(
-            s_last_aircraft_pos[0], s_last_aircraft_pos[1], s_last_aircraft_pos[2],
-            s_last_aircraft_quat[0], s_last_aircraft_quat[1],
-            s_last_aircraft_quat[2], s_last_aircraft_quat[3]);
-
-        if (g_avTVSensor_stabilize_on_ground)
-        {
-            const bool hasCarrierLinkBase = SeedInjectedSensorCarrierLinkBase();
-            if (s_designation_diag_logs < 8)
-            {
-                Log("GroundStabilizeIRADS: stabilizeOnGround(useCarrier=%d) sensorLink=%p",
-                    hasCarrierLinkBase ? 1 : 0,
-                    *reinterpret_cast<void**>(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x20));
-            }
-            g_avTVSensor_stabilize_on_ground(g_avTVSensor_instance, hasCarrierLinkBase ? 1 : 0);
-            return true;
+        if (!g_avTVSensor_instance || !s_irads_power || !s_irads_ray_valid) return false;
+        double norm=0;
+        for(int i=0;i<6;++i) if(!std::isfinite(s_irads_render_ray[i])) return false;
+        for(int i=3;i<6;++i) norm+=s_irads_render_ray[i]*s_irads_render_ray[i];
+        if(!std::isfinite(norm) || norm<0.5) return false;
+        norm=std::sqrt(norm);
+        for(int i=0;i<3;++i) {
+            s_irads_request_ray[i]=s_irads_render_ray[i];
+            s_irads_request_ray[i+3]=s_irads_render_ray[i+3]/norm;
         }
-
-        if (g_avTVSensor_search)
-        {
-            if (s_designation_diag_logs < 8)
-                Log("GroundStabilizeIRADS: search fallback");
-            g_avTVSensor_search(g_avTVSensor_instance);
-            return true;
-        }
-
-        if (s_designation_diag_logs < 8)
-            Log("GroundStabilizeIRADS: no native designation path available");
-        return false;
+        s_irads_lock_valid=false;
+        s_irads_terrain_pending=true;
+        s_irads_terrain_wait=0;
+        if(++s_irads_terrain_sequence>10000000) s_irads_terrain_sequence=1;
+        Log("IRADS terrain request: id=%u eye=(%.3f,%.3f,%.3f) direction=(%.8f,%.8f,%.8f)",
+            s_irads_terrain_sequence,s_irads_request_ray[0],s_irads_request_ray[1],s_irads_request_ray[2],
+            s_irads_request_ray[3],s_irads_request_ray[4],s_irads_request_ray[5]);
+        return true;
     }
 
     static void ClearIRADSLock()
     {
         s_irads_lock_valid = false;
+        s_irads_terrain_pending = false;
         s_irads_designating = false;
         s_irads_lock_world[0] = s_irads_lock_world[1] = s_irads_lock_world[2] = 0.0;
         s_irads_lock_polar[0] = s_irads_lock_polar[1] = s_irads_lock_polar[2] = 0.0;
+        s_require_fresh_point = false;
     }
 
     static void SetExternalDesignation(bool enabled)
@@ -485,7 +377,7 @@ namespace CockpitInterop
         }
     }
 
-    // ── Logging ───────────────────────────────────────────────────────────────
+    // â”€â”€ Logging â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     static void OpenLog()
     {
@@ -525,68 +417,7 @@ namespace CockpitInterop
         Log_(buf);
     }
 
-    // ── Vtable[7] hook ────────────────────────────────────────────────────────
-    // avDevice::start calls vtable[7](this) then reads this+0x58 as a pointer.
-    // avTVSensor ctor writes double 1.0 to +0x58; vtable[7] needs that value
-    // for camera/render-target setup, so we cannot zero it before the call.
-    // We wrap vtable[7]: call the real function, then zero +0x50 and +0x58.
-
-    static uintptr_t* s_private_vtable  = nullptr;
-    static uintptr_t  s_orig_vtable7_fn = 0;
-
-    static void __fastcall Vtable7Wrapper(void* self)
-    {
-        // Call the real avTVSensor virtual with all ctor camera params intact.
-        reinterpret_cast<void(__fastcall*)(void*)>(s_orig_vtable7_fn)(self);
-
-        // After it returns, zero both "double-as-pointer" fields so that
-        // avDevice::start's subsequent checks see NULL and skip crash paths.
-        AvTVSensorLayout* sensor = AsSensor(self);
-        sensor->luaStateAlias = 0;
-        sensor->subsystemAlias = 0;
-        Log_("Vtable7Wrapper: real vtable[7] done, +0x50 and +0x58 zeroed");
-    }
-
-    static bool InstallVtable7Hook(void* sensor)
-    {
-        static constexpr size_t VTABLE_ENTRIES = 128;  // avTVSensor has many virtuals
-
-        uintptr_t* origVtable = *reinterpret_cast<uintptr_t**>(sensor);
-        Log("InstallVtable7Hook: origVtable=%p  slot7=%p",
-            (void*)origVtable, (void*)origVtable[VTABLE_SLOT_LOAD_CFG]);
-
-        s_private_vtable = static_cast<uintptr_t*>(
-            malloc(VTABLE_ENTRIES * sizeof(uintptr_t)));
-        if (!s_private_vtable) { Log_("InstallVtable7Hook: malloc failed"); return false; }
-
-        memcpy(s_private_vtable, origVtable, VTABLE_ENTRIES * sizeof(uintptr_t));
-        s_orig_vtable7_fn                       = origVtable[VTABLE_SLOT_LOAD_CFG];
-        s_private_vtable[VTABLE_SLOT_LOAD_CFG]  = reinterpret_cast<uintptr_t>(&Vtable7Wrapper);
-
-        *reinterpret_cast<uintptr_t**>(sensor) = s_private_vtable;
-        Log("InstallVtable7Hook: slot7 → Vtable7Wrapper, orig=%p", (void*)s_orig_vtable7_fn);
-        return true;
-    }
-
-    // ── Fix 3: Set IRADS camera position ─────────────────────────────────────
-    // avTVSensor::initialize() calls avPlatform::setPlatformInitialLocalPosition via
-    // vtable[4] with coordinates read from the model file. Our injected sensor
-    // has no model entry, so initialize() reads zeros and places the camera at
-    // (4.0, 0, 0) in model-local space. We override this with the real F-117A
-    // DLIR belly mount position after initialize() has run.
-    //
-    // The position matrix is a row-major 4×4 double (wPosition3<N>):
-    //   [0..3]  = right-axis row    (body X)
-    //   [4..7]  = up-axis row       (body Y)
-    //   [8..11] = forward-axis row  (body Z)
-    //   [12..15]= translation row   (position, last element = 1.0)
-    //
-    // Identity orientation (sensor points forward along body X):
-    //   right   = (1, 0, 0)
-    //   up      = (0, 1, 0)
-    //   forward = (0, 0, 1)
-    //   pos     = (IRADS_POS_X, IRADS_POS_Y, IRADS_POS_Z, 1.0)
-
+    // Set the standalone sensor mount through avPlatform.
     static void SetCameraPosition(void* sensor)
     {
         double mat[16] = {
@@ -694,28 +525,33 @@ namespace CockpitInterop
         }
     }
 
-    // ── Initialize ────────────────────────────────────────────────────────────
+    // â”€â”€ Initialize â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    // g_hDLL is our EFM module (used for the log path), not CockpitBase.
+    static FARPROC ResolveCockpitBaseExport(const char* name)
+    {
+        const HMODULE module = GetModuleHandleA("CockpitBase.dll");
+        return module ? GetProcAddress(module, name) : nullptr;
+    }
 
     bool Initialize()
     {
         if (s_initialized)
-            return g_avTVSensor_ctor && g_devices_keeper_add && g_contexts_ptr_addr &&
-                   g_avDevice_start && g_avTVSensor_update && g_avTVSensor_update_frame &&
+            return g_avTVSensor_ctor && g_avTVSensor_initialize && g_contexts_ptr_addr &&
+                   g_avTVSensor_update && g_avTVSensor_update_frame &&
                    g_avTVSensor_zoom_in &&
                    g_avTVSensor_zoom_out;
 
         HMODULE hCB = GetModuleHandleA("CockpitBase.dll");
         Log("Initialize: build marker %s", kIRADSBuildMarker);
-        if (!hCB) { Log_("Initialize: CockpitBase.dll not yet loaded — will retry"); return false; }
+        if (!hCB) { Log_("Initialize: CockpitBase.dll not yet loaded â€” will retry"); return false; }
 
-#define LOAD(var, name)         var = reinterpret_cast<decltype(var)>(GetProcAddress(hCB, name));         Log("Initialize: %-60s → %p", name, (void*)var);
+#define LOAD(var, name)         var = reinterpret_cast<decltype(var)>(GetProcAddress(hCB, name));         Log("Initialize: %-60s â†’ %p", name, (void*)var);
 
         LOAD(g_avTVSensor_ctor,         "??0avTVSensor@cockpit@@QEAA@XZ");
         LOAD(g_avTVSensor_initialize,   "?initialize@avTVSensor@cockpit@@UEAAXXZ");
         LOAD(g_avTVSensor_initZoom,     "?initZoom@avTVSensor@cockpit@@MEAAXXZ");
-        LOAD(g_devices_keeper_add,      "?add@devices_keeper@cockpit@@QEAAXPEAVavDevice@2@@Z");
-        LOAD(g_devices_keeper_get,      "?get@devices_keeper@cockpit@@QEAAPEAVavDevice@2@E@Z");
-        // SET_FLIR_TECHINIQE_DEFAULT is not exported — we write preffered_IR_effect directly via RVA.
+        // preffered_IR_effect is resolved by export name in InjectIRADSSensor_Late.
         // g_setFlirDefault remains null.
         LOAD(g_avTVSensor_update,       "?update@avTVSensor@cockpit@@UEAAXN@Z");
         LOAD(g_avTVSensor_update_frame, "?update_frame@avTVSensor@cockpit@@MEAAXXZ");
@@ -733,7 +569,6 @@ namespace CockpitInterop
         LOAD(g_avTVSensor_zoom_out,     "?zoom_out@avTVSensor@cockpit@@UEAAXXZ");
         LOAD(g_avTVSensor_get_tracked_point, "?get_tracked_point@avTVSensor@cockpit@@MEBA?AVVec3d@osg@@XZ");
         LOAD(g_avTVSensor_get_polar_position, "?getPolarPosition@avTVSensor@cockpit@@UEBA?AVPolar@Math@@XZ");
-        LOAD(g_avDevice_start,          "?start@avDevice@cockpit@@QEAAXI@Z");
         LOAD(g_avPlatform_ctor,         "??0avPlatform@cockpit@@QEAA@XZ");
         LOAD(g_avPlatform_set_carrier,  "?set_carrier@avPlatform@cockpit@@UEAAXPEAVMovingObject@@@Z");
         LOAD(g_avPlatform_update_pos,   "?update_platform_position@avPlatform@cockpit@@QEAAXXZ");
@@ -750,30 +585,30 @@ namespace CockpitInterop
 
         s_initialized = true;
 
-        bool ok = g_avTVSensor_ctor && g_devices_keeper_add && g_contexts_ptr_addr &&
-                  g_avDevice_start && g_avTVSensor_update && g_avTVSensor_update_frame &&
+        bool ok = g_avTVSensor_ctor && g_avTVSensor_initialize && g_contexts_ptr_addr &&
+                  g_avTVSensor_update && g_avTVSensor_update_frame &&
                   g_avTVSensor_zoom_in &&
                   g_avTVSensor_zoom_out;
-        Log(ok ? "Initialize: OK" : "Initialize: PARTIAL — some exports missing");
+        Log(ok ? "Initialize: OK" : "Initialize: PARTIAL â€” some exports missing");
 
         if (!g_avTVSensor_initialize)
-            Log_("Initialize: WARNING — avTVSensor::initialize not exported; "
-                 "will attempt to rely on DCS ccCockpitContext::start() only");
+            Log_("Initialize: WARNING â€” avTVSensor::initialize not exported; "
+                 "standalone sensor cannot initialize");
         if (!g_avTVSensor_initZoom)
-            Log_("Initialize: WARNING — avTVSensor::initZoom not exported; "
+            Log_("Initialize: WARNING â€” avTVSensor::initZoom not exported; "
                  "will fall back to direct zoom reset");
         if (!g_avTVSensor_move_horizontal_abs || !g_avTVSensor_move_vertical_abs)
-            Log_("Initialize: WARNING — avTVSensor absolute-axis exports missing; "
+            Log_("Initialize: WARNING â€” avTVSensor absolute-axis exports missing; "
                  "will fall back to directional slew handlers");
         if (!g_avTVSensor_search)
-            Log_("Initialize: WARNING — avTVSensor::search not exported; designation can only capture existing tracks");
+            Log_("Initialize: WARNING â€” avTVSensor::search not exported; designation can only capture existing tracks");
         if (!g_avTVSensor_stabilize_on_ground)
-            Log_("Initialize: WARNING — avTVSensor::stabilizeOnGround not exported; ground designation will fall back to search");
+            Log_("Initialize: WARNING â€” avTVSensor::stabilizeOnGround not exported; ground designation will fall back to search");
 
         return ok;
     }
 
-    // ── Phase A ───────────────────────────────────────────────────────────────
+    // â”€â”€ Phase A â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     bool InjectIRADSSensor_Early()
     {
@@ -783,9 +618,9 @@ namespace CockpitInterop
 
         CcCockpitContextLayout* ctx = AsContext(*g_contexts_ptr_addr);
         Log("InjectIRADSSensor_Early: contexts_ptr value = %p", (void*)ctx);
-        if (!ctx) { Log_("InjectIRADSSensor_Early: context NULL — too early, will retry in Late."); return false; }
+        if (!ctx) { Log_("InjectIRADSSensor_Early: context NULL â€” too early, will retry in Late."); return false; }
 
-        // ── Construct avTVSensor ──────────────────────────────────────────────
+        // â”€â”€ Construct avTVSensor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (!g_avTVSensor_instance)
         {
             void* mem = _aligned_malloc(AVTVSENSOR_ALLOC_SIZE, 16);
@@ -795,38 +630,13 @@ namespace CockpitInterop
             void* result = g_avTVSensor_ctor(mem);
             if (!result) { Log_("InjectIRADSSensor_Early: ctor returned null."); _aligned_free(mem); return false; }
 
-            // Crash fix A: zero lua_State* at +0x50.
-            // ctor writes double -1.0 there; avDevice::start treats it as
-            // lua_State* and crashes. Zero it before avDevice::start runs.
-            // vtable[7] does NOT read +0x50, so this is safe to zero now.
-            AsSensor(mem)->luaStateAlias = 0;
-
-            // Crash fix B: install vtable[7] hook.
-            // avDevice::start calls vtable[7](this) (needs +0x58 = 1.0 for
-            // camera setup), then reads +0x58 as subsystem*. The hook lets
-            // vtable[7] run intact, then zeros both +0x50 and +0x58 afterward.
-            InstallVtable7Hook(mem);
-
+            using SetPlatform = void (__fastcall*)(void*, void*);
+            const auto setPlatform = reinterpret_cast<SetPlatform>(ResolveCockpitBaseExport(
+                "?set_platform@avPlatform@cockpit@@UEAAXPEAV12@@Z"));
+            if (!setPlatform) { Log_("IRADS: set_platform missing; initialization stopped"); return false; }
+            setPlatform(mem, nullptr); // native null-parent path establishes root=self
             g_avTVSensor_instance = mem;
             Log("InjectIRADSSensor_Early: avTVSensor constructed @ %p", (void*)mem);
-        }
-
-        // Stamp the device slot byte used by devices_keeper::add().
-        AsSensor(g_avTVSensor_instance)->deviceSlotIndex = IRADS_DEVICE_INDEX;
-
-        // Add to devices_keeper at ccCockpitContext+0x30.
-        // The keeper is what DCS's indicator system queries when looking up
-        // the TV sensor for an MFD. This must happen before ccCockpitContext::start().
-        void* keeper = ctx->devicesKeeperStorage;
-        g_devices_keeper_add(keeper, g_avTVSensor_instance);
-
-        if (g_devices_keeper_get)
-        {
-            void* stored = g_devices_keeper_get(keeper, IRADS_DEVICE_INDEX);
-            Log("InjectIRADSSensor_Early: devices_keeper[%d] = %p  (expected %p)",
-                (int)IRADS_DEVICE_INDEX, (void*)stored, g_avTVSensor_instance);
-            if (stored != g_avTVSensor_instance)
-                Log_("InjectIRADSSensor_Early: WARNING — keeper slot does not hold our sensor!");
         }
 
         s_added = true;
@@ -834,7 +644,7 @@ namespace CockpitInterop
         return true;
     }
 
-    // ── Phase B ───────────────────────────────────────────────────────────────
+    // â”€â”€ Phase B â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     bool InjectIRADSSensor_Late()
     {
@@ -844,10 +654,10 @@ namespace CockpitInterop
         // Fix 1: retry Early if DllMain ran before the cockpit context existed.
         if (!s_added)
         {
-            Log_("InjectIRADSSensor_Late: Early not done — retrying now.");
+            Log_("InjectIRADSSensor_Late: Early not done â€” retrying now.");
             if (!InjectIRADSSensor_Early())
             {
-                Log_("InjectIRADSSensor_Late: Early retry failed — cannot proceed.");
+                Log_("InjectIRADSSensor_Late: Early retry failed â€” cannot proceed.");
                 return false;
             }
         }
@@ -860,69 +670,36 @@ namespace CockpitInterop
         if (!ctx)
             ctx = bindingCtx;
 
-        // ── Verify keeper slot ────────────────────────────────────────────────
-        if (g_devices_keeper_get && g_avTVSensor_instance)
-        {
-            void* keeper = ctx->devicesKeeperStorage;
-            void* stored = g_devices_keeper_get(keeper, IRADS_DEVICE_INDEX);
-            Log("InjectIRADSSensor_Late: devices_keeper[%d]=%p  our sensor=%p",
-                (int)IRADS_DEVICE_INDEX, (void*)stored, g_avTVSensor_instance);
-            if (stored != g_avTVSensor_instance)
-                Log_("InjectIRADSSensor_Late: WARNING — slot was overwritten by DCS!");
-        }
-
         if (!g_avTVSensor_instance) { Log_("InjectIRADSSensor_Late: no sensor instance!"); return false; }
         AvTVSensorLayout* sensor = AsSensor(g_avTVSensor_instance);
 
-        // ── Fix 2: ensure initialize() has run ───────────────────────────────
-        // byte at +608 is set to 1 exclusively by avTVSensor::initialize().
-        // If DCS called ccCockpitContext::start() after we added the device,
-        // initialize() ran automatically (via avDevice::start → vtable chain).
-        // If not (Early was too late, or start() was already done), we call it.
+        // This is a standalone avBasicSensor; initialize it directly, never
+        // through avDevice::start or the cockpit device keeper.
         uint8_t activeFlag = sensor->activeFlag;
         Log("InjectIRADSSensor_Late: sensor+%zu (active flag) = %d",
             offsetof(AvTVSensorLayout, activeFlag), (int)activeFlag);
-
-        if (!s_started && g_avDevice_start)
-        {
-            Log_("InjectIRADSSensor_Late: calling avDevice::start(0) for injected sensor.");
-            g_avDevice_start(g_avTVSensor_instance, 0);
-            s_started = true;
-
-            // Carrier will be set lazily in UpdateIRADSSensorFrame once init_unit
-            // has bound the aircraft MovingObject to the context (context+0x10).
-            // avDevice::start leaks RDX=0 into set_carrier, and DCS fires vtable[7]
-            // again after this function returns — both would clear any carrier we
-            // set here. Defer to per-frame path instead.
-
-            activeFlag = sensor->activeFlag;
-            Log("InjectIRADSSensor_Late: after avDevice::start(0), active flag = %d",
-                (int)activeFlag);
-        }
 
         if (activeFlag == 0)
         {
             if (g_avTVSensor_initialize)
             {
-                Log_("InjectIRADSSensor_Late: initialize() not yet run after start() — calling explicitly.");
+                Log_("InjectIRADSSensor_Late: initializing standalone sensor.");
                 g_avTVSensor_initialize(g_avTVSensor_instance);
                 activeFlag = sensor->activeFlag;
                 Log("InjectIRADSSensor_Late: after explicit initialize(), active flag = %d",
                     (int)activeFlag);
                 if (activeFlag == 0)
-                    Log_("InjectIRADSSensor_Late: WARNING — initialize() ran but flag still 0 "
+                    Log_("InjectIRADSSensor_Late: WARNING â€” initialize() ran but flag still 0 "
                          "(SearchTimer alloc may have failed inside initialize)");
             }
             else
             {
-                Log_("InjectIRADSSensor_Late: initialize() export not found and start() did not activate the sensor — "
-                     "sensor may not render. Check that devices_keeper::add ran before "
-                     "ccCockpitContext::start().");
+                Log_("InjectIRADSSensor_Late: native initialize export missing; sensor unavailable");
             }
         }
         else
         {
-            Log_("InjectIRADSSensor_Late: sensor active after DCS/start path.");
+            Log_("InjectIRADSSensor_Late: standalone sensor already initialized.");
         }
 
         // Un-cage the sensor.
@@ -934,42 +711,42 @@ namespace CockpitInterop
             g_avTVSensor_uncage(g_avTVSensor_instance);
         Log_("InjectIRADSSensor_Late: sensor uncaged (byte+0x3AA cleared)");
 
-        // ── Fix 3: override camera mount position ────────────────────────────
+        // â”€â”€ Fix 3: override camera mount position â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // initialize() reads getPlatformInitialLocalPosition() which returns zeros
         // for an unmodeled sensor station, then hardcodes X=4.0 and leaves Y/Z=0.
         // We override with the correct F-117A DLIR belly position. This is safe
-        // to call even if initialize() already ran — it just overwrites vtable[4]'s
+        // to call even if initialize() already ran â€” it just overwrites vtable[4]'s
         // previous result.
         Log_("InjectIRADSSensor_Late: setting IRADS camera mount position.");
         SetCameraPosition(g_avTVSensor_instance);
 
-        // ── Activate IR render pass ───────────────────────────────────────────
-        // SET_FLIR_TECHINIQE_DEFAULT is NOT exported from CockpitBase.dll.
-        // The underlying static cockpit::avTVSensor::preffered_IR_effect lives at
-        // RVA 0x533CF0 (confirmed via GET_FLIR_TECHNIQUE getter decompilation).
-        // Write to it directly. ForceIRADSIndicatorActive also forces screenCondition=11
-        // per-frame, but setting the global static ensures the render pass is selected
-        // before the first indicator draw call.
+        // â”€â”€ Activate IR render pass â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // cockpit::avTVSensor::preffered_IR_effect is an exported static, so
+        // resolve it by name. A hardcoded RVA broke on DCS updates (0x533CF0 in
+        // older builds, 0x53ECF0 in 2.9.29) and wrote into unrelated memory.
+        // ForceIRADSIndicatorActive also forces screenCondition=11 per-frame, but
+        // setting the global static ensures the render pass is selected before
+        // the first indicator draw call.
         {
             HMODULE hCB = GetModuleHandleA("CockpitBase.dll");
-            if (hCB)
+            int* p = hCB ? reinterpret_cast<int*>(
+                GetProcAddress(hCB, "?preffered_IR_effect@avTVSensor@cockpit@@2HA")) : nullptr;
+            if (p)
             {
-                static constexpr uintptr_t kPrefferedIREffectRVA = 0x533CF0;
-                int* p = reinterpret_cast<int*>(reinterpret_cast<uintptr_t>(hCB) + kPrefferedIREffectRVA);
                 *p = IR_SCREEN_CONDITION_FLIR;
-                Log("InjectIRADSSensor_Late: preffered_IR_effect@RVA=0x%X set to %d",
-                    (unsigned)kPrefferedIREffectRVA, IR_SCREEN_CONDITION_FLIR);
+                Log("InjectIRADSSensor_Late: preffered_IR_effect@%p set to %d",
+                    (void*)p, IR_SCREEN_CONDITION_FLIR);
             }
             else
             {
-                Log_("InjectIRADSSensor_Late: WARNING — CockpitBase.dll not found for FLIR static write");
+                Log_("InjectIRADSSensor_Late: WARNING â€” preffered_IR_effect export not found; skipping FLIR static write");
             }
         }
 
-        // ── Fix 4: initialize zoom through avTVSensor's real setup path ──────
+        // â”€â”€ Fix 4: initialize zoom through avTVSensor's real setup path â”€â”€â”€â”€â”€â”€
         // The recovered binary shows current zoom at +0x358 is motor-driven and
-        // the preset list lives in a vector at +0x390.  Writing +0x358 directly
-        // bypasses that state machine, so prefer initZoom() when available.
+        // the preset list lives in a vector at +0x390. Initialize the native
+        // zoom motor, then set both current and target for our 1.4/10/80 presets.
         {
             Log("InjectIRADSSensor_Late: camera params before fix: "
                 "fov_base=%.4f zoom=%.4f aspect=%.4f  (displayed_fov=%.1f deg)",
@@ -978,18 +755,18 @@ namespace CockpitInterop
             if (g_avTVSensor_initZoom)
             {
                 g_avTVSensor_initZoom(g_avTVSensor_instance);
-                Log("InjectIRADSSensor_Late: initZoom() ran → displayed FOV = %.1f°",
+                Log("InjectIRADSSensor_Late: initZoom() ran â†’ displayed FOV = %.1fÂ°",
                     (sensor->currentZoom > 0.001 ? sensor->baseFov / sensor->currentZoom : 0.0) * 57.296);
             }
             else
             {
                 sensor->currentZoom = 1.0;
-                Log("InjectIRADSSensor_Late: initZoom missing, fallback zoom reset to 1.0 → displayed FOV = %.1f°",
+                Log("InjectIRADSSensor_Late: initZoom missing, fallback zoom reset to 1.0 â†’ displayed FOV = %.1fÂ°",
                     sensor->baseFov * 57.296);
             }
         }
 
-        // ── Diagnostic: dump indicator array ─────────────────────────────────
+        // â”€â”€ Diagnostic: dump indicator array â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // context+0xB0 = void** array start, context+0xB8 = void** array end.
         // Each element is a pointer to a ccIndicator object. We log the key
         // offsets that determine whether the DLIR camera feed will render and
@@ -1026,34 +803,99 @@ namespace CockpitInterop
                 logContextIndicators("binding", bindingCtx);
         }
 
+        sensor->currentZoom = 1.4;
+        sensor->targetZoom = 1.4;
         Log_("InjectIRADSSensor_Late: done.");
         return true;
     }
     bool HandleIRADSCommand(int command, float value)
     {
+        if ((command >= 10008 && command <= 10121) ||
+            (command >= 2110 && command <= 2112) || (command >= 20110 && command <= 20112) || command == 87)
+        {
+            static unsigned int loggedInputs = 0;
+            if (loggedInputs++ < 128)
+                Log("IRADS input: command=%d value=%.4f sensor=%p", command, value, g_avTVSensor_instance);
+        }
+        if (command >= 10119 && command <= 10121 && std::isfinite(value) && std::abs(value) > 0.05f)
+        {
+            static unsigned int axisLogs = 0;
+            if (axisLogs++ < 48) Log("IRADS routed axis: command=%d value=%.4f", command, value);
+        }
         if (!g_avTVSensor_instance) return false;
 
-        const float axisDeadzone = 0.5f;
+        if (!std::isfinite(value)) return false;
+        value = (value < -1.0f) ? -1.0f : ((value > 1.0f) ? 1.0f : value);
+        // Match angular rate to displayed FOV: wide can traverse quickly,
+        // narrow retains precision. Native velocity uses its zoom-table index,
+        // which does not track our explicit 1.4/10/80 optical zoom values.
+        auto slewRateScale = [&]() -> double
+        {
+            double zoom = AsSensor(g_avTVSensor_instance)->currentZoom;
+            if (!std::isfinite(zoom)) zoom = 1.4;
+            zoom = (zoom < 1.4) ? 1.4 : ((zoom > 80.0) ? 80.0 : zoom);
+            return 60.0 * (1.4 / zoom);
+        };
+        const float axisDeadzone = 0.05f;
         const bool active = value > axisDeadzone || value < -axisDeadzone;
         const float axisMagnitude = (value < 0.0f) ? -value : value;
 
-        auto dispatchHorizontal = [&]() -> bool
+        if (!s_irads_power && command != 87) return false;
+
+        const bool isSlew = command == IRADSSlewLeft || command == IRADSSlewRight ||
+            command == IRADSSlewUp || command == IRADSSlewDown ||
+            command == IRADSSlewHorizontalAxis || command == IRADSSlewVerticalAxis ||
+            command == 2110 || command == 2111 || command == 20110 || command == 20111;
+        if (isSlew && active && (s_irads_lock_valid || s_irads_terrain_pending)) ClearIRADSLock();
+
+        auto applyHorizontal = [&]() -> bool
         {
             if (s_irads_horizontal_axis < -axisDeadzone && g_avTVSensor_slew_left)
             {
-                g_avTVSensor_slew_left(g_avTVSensor_instance, -static_cast<double>(s_irads_horizontal_axis));
+                g_avTVSensor_slew_left(g_avTVSensor_instance, -static_cast<double>(s_irads_horizontal_axis) * slewRateScale());
                 return true;
             }
             if (s_irads_horizontal_axis > axisDeadzone && g_avTVSensor_slew_right)
             {
-                g_avTVSensor_slew_right(g_avTVSensor_instance, static_cast<double>(s_irads_horizontal_axis));
+                g_avTVSensor_slew_right(g_avTVSensor_instance, static_cast<double>(s_irads_horizontal_axis) * slewRateScale());
                 return true;
             }
-            if (g_avTVSensor_slew_stop)
+            return false;
+        };
+
+        auto applyVertical = [&]() -> bool
+        {
+            if (s_irads_vertical_axis > axisDeadzone && g_avTVSensor_slew_up)
             {
-                g_avTVSensor_slew_stop(g_avTVSensor_instance);
+                g_avTVSensor_slew_up(g_avTVSensor_instance, static_cast<double>(s_irads_vertical_axis) * slewRateScale());
                 return true;
             }
+            if (s_irads_vertical_axis < -axisDeadzone && g_avTVSensor_slew_down)
+            {
+                g_avTVSensor_slew_down(g_avTVSensor_instance, -static_cast<double>(s_irads_vertical_axis) * slewRateScale());
+                return true;
+            }
+            return false;
+        };
+
+        // avTVSensor::slew_stop -> on_axis_stop stops BOTH gimbal motors and
+        // rebases slew state, so after stopping one axis re-apply the other.
+        auto stopAndResume = [&](bool resumeVertical) -> bool
+        {
+            if (!g_avTVSensor_slew_stop)
+                return false;
+            g_avTVSensor_slew_stop(g_avTVSensor_instance);
+            if (resumeVertical) applyVertical();
+            else                applyHorizontal();
+            return true;
+        };
+
+        auto dispatchHorizontal = [&]() -> bool
+        {
+            if (applyHorizontal())
+                return true;
+            if (stopAndResume(true))
+                return true;
             if (g_avTVSensor_move_horizontal_abs)
                 return g_avTVSensor_move_horizontal_abs(
                     g_avTVSensor_instance,
@@ -1065,21 +907,10 @@ namespace CockpitInterop
 
         auto dispatchVertical = [&]() -> bool
         {
-            if (s_irads_vertical_axis > axisDeadzone && g_avTVSensor_slew_up)
-            {
-                g_avTVSensor_slew_up(g_avTVSensor_instance, static_cast<double>(s_irads_vertical_axis));
+            if (applyVertical())
                 return true;
-            }
-            if (s_irads_vertical_axis < -axisDeadzone && g_avTVSensor_slew_down)
-            {
-                g_avTVSensor_slew_down(g_avTVSensor_instance, -static_cast<double>(s_irads_vertical_axis));
+            if (stopAndResume(false))
                 return true;
-            }
-            if (g_avTVSensor_slew_stop)
-            {
-                g_avTVSensor_slew_stop(g_avTVSensor_instance);
-                return true;
-            }
             if (g_avTVSensor_move_vertical_abs)
                 return g_avTVSensor_move_vertical_abs(
                     g_avTVSensor_instance,
@@ -1089,68 +920,117 @@ namespace CockpitInterop
             return false;
         };
 
+        auto setZoomLevel = [&](int level)
+        {
+            s_irads_zoom_level = level;
+            auto* sensor = AsSensor(g_avTVSensor_instance);
+            const double zoom[] = {1.4, 10.0, 80.0};
+            sensor->currentZoom = zoom[level - 1];
+            sensor->targetZoom = sensor->currentZoom;
+            // Reapply a held direction immediately at the new optical rate.
+            applyHorizontal();
+            applyVertical();
+            Log("IRADS optical zoom: level=%d zoom=%.2f fullFovDeg=%.3f", level,
+                sensor->currentZoom, sensor->baseFov / sensor->currentZoom * 57.295779513);
+
+        };
+
         switch (command)
         {
+        case 87: // iCommandPlaneEOSOnOff; iCommandTVSensor is undefined in DCS input profiles
+            s_irads_power = !s_irads_power;
+            s_irads_analog_horizontal = s_irads_analog_vertical = 0.0f;
+            s_irads_keyboard_horizontal = s_irads_keyboard_vertical = 0.0f;
+            s_irads_horizontal_axis = s_irads_vertical_axis = 0;
+            ClearIRADSLock();
+            if (g_avTVSensor_slew_stop) g_avTVSensor_slew_stop(g_avTVSensor_instance);
+            Log("IRADS power: %s", s_irads_power ? "ON" : "OFF");
+            return true;
+        case 20110: // legacy direct-axis IDs
+        case 2110:
+        case IRADSSlewHorizontalAxis:
+            s_irads_analog_horizontal = active ? value : 0.0f;
+            s_irads_horizontal_axis = s_irads_keyboard_horizontal != 0.0f
+                ? s_irads_keyboard_horizontal : s_irads_analog_horizontal;
+            dispatchHorizontal();
+            return true;
+        case 20111:
+        case 2111:
+        case IRADSSlewVerticalAxis:
+            s_irads_analog_vertical = active ? value : 0.0f;
+            s_irads_vertical_axis = s_irads_keyboard_vertical != 0.0f
+                ? s_irads_keyboard_vertical : s_irads_analog_vertical;
+            dispatchVertical();
+            return true;
+        case 20112:
+        case 2112:
+        case IRADSZoomAxis:
+        {
+            // Hysteresis avoids repeated zoom steps at the detent boundaries.
+            int level = s_irads_zoom_level;
+            if (value < -0.4f) level = 1;
+            else if (value > 0.4f) level = 3;
+            else if (value > -0.25f && value < 0.25f) level = 2;
+            setZoomLevel(level);
+            return true;
+        }
         case IRADSSlewLeft:
-            if (active) s_irads_horizontal_axis = -axisMagnitude;
-            else if (s_irads_horizontal_axis < 0.0f) s_irads_horizontal_axis = 0.0f;
+            if (active) s_irads_keyboard_horizontal = -axisMagnitude;
+            else if (s_irads_keyboard_horizontal < 0.0f) s_irads_keyboard_horizontal = 0.0f;
+            s_irads_horizontal_axis = s_irads_keyboard_horizontal != 0.0f
+                ? s_irads_keyboard_horizontal : s_irads_analog_horizontal;
             Log("HandleIRADSCommand: SlewLeft value=%.2f axis=%.2f caged=%d", value, s_irads_horizontal_axis, (int)(*(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938)));
             dispatchHorizontal();
             return true;
         case IRADSSlewRight:
-            if (active) s_irads_horizontal_axis = axisMagnitude;
-            else if (s_irads_horizontal_axis > 0.0f) s_irads_horizontal_axis = 0.0f;
+            if (active) s_irads_keyboard_horizontal = axisMagnitude;
+            else if (s_irads_keyboard_horizontal > 0.0f) s_irads_keyboard_horizontal = 0.0f;
+            s_irads_horizontal_axis = s_irads_keyboard_horizontal != 0.0f
+                ? s_irads_keyboard_horizontal : s_irads_analog_horizontal;
             Log("HandleIRADSCommand: SlewRight value=%.2f axis=%.2f caged=%d", value, s_irads_horizontal_axis, (int)(*(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938)));
             dispatchHorizontal();
             return true;
         case IRADSSlewUp:
-            if (active) s_irads_vertical_axis = axisMagnitude;
-            else if (s_irads_vertical_axis > 0.0f) s_irads_vertical_axis = 0.0f;
+            if (active) s_irads_keyboard_vertical = axisMagnitude;
+            else if (s_irads_keyboard_vertical > 0.0f) s_irads_keyboard_vertical = 0.0f;
+            s_irads_vertical_axis = s_irads_keyboard_vertical != 0.0f
+                ? s_irads_keyboard_vertical : s_irads_analog_vertical;
             Log("HandleIRADSCommand: SlewUp value=%.2f axis=%.2f caged=%d", value, s_irads_vertical_axis, (int)(*(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938)));
             dispatchVertical();
             return true;
         case IRADSSlewDown:
-            if (active) s_irads_vertical_axis = -axisMagnitude;
-            else if (s_irads_vertical_axis < 0.0f) s_irads_vertical_axis = 0.0f;
+            if (active) s_irads_keyboard_vertical = -axisMagnitude;
+            else if (s_irads_keyboard_vertical < 0.0f) s_irads_keyboard_vertical = 0.0f;
+            s_irads_vertical_axis = s_irads_keyboard_vertical != 0.0f
+                ? s_irads_keyboard_vertical : s_irads_analog_vertical;
             Log("HandleIRADSCommand: SlewDown value=%.2f axis=%.2f caged=%d", value, s_irads_vertical_axis, (int)(*(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938)));
             dispatchVertical();
             return true;
         case IRADSSlewStop:
+            s_irads_analog_horizontal = s_irads_analog_vertical = 0.0f;
+            s_irads_keyboard_horizontal = s_irads_keyboard_vertical = 0.0f;
             s_irads_horizontal_axis = 0.0f;
             s_irads_vertical_axis = 0.0f;
             if (g_avTVSensor_slew_stop)
                 g_avTVSensor_slew_stop(g_avTVSensor_instance);
             if (active)
             {
-                s_irads_designating = true;
-                // Native set_external_designation(true) enters object search.
-                // Ground designation needs stabilizeOnGround(), which writes the
-                // current LOS/terrain intersection to cachedTrackedPoint at +0x328.
-                GroundStabilizeIRADS();
-                if (TryCaptureIRADSLock())
-                {
-                    s_irads_designating = false;
-                    Log("HandleIRADSCommand: designation captured immediately world=(%.2f, %.2f, %.2f) polar=(%.2f, %.2f, %.2f)",
-                        s_irads_lock_world[0], s_irads_lock_world[1], s_irads_lock_world[2],
-                        s_irads_lock_polar[0], s_irads_lock_polar[1], s_irads_lock_polar[2]);
-                }
-                else
-                {
-                    Log_("HandleIRADSCommand: designation armed — lock pending stabilisation");
-                }
+                ClearIRADSLock();
+                const bool queued=GroundStabilizeIRADS();
+                Log_(queued ? "IRADS terrain designation queued" : "IRADS designation unavailable: no rendered ray");
             }
             return true;
         case TVSensorZoomIn:
         case IRADSZoomIn:
-            // value_down is not set in the keyboard binding so value=0 → active is always false.
+            // value_down is not set in the keyboard binding so value=0 â†’ active is always false.
             // Zoom is a momentary press, not an axis, so just call unconditionally.
             Log_("HandleIRADSCommand: ZoomIn");
-            if (g_avTVSensor_zoom_in) g_avTVSensor_zoom_in(g_avTVSensor_instance);
+            setZoomLevel((s_irads_zoom_level < 3) ? s_irads_zoom_level + 1 : 3);
             return true;
         case TVSensorZoomOut:
         case IRADSZoomOut:
             Log_("HandleIRADSCommand: ZoomOut");
-            if (g_avTVSensor_zoom_out) g_avTVSensor_zoom_out(g_avTVSensor_instance);
+            setZoomLevel((s_irads_zoom_level > 1) ? s_irads_zoom_level - 1 : 1);
             return true;
         case IRADSDesignationClear:
             ClearIRADSLock();
@@ -1161,13 +1041,61 @@ namespace CockpitInterop
         }
     }
 
+    bool IsIRADSPowered() { return s_irads_power; }
+
+    int GetIRADSZoomLevel()
+    {
+        return s_irads_zoom_level;
+    }
+
+    // DCS pose axes are forward X, up Y, right Z. Preserve the native camera's
+    // roll while making its final rendered LOS pass through the saved world point.
+    // Native slave_to_point is rate limited and otherwise leaves a visible lag.
+    static bool AimPoseAtWorldPoint(double pose[16], const double target[3])
+    {
+        double forward[3], up[3], right[3];
+        double lengthSq = 0.0;
+        for (int i=0;i<3;++i)
+        {
+            if (!std::isfinite(target[i]) || !std::isfinite(pose[12+i]) ||
+                !std::isfinite(pose[4+i])) return false;
+            forward[i] = target[i] - pose[12+i];
+            lengthSq += forward[i]*forward[i];
+        }
+        if (!std::isfinite(lengthSq) || lengthSq < 1.0) return false;
+        const double invLength = 1.0 / std::sqrt(lengthSq);
+        for (int i=0;i<3;++i) forward[i] *= invLength;
+        double dot = 0.0;
+        for (int i=0;i<3;++i) dot += pose[4+i]*forward[i];
+        lengthSq = 0.0;
+        for (int i=0;i<3;++i) { up[i]=pose[4+i]-dot*forward[i]; lengthSq+=up[i]*up[i]; }
+        if (lengthSq < 1.0e-12)
+        {
+            // Near vertical LOS: choose a nonparallel reference without a singularity.
+            const int axis = std::fabs(forward[1]) < 0.9 ? 1 : 2;
+            lengthSq = 0.0;
+            for (int i=0;i<3;++i) { up[i]=(i==axis?1.0:0.0)-forward[axis]*forward[i]; lengthSq+=up[i]*up[i]; }
+        }
+        const double invUp = 1.0/std::sqrt(lengthSq);
+        for (int i=0;i<3;++i) up[i] *= invUp;
+        right[0]=forward[1]*up[2]-forward[2]*up[1];
+        right[1]=forward[2]*up[0]-forward[0]*up[2];
+        right[2]=forward[0]*up[1]-forward[1]*up[0];
+        for (int i=0;i<3;++i) { pose[i]=forward[i]; pose[4+i]=up[i]; pose[8+i]=right[i]; }
+        return true;
+    }
+
     void UpdateIRADSSensorFrame(double dt,
         double aircraft_x, double aircraft_y, double aircraft_z,
         double quat_x, double quat_y, double quat_z, double quat_w)
     {
         if (!g_avTVSensor_instance || !g_avTVSensor_update) return;
-        if (AsSensor(g_avTVSensor_instance)->activeFlag == 0) return;
+        if (AsSensor(g_avTVSensor_instance)->activeFlag == 0 || !s_irads_power) return;
 
+        if(s_irads_terrain_pending) {
+            s_irads_terrain_wait+=dt;
+            if(s_irads_terrain_wait>1.0) { s_irads_terrain_pending=false;Log_("IRADS terrain request timed out; no lock"); }
+        }
         SeedInjectedSensorPose(
             aircraft_x, aircraft_y, aircraft_z,
             quat_x, quat_y, quat_z, quat_w);
@@ -1190,13 +1118,13 @@ namespace CockpitInterop
             {
                 g_avPlatform_set_carrier(g_avTVSensor_instance, movingObject);
                 s_carrier_set = true;
-                Log("UpdateIRADSSensorFrame: carrier set → MovingObject=%p", movingObject);
+                Log("UpdateIRADSSensorFrame: carrier set â†’ MovingObject=%p", movingObject);
             }
         }
 
         // Keep the sensor uncaged every frame.
         // initialize() calls cage() which sets byte+0x3AA=1, blocking all slew.
-        // Some DCS mode transitions may also re-cage — clearing it each frame
+        // Some DCS mode transitions may also re-cage â€” clearing it each frame
         // ensures slew is always available during IRADS operation.
         *(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938) = 0;
         if (g_avTVSensor_uncage)
@@ -1206,31 +1134,73 @@ namespace CockpitInterop
         // (from slew commands), then avPlatform::update_platform_position reads
         // those motor angles via update_angles()/elevation() and applies them to
         // the world pose at sensor+0xA8. No direct pose write needed.
+        if (s_irads_lock_valid)
+        {
+            using SlaveToPoint = void (__fastcall*)(void*, const double*);
+            static auto slave = reinterpret_cast<SlaveToPoint>(GetProcAddress(GetModuleHandleA("CockpitBase.dll"),
+                "?slave_to_point@avTVSensor@cockpit@@UEAAXAEBVVec3d@osg@@@Z"));
+            if (slave) slave(g_avTVSensor_instance, s_irads_lock_world);
+        }
         g_avTVSensor_update(g_avTVSensor_instance, dt);
         if (g_avTVSensor_update_frame)
             g_avTVSensor_update_frame(g_avTVSensor_instance);
+        // Apply after all native motor/frame work. Do not change the initial mount,
+        // target coordinate, optical zoom or free-slew state.
+        if (s_irads_lock_valid)
+            AimPoseAtWorldPoint(AsSensor(g_avTVSensor_instance)->platformWorldPose.m, s_irads_lock_world);
 
-        if (s_irads_designating)
+        static double diagnosticTime = 0;
+        static unsigned int diagnosticCount = 0;
+        diagnosticTime += dt;
+        if (diagnosticTime >= 2.0 && diagnosticCount < 60)
         {
-            if (TryCaptureIRADSLock())
-                s_irads_designating = false;
+            diagnosticTime = 0;
+            ++diagnosticCount;
+            const auto* sensor = AsSensor(g_avTVSensor_instance);
+            Log("IRADS camera state: bridged=%d zoom=%.3f targetZoom=%.3f LOS=(%.4f,%.4f,%.4f) axes=(%.3f,%.3f)",
+                s_our_ind != nullptr, sensor->currentZoom, sensor->targetZoom,
+                sensor->platformWorldPose.m[0], sensor->platformWorldPose.m[1], sensor->platformWorldPose.m[2],
+                s_irads_horizontal_axis, s_irads_vertical_axis);
         }
     }
 
     bool CaptureIRADSLock()
     {
-        s_irads_designating = true;
-        if (s_designation_diag_logs < 8)
-            Log("CaptureIRADSLock: begin build=%s", kIRADSBuildMarker);
-        GroundStabilizeIRADS();
-        if (TryCaptureIRADSLock())
-        {
-            s_irads_designating = false;
-            return true;
+        ClearIRADSLock();
+        return GroundStabilizeIRADS(); // queued, not a valid lock until terrain reply
+    }
+
+    bool GetIRADSTerrainRequest(unsigned* sequence, double ray[6])
+    {
+        if(!s_irads_terrain_pending || !sequence || !ray) return false;
+        *sequence=s_irads_terrain_sequence;
+        std::memcpy(ray,s_irads_request_ray,sizeof(s_irads_request_ray));
+        return true;
+    }
+
+    bool CompleteIRADSTerrainRequest(unsigned sequence, bool hit, const double point[3])
+    {
+        if(!s_irads_terrain_pending || sequence!=s_irads_terrain_sequence) return false;
+        s_irads_terrain_pending=false;
+        if(!hit || !point || !s_irads_power || !g_avTVSensor_instance) return false;
+        double distanceSq=0,dot=0;
+        for(int i=0;i<3;++i) {
+            if(!std::isfinite(point[i])) return false;
+            double delta=point[i]-s_irads_request_ray[i];
+            distanceSq+=delta*delta;dot+=delta*s_irads_request_ray[i+3];
         }
-        if (s_designation_diag_logs < 8)
-            Log("CaptureIRADSLock: no tracked point after designation");
-        return false;
+        const double range=std::sqrt(distanceSq);
+        if(!std::isfinite(range) || range<1 || range>=80000 || dot/range<0.99999999) return false;
+        for(int i=0;i<3;++i) {
+            s_irads_lock_world[i]=point[i];
+            AsSensor(g_avTVSensor_instance)->cachedTrackedPoint[i]=point[i];
+        }
+        s_irads_lock_polar[0]=std::atan2(point[2]-s_irads_request_ray[2],point[0]-s_irads_request_ray[0]);
+        s_irads_lock_polar[1]=std::asin((point[1]-s_irads_request_ray[1])/range);
+        s_irads_lock_polar[2]=range;
+        s_irads_lock_valid=true;
+        Log("IRADS terrain lock accepted: id=%u world=(%.3f,%.3f,%.3f) range=%.2f",sequence,point[0],point[1],point[2],range);
+        return true;
     }
 
     bool HasIRADSLock()
@@ -1252,28 +1222,112 @@ namespace CockpitInterop
     {
         if (!s_irads_lock_valid || !out_polar)
             return false;
-        out_polar[0] = s_irads_lock_polar[0];
-        out_polar[1] = s_irads_lock_polar[1];
-        out_polar[2] = s_irads_lock_polar[2];
+        const double dx=s_irads_lock_world[0]-s_last_aircraft_pos[0];
+        const double dy=s_irads_lock_world[1]-s_last_aircraft_pos[1];
+        const double dz=s_irads_lock_world[2]-s_last_aircraft_pos[2];
+        const double range=std::sqrt(dx*dx+dy*dy+dz*dz);
+        out_polar[0]=std::atan2(dz,dx);
+        out_polar[1]=range>0 ? std::asin(dy/range) : 0.0;
+        out_polar[2]=range;
         return true;
     }
 
 
-    // ── Phase C: per-frame IRADS indicator keep-alive ─────────────────────────
+    // â”€â”€ Phase C: per-frame IRADS indicator keep-alive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Called every frame from ed_fm_simulate. On the first call after indicators
     // are populated (post device_init.lua), it locates the ccIndicator whose
     // controller pointer matches our injected avTVSensor. Every subsequent frame
     // it forces screenCondition = FLIR (11) and cameraCondition = ON (1) to
     // prevent DCS from reverting the indicator to a non-camera state.
     //
-    // Offsets used (from ccDrawable/ccIndicator decompilation):
+    // ccDrawable / ccIndicator field offsets:
     //   indicator + 0x38  = avDevice* controller
     //   indicator + 0x3A0 = screenCondition (TVScreenCondition)
     //   indicator + 0x48C = cameraCondition (must be non-zero for camera feed)
 
+    using IndicatorGetCamera = void* (__fastcall*)(void*);
+    static IndicatorGetCamera s_original_get_camera = nullptr;
+    using SensorFillCamera = void (__fastcall*)(void*, void*);
+    static SensorFillCamera s_sensor_fill_camera = nullptr;
+    static void* s_camera_bridge_indicator = nullptr;
+
+    static void* __fastcall IRADSGetCamera(void* indicator)
+    {
+        void* camera = s_original_get_camera(indicator);
+        if (!camera || !g_avTVSensor_instance) return camera;
+        auto* sensor = AsSensor(g_avTVSensor_instance);
+        const bool locked = s_irads_lock_valid &&
+            AimPoseAtWorldPoint(sensor->platformWorldPose.m, s_irads_lock_world);
+        // fill_camera -> get_camera_position -> avPlatform::get_position normally
+        // extrapolates from mount/motor history whenever model time exceeds +0x228.
+        // That overwrites our corrected pose. Suppress ONLY this render prediction
+        // while building a locked camera, then restore the native update timestamp.
+        const double savedUpdateTime = sensor->platformLastUpdateTime;
+        if (locked) sensor->platformLastUpdateTime = (std::numeric_limits<double>::max)();
+        if (s_sensor_fill_camera) s_sensor_fill_camera(g_avTVSensor_instance, camera);
+        if (locked) sensor->platformLastUpdateTime = savedUpdateTime;
+        // Snapshot the visible ray. Terrain tracing must use this optical eye,
+        // not a native cached target or a newly recomputed aircraft-forward ray.
+        if(s_irads_power) {
+            float eye[3],forward[3];
+            std::memcpy(eye,static_cast<char*>(camera)+0x260,sizeof(eye));
+            std::memcpy(forward,static_cast<char*>(camera)+0x230,sizeof(forward));
+            s_irads_ray_valid=true;
+            for(int i=0;i<3;++i) {
+                s_irads_render_ray[i]=eye[i];s_irads_render_ray[i+3]=forward[i];
+                if(!std::isfinite(eye[i]) || !std::isfinite(forward[i])) s_irads_ray_valid=false;
+            }
+        }
+        static unsigned renderSamples=0, renderFrames=0;
+        if (locked && renderSamples<120 && (++renderFrames==1 || renderFrames%120==0))
+        {
+            // fill_camera's disassembly confirms float forward +0x230 and eye
+            // +0x260. Observe the FINAL rendered ray, not just the cached pose.
+            float forward[3],eye[3];
+            std::memcpy(forward,static_cast<char*>(camera)+0x230,sizeof(forward));
+            std::memcpy(eye,static_cast<char*>(camera)+0x260,sizeof(eye));
+            double dot=0,rangeSq=0,axisSq=0;
+            for(int i=0;i<3;++i) {const double d=s_irads_lock_world[i]-eye[i];dot+=d*forward[i];rangeSq+=d*d;axisSq+=forward[i]*forward[i];}
+            if (rangeSq>1 && axisSq>0.5)
+            {
+                double cosine=dot/std::sqrt(rangeSq*axisSq);cosine=cosine>1?1:(cosine< -1?-1:cosine);
+                Log("IRADS render aim: errorDeg=%.6f range=%.1f eye=(%.2f,%.2f,%.2f) target=(%.2f,%.2f,%.2f)",
+                    std::acos(cosine)*57.295779513,std::sqrt(rangeSq),eye[0],eye[1],eye[2],
+                    s_irads_lock_world[0],s_irads_lock_world[1],s_irads_lock_world[2]);
+                ++renderSamples;
+            }
+        }
+        return camera;
+    }
+
+    static bool InstallIRADSCameraBridge(void* indicator)
+    {
+        if (s_camera_bridge_indicator == indicator) return true;
+        auto nativeGetCamera = reinterpret_cast<IndicatorGetCamera>(
+            ResolveCockpitBaseExport( "?get_camera@ccIndicator@cockpit@@UEAAAEBVCamera@Graphics@@XZ"));
+        auto** vtable = *reinterpret_cast<void***>(indicator);
+        if (!nativeGetCamera || !vtable) return false;
+        s_sensor_fill_camera = reinterpret_cast<SensorFillCamera>(ResolveCockpitBaseExport(
+            "?fill_camera@avTVSensor@cockpit@@UEBAXAEAVCamera@Graphics@@@Z"));
+        if (!s_sensor_fill_camera) { Log_("IRADS camera bridge: native fill_camera unavailable"); return false; }
+        constexpr size_t slots = 128;
+        size_t slot = slots;
+        for (size_t i = 0; i < slots; ++i)
+            if (vtable[i] == reinterpret_cast<void*>(nativeGetCamera)) { slot = i; break; }
+        if (slot == slots) { Log_("IRADS camera bridge: get_camera slot not found; disabled"); return false; }
+        // Keep the complete-object locator at vtable[-1] for native RTTI.
+        auto** copy = new void*[slots + 1];
+        std::memcpy(copy, vtable - 1, sizeof(void*) * (slots + 1));
+        s_original_get_camera = nativeGetCamera;
+        copy[slot + 1] = reinterpret_cast<void*>(&IRADSGetCamera);
+        *reinterpret_cast<void***>(indicator) = copy + 1;
+        s_camera_bridge_indicator = indicator;
+        Log("IRADS camera bridge installed: indicator=%p slot=%zu sensor=%p", indicator, slot, g_avTVSensor_instance);
+        return true;
+    }
+
     void ForceIRADSIndicatorActive()
     {
-        static void* s_our_ind = nullptr;
         static bool s_indicator_search_logged = false;
 
         if (!g_avTVSensor_instance)
@@ -1287,24 +1341,24 @@ namespace CockpitInterop
 
             if (FindIndicatorInContextTree(globalCtx, &s_our_ind, &foundDepth, 0, false))
             {
-                Log("ForceIRADSIndicatorActive: found indicator by controller @ %p depth=%d via global ctx",
+                Log("ForceIRADSIndicatorActive: found camera render target @ %p depth=%d via global ctx",
                     s_our_ind, foundDepth);
             }
             else if (bindingCtx != globalCtx &&
                      FindIndicatorInContextTree(bindingCtx, &s_our_ind, &foundDepth, 0, false))
             {
-                Log("ForceIRADSIndicatorActive: found indicator by controller @ %p depth=%d via binding ctx",
+                Log("ForceIRADSIndicatorActive: found camera render target @ %p depth=%d via binding ctx",
                     s_our_ind, foundDepth);
             }
             else if (FindIndicatorInContextTree(globalCtx, &s_our_ind, &foundDepth, 0, true))
             {
-                Log("ForceIRADSIndicatorActive: force-linked DLIR camera indicator @ %p depth=%d via global ctx",
+                Log("ForceIRADSIndicatorActive: found DLIR camera render target @ %p depth=%d via global ctx",
                     s_our_ind, foundDepth);
             }
             else if (bindingCtx != globalCtx &&
                      FindIndicatorInContextTree(bindingCtx, &s_our_ind, &foundDepth, 0, true))
             {
-                Log("ForceIRADSIndicatorActive: force-linked DLIR camera indicator @ %p depth=%d via binding ctx",
+                Log("ForceIRADSIndicatorActive: found DLIR camera render target @ %p depth=%d via binding ctx",
                     s_our_ind, foundDepth);
             }
             else if (!s_indicator_search_logged)
@@ -1318,10 +1372,35 @@ namespace CockpitInterop
 
         if (s_our_ind)
         {
+            if (!InstallIRADSCameraBridge(s_our_ind)) return;
             CcIndicatorLayout* indicatorView = AsIndicator(s_our_ind);
             indicatorView->screenCondition = static_cast<uint32_t>(IR_SCREEN_CONDITION_FLIR);
-            indicatorView->cameraCondition = static_cast<uint32_t>(IR_CAMERA_CONDITION_ON);
+            indicatorView->cameraCondition = s_irads_power ? static_cast<uint32_t>(IR_CAMERA_CONDITION_ON) : 0;
         }
+    }
+
+    // Called from ed_fm_release. ccCockpitContext::release destroys the
+    // context's indicators (and walks devices_keeper), so drop every pointer
+    // into that context and re-inject on the next start. The old sensor block
+    // is intentionally not freed: ownership after devices_keeper teardown is
+    // unconfirmed, and a small leak is safer than a double free.
+    void ResetIRADSSession()
+    {
+        ClearIRADSLock();
+        s_irads_ray_valid=false;
+        s_irads_analog_horizontal = s_irads_analog_vertical = 0.0f;
+        s_irads_keyboard_horizontal = s_irads_keyboard_vertical = 0.0f;
+        s_irads_horizontal_axis = 0.0f;
+        s_irads_vertical_axis   = 0.0f;
+        s_irads_zoom_level      = 1;
+        s_irads_power           = true;
+        s_camera_bridge_indicator = nullptr;
+        s_our_ind               = nullptr;
+        g_avTVSensor_instance   = nullptr;
+        s_added                 = false;
+        s_started               = false;
+        s_carrier_set           = false;
+        Log_("ResetIRADSSession: IRADS session state cleared");
     }
 
 } // namespace CockpitInterop

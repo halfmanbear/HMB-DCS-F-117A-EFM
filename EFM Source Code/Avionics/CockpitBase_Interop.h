@@ -79,13 +79,18 @@ namespace CockpitInterop
     bool InjectIRADSSensor_Early();   // Phase A: DllMain — ctor + add to keeper
     bool InjectIRADSSensor_Late();    // Phase B: ed_fm_start — ensure init + camera pos + IR mode
     bool HandleIRADSCommand(int command, float value);
+    int GetIRADSZoomLevel();
+    bool IsIRADSPowered();
     void UpdateIRADSSensorFrame(double dt,
         double aircraft_x, double aircraft_y, double aircraft_z,
         double quat_x, double quat_y, double quat_z, double quat_w);
     void ForceIRADSIndicatorActive();  // Phase C: called every frame from ed_fm_simulate to keep screenCondition/cameraCondition live
     bool CaptureIRADSLock();
+    bool GetIRADSTerrainRequest(unsigned* sequence, double ray[6]);
+    bool CompleteIRADSTerrainRequest(unsigned sequence, bool hit, const double point[3]);
     bool HasIRADSLock();
     bool GetIRADSLockWorldPoint(double out_point[3]);
     bool GetIRADSLockPolar(double out_polar[3]);
+    void ResetIRADSSession();          // ed_fm_release: drop pointers into the torn-down cockpit context
 
 } // namespace CockpitInterop

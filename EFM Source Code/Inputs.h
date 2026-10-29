@@ -122,6 +122,11 @@ enum InputCommands
 	IRADSZoomIn = 10008,  // matches Keys.IRADSZoomIn in command_defs.lua
 	IRADSZoomOut = 10009, // matches Keys.IRADSZoomOut in command_defs.lua
 	IRADSDesignationClear = 10117,
+	IRADSLaserArmToggle = 10118,
+	IRADSSlewHorizontalAxis = 10119,
+	IRADSSlewVerticalAxis = 10120,
+	IRADSZoomAxis = 10121,
+    MasterArmToggle = 10122,
 
 	Reserved // placeholder
 };
