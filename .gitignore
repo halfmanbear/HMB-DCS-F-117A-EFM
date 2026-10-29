@@ -12,3 +12,10 @@ Basic-custom-flight-model-for-DCS-World-main/.vs/Custom_FM/v16/.suo
 *.recipe
 *.pch
 *.pdb
+*.idb
+*.exp
+*.before_*
+*.wpix
+Cockpit_Code/
+__pycache__/
+Tools/
