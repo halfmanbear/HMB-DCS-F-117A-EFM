@@ -1,4 +1,4 @@
-#include "stdafx.h"
+﻿#include "stdafx.h"
 #include "F_117_NightHawk.h"
 #include "ED_FM_Utility.h"		// Provided utility functions that were in the initial EFM example
 #include <Math.h>
@@ -6,6 +6,7 @@
 #include <string>
 #include <math.h>
 #include <queue>
+#include <cmath>
 #include <fstream>
 #include "UtilityFunctions.h"	// Utility help functions
 #include "Inputs.h"
@@ -21,6 +22,8 @@
 #include "Engine/Engine.h"					//Engine model functions
 #include "param_functions.h"
 #include "Avionics/CockpitBase_Interop.h"
+#include "Avionics/JdamEnvelope.h"
+#include "Avionics/Weapons_Interop.h"
 
 using namespace F117;
 
@@ -36,7 +39,9 @@ Vec3    center_of_gravity;
 
 Vec3	inertia;
 
-Vec3	wind;
+Vec3	wind;			// Body-axis wind from ed_fm_set_current_state_body_axis
+
+Vec3	wind_world_cs;	// World-axis wind from ed_fm_set_atmosphere (used by CCRP ballistics)
 
 Vec3	position_world_cs;
 
@@ -122,17 +127,32 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
     bool        weapon_bay_owned_by_release = false;
     bool        weapon_bay_close_pending = false;
     double      weapon_bay_close_delay = 0.0;
+    double      weapon_release_gate_hold = 0.0;
+    bool        master_armed = false;
+    double      release_retry_delay = 0.0;
+    int         release_status = 0;
+    unsigned    release_sequence = 0;
+    double      release_target[3] = {};
+    bool        laser_armed = false;            // IRADS laser arm/safe
+    double      laser_window = 0.0;             // seconds of auto-lase remaining after a release
+    double      ccrp_time_of_flight = 0.0;      // last computed bomb time of flight (s)
 
 	// Integrity-based damage state: 1.0 = perfect, 0.0 = destroyed
-	// Lua Damage table elements: [3]=COCKPIT, [10]=ENGINE001, [11]=MAIN
+	// DCS Damage.lua: cockpit=3, MAIN=10, ENGINE=11; surfaces=25/26/37/38/53/54.
 	struct DamageState {
-		double leftWing    = 1.0;   // From Element 11 (MAIN)
-		double rightWing   = 1.0;   // From Element 11 (MAIN)
-		double leftEngine  = 1.0;   // From Element 10 (ENGINE001)
-		double rightEngine = 1.0;   // From Element 10 (ENGINE001)
-		double leftTail    = 1.0;   // From Element 11 (MAIN)
-		double rightTail   = 1.0;   // From Element 11 (MAIN)
-		double cockpit     = 1.0;   // From Element 3  (COCKPIT)
+		double leftWing    = 1.0;   // Remaining component integrity; damage is monotonic until repair.
+		double rightWing   = 1.0;   // Remaining component integrity; damage is monotonic until repair.
+		double leftEngine  = 1.0;   // Remaining component integrity; damage is monotonic until repair.
+		double rightEngine = 1.0;   // Remaining component integrity; damage is monotonic until repair.
+		double leftTail    = 1.0;   // Remaining component integrity; damage is monotonic until repair.
+		double rightTail   = 1.0;   // Remaining component integrity; damage is monotonic until repair.
+		double cockpit     = 1.0;   // Remaining component integrity; damage is monotonic until repair.
+
+        double leftOuterElevon = 1.0;
+        double rightOuterElevon = 1.0;
+        double leftInnerElevon = 1.0;
+        double rightInnerElevon = 1.0;
+        bool fireActive[9] = {};
 
 		// Derived values (updated each frame in ed_fm_simulate)
 		double wingAsymmetry   = 0.0;  // leftWing - rightWing
@@ -237,6 +257,11 @@ namespace
     constexpr double kWeaponBayOpenThreshold = 0.995;
     constexpr double kWeaponBayClosedThreshold = 0.005;
     constexpr double kWeaponBayHoldAfterReleaseSeconds = 1.0;
+    constexpr double kWeaponReleaseGateMinHoldSeconds = 0.25; // Long enough for cockpit Lua update rates to sample the gate.
+    constexpr double kLaserOverrunSeconds = 4.0;              // keep lasing this long past predicted impact
+    constexpr char kEfmLaunchActiveParamName[] = "F117_EFM_LAUNCH_ACTIVE";
+    constexpr char kLaserArmedParamName[] = "F117_LASER_ARMED";
+    constexpr char kLaserFiringParamName[] = "F117_LASER_FIRING";
     constexpr char kWeaponReleaseGateParamName[] = "F117_WEAPON_RELEASE_GATE";
     constexpr char kIRADSLockValidParamName[] = "F117_IRADS_LOCK_VALID";
     constexpr char kIRADSLockWorldXParamName[] = "F117_IRADS_LOCK_X";
@@ -263,15 +288,9 @@ namespace
     constexpr double kEngineDamageDoseScale = 0.4;
     constexpr double kTailDamageDoseScale = 0.3;
     constexpr double kCockpitDamageDoseScale = 0.2;
-    constexpr double kFireDamageThreshold = 0.8;
-    constexpr double kDamageScale = 5.0;
+    constexpr double kFireDamageThreshold = 0.35;
 
-    constexpr size_t kDamageDrawArgRequiredSize = 245;
     constexpr size_t kMirroredGearDrawArgRequiredSize = 616;
-    constexpr size_t kTailDamageDrawArgRequiredSize = 248;
-    constexpr size_t kWingDamageDrawArgRequiredSize = 1015;
-    constexpr int kInitialDrawArgLogFrames = 500;
-    constexpr int kPeriodicDrawArgLogFrames = 1000;
 
     constexpr int kGearArgNose = 0;
     constexpr int kGearArgLeft = 3;
@@ -293,22 +312,7 @@ namespace
     constexpr int kMirroredGearArgLeft = 614;
     constexpr int kMirroredGearArgRight = 616;
 
-    constexpr int kDamageArgFuselageBottom = 134;
-    constexpr int kDamageArgFuselageTop = 135;
-    constexpr int kDamageArgRightWingOuter = 213;
-    constexpr int kDamageArgLeftWingOuter = 223;
-    constexpr int kDamageArgLeftFlapOuter = 240;
-    constexpr int kDamageArgRightFlapOuter = 241;
-    constexpr int kDamageArgLeftFlapCenter = 244;
-    constexpr int kDamageArgRightFlapCenter = 245;
 
-    constexpr int kBrokenLeftWingStructureArg = 224;
-    constexpr int kBrokenLeftRudderArg = 247;
-    constexpr int kBrokenRightRudderArg = 248;
-    constexpr int kBrokenLeftElevonOuterArg = 1010;
-    constexpr int kBrokenLeftElevonCenterArg = 1011;
-    constexpr int kBrokenRightElevonCenterArg = 1014;
-    constexpr int kBrokenRightElevonOuterArg = 1015;
 
     constexpr int kFc3CockpitPitchArg = 1000;
     constexpr int kFc3CockpitRollArg = 1001;
@@ -325,11 +329,16 @@ namespace
     constexpr double kMaxFuelFlowPph = 6000.0;
     constexpr double kAirframeOxygenSupply = 1000.0;
     constexpr double kDefaultFlowVelocity = 100.0;
-    constexpr float kVisualDamageThreshold = 0.01f;
 
     constexpr int kDamageElementCockpit = 3;
-    constexpr int kDamageElementEngine = 10;
-    constexpr int kDamageElementMain = 11;
+    constexpr int kDamageElementEngine = 11;
+    constexpr int kDamageElementMain = 10;
+    constexpr int kDamageElementAileronLeft = 25;
+    constexpr int kDamageElementAileronRight = 26;
+    constexpr int kDamageElementFlapLeft = 37;
+    constexpr int kDamageElementFlapRight = 38;
+    constexpr int kDamageElementRudderLeft = 53;
+    constexpr int kDamageElementRudderRight = 54;
 
     bool gear_retraction_blocked()
     {
@@ -571,6 +580,25 @@ namespace
             fflush(g_damageLog);
         }
     }
+    // Lazily resolve and publish a cockpit param by name.
+    void publish_named_param(void*& handle, const char* name, double value)
+    {
+        if (handle == nullptr)
+        {
+            F117::cockpitAPI.ed_param_api = ed_get_cockpit_param_api();
+            if (F117::cockpitAPI.ed_param_api.pfn_ed_cockpit_get_parameter_handle == nullptr ||
+                F117::cockpitAPI.ed_param_api.pfn_ed_cockpit_update_parameter_with_number == nullptr)
+            {
+                return;
+            }
+            handle = F117::cockpitAPI.getParamHandle(name);
+        }
+        if (handle != nullptr)
+        {
+            F117::cockpitAPI.setParamNumber(handle, value);
+        }
+    }
+
     void initialize_weapon_release_gate_param()
     {
         if (g_weaponReleaseGateParamInitialized)
@@ -683,7 +711,7 @@ namespace
         }
 
         const double rawIndex = F117::cockpitAPI.getParamNumber(g_ccrpProfileParam);
-        int profileIndex = (int)floor(rawIndex + 0.5);
+        int profileIndex = std::isfinite(rawIndex) && rawIndex>=0.0 && rawIndex<5.0 ? (int)floor(rawIndex + 0.5) : 0;
         const int profileCount = (int)(sizeof(kCcrpStoreModels) / sizeof(kCcrpStoreModels[0]));
         if (profileIndex < 0)
         {
@@ -702,34 +730,9 @@ namespace
         return kCcrpStoreModels[get_ccrp_profile_index()];
     }
 
-    Vec3 quaternion_to_world(const Vec3& bodyVector)
-    {
-        const double qx = F117::aircraftQuaternionX;
-        const double qy = F117::aircraftQuaternionY;
-        const double qz = F117::aircraftQuaternionZ;
-        const double qw = F117::aircraftQuaternionW;
-
-        const double mag = sqrt((qx * qx) + (qy * qy) + (qz * qz) + (qw * qw));
-        if (mag < 1.0e-6)
-        {
-            return bodyVector;
-        }
-
-        const double x = qx / mag;
-        const double y = qy / mag;
-        const double z = qz / mag;
-        const double w = qw / mag;
-
-        Vec3 worldVector{};
-        worldVector.x = ((1.0 - (2.0 * y * y) - (2.0 * z * z)) * bodyVector.x) + ((2.0 * x * y - 2.0 * z * w) * bodyVector.y) + ((2.0 * x * z + 2.0 * y * w) * bodyVector.z);
-        worldVector.y = ((2.0 * x * y + 2.0 * z * w) * bodyVector.x) + ((1.0 - (2.0 * x * x) - (2.0 * z * z)) * bodyVector.y) + ((2.0 * y * z - 2.0 * x * w) * bodyVector.z);
-        worldVector.z = ((2.0 * x * z - 2.0 * y * w) * bodyVector.x) + ((2.0 * y * z + 2.0 * x * w) * bodyVector.y) + ((1.0 - (2.0 * x * x) - (2.0 * y * y)) * bodyVector.z);
-        return worldVector;
-    }
-
     Vec3 get_world_wind_vector()
     {
-        return quaternion_to_world(wind);
+        return wind_world_cs;
     }
 
     bool simulate_bomb_impact_point(const CcrpStoreModel& profile, const Vec3& releasePos, const Vec3& releaseVel, const Vec3& worldWind, double targetAltMeters, Vec3* outImpactPos, double* outImpactTime)
@@ -802,6 +805,29 @@ namespace
         return false;
     }
 
+    bool g_releaseAlignmentValid = false;
+    double g_releaseMinRange = 0.0, g_releaseMaxRange = 0.0;
+
+    // Provisional guided-store envelope around the ballistic prediction, not a
+    // measured DCS DLZ. Keep the ballistic error/TTG as cues, not a pinpoint gate.
+    bool guided_release_in_zone(int profileIndex, double ballisticRange,
+        double alongTrack, double crossTrack, double minimumWindow, bool* aligned)
+    {
+        if (!aligned) return false;
+        *aligned = false;
+        if (profileIndex < 0 || profileIndex > 4 || !std::isfinite(ballisticRange) ||
+            !std::isfinite(alongTrack) || !std::isfinite(crossTrack) ||
+            !std::isfinite(minimumWindow) || ballisticRange <= 0.0 ||
+            alongTrack <= 0.0 || crossTrack < 0.0 || minimumWindow < 0.0) return false;
+        const bool jdam = profileIndex < 3;
+        const double lateralRatio = jdam ? 0.577350269 : 0.267949192; // 30 / 15 degrees
+        *aligned = crossTrack <= max(50.0, alongTrack * lateralRatio);
+        const double rangeMargin = max(minimumWindow, ballisticRange * (jdam ? 0.35 : 0.20));
+        const double horizontalRange = sqrt(alongTrack * alongTrack + crossTrack * crossTrack);
+        return *aligned && alongTrack >= max(1.0, ballisticRange - rangeMargin) &&
+            horizontalRange <= ballisticRange + rangeMargin;
+    }
+
     bool compute_release_solution(double* outErrorMeters, double* outTimeToGoSeconds, double* outRangeMeters, bool* outInZone)
     {
         if (outErrorMeters == nullptr || outTimeToGoSeconds == nullptr || outRangeMeters == nullptr || outInZone == nullptr)
@@ -809,16 +835,22 @@ namespace
             return false;
         }
 
+        g_releaseAlignmentValid = false;
+        g_releaseMinRange = g_releaseMaxRange = 0.0;
         double targetWorld[3] = {0.0, 0.0, 0.0};
         if (!CockpitInterop::GetIRADSLockWorldPoint(targetWorld))
         {
             return false;
         }
 
+        for (int i=0;i<3;++i) if (!std::isfinite(targetWorld[i])) return false;
+        if (!std::isfinite(vx_world) || !std::isfinite(vy_world) || !std::isfinite(vz_world) ||
+            !std::isfinite(position_world_cs.x) || !std::isfinite(position_world_cs.y) || !std::isfinite(position_world_cs.z)) return false;
         const CcrpStoreModel& profile = get_ccrp_profile();
+        const Vec3 releaseVel{ vx_world, vy_world, vz_world };
         const double dx = targetWorld[0] - position_world_cs.x;
         const double dz = targetWorld[2] - position_world_cs.z;
-        const double horizSpeed = sqrt((velocity_world_cs.x * velocity_world_cs.x) + (velocity_world_cs.z * velocity_world_cs.z));
+        const double horizSpeed = sqrt((releaseVel.x * releaseVel.x) + (releaseVel.z * releaseVel.z));
         const double horizRange = sqrt((dx * dx) + (dz * dz));
         const double dropMeters = position_world_cs.y - targetWorld[1];
 
@@ -827,8 +859,8 @@ namespace
             return false;
         }
 
-        const double vx = velocity_world_cs.x / horizSpeed;
-        const double vz = velocity_world_cs.z / horizSpeed;
+        const double vx = releaseVel.x / horizSpeed;
+        const double vz = releaseVel.z / horizSpeed;
         const double alongTrack = (dx * vx) + (dz * vz);
         if (alongTrack <= 0.0)
         {
@@ -840,11 +872,11 @@ namespace
         const Vec3 worldWind = get_world_wind_vector();
         Vec3 impactPos{};
         double impactTime = 0.0;
-        if (!simulate_bomb_impact_point(profile, position_world_cs, velocity_world_cs, worldWind, targetWorld[1], &impactPos, &impactTime))
+        if (!simulate_bomb_impact_point(profile, position_world_cs, releaseVel, worldWind, targetWorld[1], &impactPos, &impactTime))
         {
             return false;
         }
-        (void)impactTime;
+        F117::ccrp_time_of_flight = impactTime;
 
         const Vec3 impactDelta
         {
@@ -855,8 +887,36 @@ namespace
         const double impactAlongTrack = (impactDelta.x * vx) + (impactDelta.z * vz);
         const double errorMeters = alongTrack - impactAlongTrack;
         const double timeToGo = (errorMeters > 0.0) ? (errorMeters / max(horizSpeed, profile.minSpeedMPS)) : 0.0;
-        const double acceptableWindow = max(profile.releaseWindowMeters, max(25.0, alongTrack * 0.02));
-        const bool inZone = (fabs(errorMeters) <= acceptableWindow) && (crossTrack <= max(100.0, alongTrack * 0.15));
+        bool inZone = false;
+        if (get_ccrp_profile_index()<3)
+        {
+            const double airX=releaseVel.x-worldWind.x, airY=releaseVel.y-worldWind.y, airZ=releaseVel.z-worldWind.z;
+            const double airSpeed=std::sqrt(airX*airX+airY*airY+airZ*airZ);
+            // Weapon-authored JDAM launch tables, interpolated in target-relative
+            // height and true airspeed. No extrapolation outside the table domain.
+            if (!JdamEnvelope::lookup(get_ccrp_profile_index(),dropMeters,airSpeed,&g_releaseMinRange,&g_releaseMaxRange)) return false;
+            g_releaseAlignmentValid = crossTrack<=max(50.0,alongTrack*0.577350269);
+            inZone = g_releaseAlignmentValid && horizRange>=g_releaseMinRange && horizRange<=g_releaseMaxRange;
+        }
+        else
+        {
+            inZone = guided_release_in_zone(get_ccrp_profile_index(), impactAlongTrack,
+                alongTrack, crossTrack, profile.releaseWindowMeters, &g_releaseAlignmentValid);
+            g_releaseMinRange=max(1.0,impactAlongTrack-max(profile.releaseWindowMeters,impactAlongTrack*0.20));
+            g_releaseMaxRange=impactAlongTrack+max(profile.releaseWindowMeters,impactAlongTrack*0.20);
+        }
+        static bool logged = false, lastZone = false, lastAligned = false;
+        static unsigned diagnosticFrames = 0;
+        if (!logged || inZone != lastZone || g_releaseAlignmentValid != lastAligned ||
+            (F117::weapon_release_pickle_held && ++diagnosticFrames >= 600))
+        {
+            char message[320];
+            sprintf_s(message, "DELIVERY ZONE: profile=%d along=%.1f cross=%.1f ballistic=%.1f error=%.1f aligned=%d zone=%d min=%.1f max=%.1f drop=%.1f speed=%.1f",
+                get_ccrp_profile_index(), alongTrack, crossTrack, impactAlongTrack, errorMeters,
+                g_releaseAlignmentValid, inZone, g_releaseMinRange, g_releaseMaxRange, dropMeters, horizSpeed);
+            CockpitInterop::Log_(message);
+            logged = true; lastZone = inZone; lastAligned = g_releaseAlignmentValid; diagnosticFrames = 0;
+        }
 
         *outErrorMeters = errorMeters;
         *outTimeToGoSeconds = timeToGo;
@@ -904,6 +964,27 @@ namespace
         if (!g_iradsLockParamsInitialized)
         {
             return;
+        }
+
+        // Parameter payloads are published before their sequence/ack markers.
+        // A pending ray is never a valid designation or release target.
+        static void* request[7]={};
+        static void* result[5]={};
+        static const char* requestNames[]={"F117_TERRAIN_OX","F117_TERRAIN_OY","F117_TERRAIN_OZ","F117_TERRAIN_DX","F117_TERRAIN_DY","F117_TERRAIN_DZ","F117_TERRAIN_REQUEST"};
+        static const char* resultNames[]={"F117_TERRAIN_X","F117_TERRAIN_Y","F117_TERRAIN_Z","F117_TERRAIN_HIT","F117_TERRAIN_ACK"};
+        bool handles=true;
+        for(int i=0;i<7;++i) { if(!request[i]) request[i]=F117::cockpitAPI.getParamHandle(requestNames[i]);handles=handles&&request[i]; }
+        for(int i=0;i<5;++i) { if(!result[i]) result[i]=F117::cockpitAPI.getParamHandle(resultNames[i]);handles=handles&&result[i]; }
+        if(handles) {
+            unsigned sequence=0;double ray[6]={};
+            bool pending=CockpitInterop::GetIRADSTerrainRequest(&sequence,ray);
+            if(pending && F117::cockpitAPI.getParamNumber(result[4])==sequence) {
+                double point[3];for(int i=0;i<3;++i) point[i]=F117::cockpitAPI.getParamNumber(result[i]);
+                CockpitInterop::CompleteIRADSTerrainRequest(sequence,F117::cockpitAPI.getParamNumber(result[3])==1.0,point);
+                pending=false;
+            }
+            if(pending) for(int i=0;i<6;++i) F117::cockpitAPI.setParamNumber(request[i],ray[i]);
+            F117::cockpitAPI.setParamNumber(request[6],pending?sequence:0.0);
         }
 
         double world[3] = {0.0, 0.0, 0.0};
@@ -956,6 +1037,7 @@ namespace
         F117::weapon_bay_owned_by_release = false;
         F117::weapon_bay_close_pending = false;
         F117::weapon_bay_close_delay = 0.0;
+        F117::weapon_release_gate_hold = 0.0;
         publish_weapon_release_gate_param();
     }
 
@@ -963,18 +1045,17 @@ namespace
     {
         F117::weapon_bay_close_pending = false;
         F117::weapon_bay_close_delay = 0.0;
+        if (F117::weapon_release_pickle_held) return; // key repeat is not new consent
         F117::weapon_release_pickle_held = true;
-        F117::weapon_release_gate = false;
         F117::weapon_release_gate_fired = false;
+        F117::release_retry_delay = 0.0;
 
+        // If the bay is already open, leave ownership as-is so a re-pickle during a
+        // pending auto-close still closes the bay on the next release.
         if (!weapon_bay_is_open())
         {
             command_weapon_bay_open();
             F117::weapon_bay_owned_by_release = true;
-        }
-        else
-        {
-            F117::weapon_bay_owned_by_release = false;
         }
 
         publish_weapon_release_gate_param();
@@ -983,7 +1064,6 @@ namespace
     void handle_weapon_release_released()
     {
         F117::weapon_release_pickle_held = false;
-        F117::weapon_release_gate = false;
         F117::weapon_release_gate_fired = false;
 
         if (F117::weapon_bay_owned_by_release)
@@ -1009,26 +1089,105 @@ namespace
         publish_weapon_release_gate_param();
     }
 
+    // Laser arm + a valid powered designation automatically provides code-1688
+    // illumination before and after release; Safe or designation clear stops it.
+    void update_laser(double dt)
+    {
+        F117::laser_window = max(0.0, F117::laser_window - dt);
+
+        double lockPoint[3] = {0.0, 0.0, 0.0};
+        const bool haveLock = CockpitInterop::GetIRADSLockWorldPoint(lockPoint);
+        const bool wantLaser = CockpitInterop::IsIRADSPowered() && F117::laser_armed && haveLock;
+        WeaponsInterop::UpdateLaser(wantLaser, lockPoint, WeaponsInterop::kDefaultLaserCode);
+
+        static void* s_iradsPowerParam = nullptr;
+        publish_named_param(s_iradsPowerParam, "F117_IRADS_POWER", CockpitInterop::IsIRADSPowered() ? 1.0 : 0.0);
+        static void* s_iradsZoomParam = nullptr;
+        publish_named_param(s_iradsZoomParam, "IRADS_ZOOM", CockpitInterop::GetIRADSZoomLevel());
+        static void* s_laserArmedParam = nullptr;
+        static void* s_laserFiringParam = nullptr;
+        publish_named_param(s_laserArmedParam, kLaserArmedParamName, F117::laser_armed ? 1.0 : 0.0);
+        publish_named_param(s_laserFiringParam, kLaserFiringParamName, WeaponsInterop::IsLaserFiring() ? 1.0 : 0.0);
+    }
+
+    void reset_laser()
+    {
+        F117::master_armed = false;
+        F117::release_retry_delay = 0.0;
+        F117::release_status = 0;
+        F117::release_sequence = 0;
+        F117::laser_armed = false;
+        F117::laser_window = 0.0;
+        F117::ccrp_time_of_flight = 0.0;
+        WeaponsInterop::Reset();
+    }
+
     void update_weapon_release_sequence(double dt)
     {
-        double errorMeters = 0.0;
-        double timeToGoSeconds = 0.0;
-        double rangeMeters = 0.0;
-        bool inZone = false;
+        update_laser(dt);
+        F117::release_retry_delay = max(0.0, F117::release_retry_delay - dt);
+        double errorMeters=0.0, timeToGoSeconds=0.0, rangeMeters=0.0;
+        bool inZone=false;
         const bool hasSolution = CockpitInterop::HasIRADSLock() &&
-            compute_release_solution(&errorMeters, &timeToGoSeconds, &rangeMeters, &inZone);
-
-        const bool releaseReady = F117::weapon_release_pickle_held &&
-            weapon_bay_is_open() &&
-            hasSolution &&
-            inZone &&
-            !F117::weapon_release_gate_fired;
-
-        F117::weapon_release_gate = releaseReady;
-        if (releaseReady)
+            compute_release_solution(&errorMeters,&timeToGoSeconds,&rangeMeters,&inZone);
+        static void* profileValidParam=nullptr;
+        static void* stationParam=nullptr;
+        if (!profileValidParam) profileValidParam=F117::cockpitAPI.getParamHandle("F117_STORE_VALID");
+        if (!stationParam) stationParam=F117::cockpitAPI.getParamHandle("F117_RELEASE_STATION");
+        const bool storeValid=profileValidParam && F117::cockpitAPI.getParamNumber(profileValidParam)>0.5;
+        const double stationRaw=stationParam ? F117::cockpitAPI.getParamNumber(stationParam) : -1.0;
+        const int station=std::isfinite(stationRaw) && stationRaw>=0.0 && stationRaw<=8.0 ? static_cast<int>(stationRaw) : -1;
+        const bool efmLaunchAvailable=WeaponsInterop::IsLaunchAvailable();
+        const bool laserRequired=get_ccrp_profile_index()>=3;
+        int status=9; // ready: hold consent to release at computed CCRP point
+        if (!F117::master_armed) status=1;
+        else if (F117::weight_on_wheels || F117::wow_from_draw_args) status=12;
+        else if (!CockpitInterop::IsIRADSPowered()) status=2;
+        else if (!CockpitInterop::HasIRADSLock()) status=3;
+        else if (!storeValid || station<0 || station>8) status=4;
+        else if (laserRequired && (!F117::laser_armed || !WeaponsInterop::IsLaserFiring())) status=5;
+        else if (!weapon_bay_is_open()) status=6;
+        else if (!hasSolution) status=7;
+        else if (!g_releaseAlignmentValid) status=14;
+        else if (!inZone) status=8;
+        else if (!efmLaunchAvailable) status=13;
+        F117::weapon_release_gate_hold=max(0.0,F117::weapon_release_gate_hold-dt);
+        if (status==9 && F117::weapon_release_pickle_held && !F117::weapon_release_gate_fired && F117::release_retry_delay<=0.0)
         {
-            F117::weapon_release_gate_fired = true;
+            double point[3]={};
+            if (CockpitInterop::GetIRADSLockWorldPoint(point) && WeaponsInterop::LaunchAtPoint(point,station))
+            {
+                ++F117::release_sequence;
+                F117::weapon_release_gate_fired=true;
+                F117::weapon_release_gate_hold=kWeaponReleaseGateMinHoldSeconds;
+                for (int i=0;i<3;++i) F117::release_target[i]=point[i];
+                F117::laser_window=F117::ccrp_time_of_flight+kLaserOverrunSeconds;
+                CockpitInterop::Log_("DELIVERY: confirmed native launch; target snapshot saved");
+            }
+            else
+            {
+                status=11;
+                F117::release_retry_delay=0.25; // failed native attempt does not consume consent
+            }
         }
+        if (F117::weapon_release_gate_fired) status=10;
+        if (status!=F117::release_status)
+        {
+            char message[128];
+            sprintf_s(message,"DELIVERY: status=%d station=%d profile=%d consent=%d",status,station,get_ccrp_profile_index(),F117::weapon_release_pickle_held);
+            CockpitInterop::Log_(message);
+            F117::release_status=status;
+        }
+        static void* statusParam=nullptr; static void* armParam=nullptr; static void* flightParam=nullptr;
+        static void* minRangeParam=nullptr; static void* maxRangeParam=nullptr;
+        publish_named_param(minRangeParam,"F117_RELEASE_MIN_RANGE",g_releaseMinRange);
+        publish_named_param(maxRangeParam,"F117_RELEASE_MAX_RANGE",g_releaseMaxRange);
+        static void* sequenceParam=nullptr;
+        publish_named_param(sequenceParam,"F117_RELEASE_SEQUENCE",F117::release_sequence);
+        publish_named_param(statusParam,"F117_RELEASE_STATUS",status);
+        publish_named_param(armParam,"F117_MASTER_ARM",F117::master_armed?1.0:0.0);
+        publish_named_param(flightParam,"F117_STORE_FLIGHT_TIME",F117::laser_window);
+        F117::weapon_release_gate=F117::weapon_release_gate_hold>0.0;
 
         if (!F117::weapon_release_pickle_held &&
             F117::weapon_bay_owned_by_release &&
@@ -1049,6 +1208,8 @@ namespace
             }
         }
 
+        static void* s_efmLaunchActiveParam = nullptr;
+        publish_named_param(s_efmLaunchActiveParam, kEfmLaunchActiveParamName, 1.0);
         publish_release_cue_params();
         publish_weapon_release_gate_param();
     }
@@ -1164,6 +1325,13 @@ namespace
         case pickleOff:
         case weaponReleaseHoldOff:
             handle_weapon_release_released();
+            return true;
+        case MasterArmToggle:
+            F117::master_armed = !F117::master_armed;
+            reset_weapon_release_sequence(); // require fresh consent after changing arm state
+            return true;
+        case IRADSLaserArmToggle:
+            F117::laser_armed = !F117::laser_armed;
             return true;
         case luaDamageHit:
             apply_lua_damage_hit();
@@ -1421,8 +1589,10 @@ void update_propulsion_and_control_effectiveness(double dt, double tailIntegrity
     F117::thrust_N = F117::ENGINE::engine_dynamics(damagedThrottle, F117::mach, F117::altitude_m, dt, engineRunning, F117::weight_on_wheels);
 
     const double wingIntegrity = 1.0 - g_damage.totalWingLoss;
-    F117::aileron_PCT = (F117::aileron_DEG * wingIntegrity) / 25.5;
-    F117::elevator_PCT = (F117::elevator_DEG * (1.0 - g_damage.totalTailLoss)) / 25.0;
+    const double elevonIntegrity = (g_damage.leftOuterElevon + g_damage.rightOuterElevon
+        + g_damage.leftInnerElevon + g_damage.rightInnerElevon) / 4.0;
+    F117::aileron_PCT = (F117::aileron_DEG * wingIntegrity * elevonIntegrity) / 25.5;
+    F117::elevator_PCT = (F117::elevator_DEG * (1.0 - g_damage.totalTailLoss) * elevonIntegrity) / 25.0;
 
     const double tailAsymmetry = g_damage.leftTail - g_damage.rightTail;
     F117::rudder_PCT = (F117::rudder_DEG * tailIntegrity) / 30.0 + tailAsymmetry * 0.1;
@@ -1769,6 +1939,9 @@ void ed_fm_set_atmosphere(
 	F117::ambientTemperature_DegK = t;
 	F117::ambientDensity_KgPerM3 = ro;
 	F117::altitude_m = h;
+	wind_world_cs.x = wind_vx;
+	wind_world_cs.y = wind_vy;
+	wind_world_cs.z = wind_vz;
 }
 
 void ed_fm_set_current_mass_state ( double mass,
@@ -2052,93 +2225,7 @@ void ed_fm_refueling_add_fuel(double fuel)
 
 namespace
 {
-    void update_damage_from_draw_args(float* drawargs, size_t size)
-    {
-        if (F117::param_class.invincible_value == 0 || size <= kDamageDrawArgRequiredSize)
-        {
-            return;
-        }
 
-        const float fuseBot = drawargs[kDamageArgFuselageBottom];
-        const float fuseTop = drawargs[kDamageArgFuselageTop];
-        const float wingLOut = drawargs[kDamageArgLeftWingOuter];
-        const float wingROut = drawargs[kDamageArgRightWingOuter];
-        const float flapLOut = drawargs[kDamageArgLeftFlapOuter];
-        const float flapROut = drawargs[kDamageArgRightFlapOuter];
-        const float flapLCtr = drawargs[kDamageArgLeftFlapCenter];
-        const float flapRCtr = drawargs[kDamageArgRightFlapCenter];
-
-        static int drawArgLogCounter = 0;
-        drawArgLogCounter++;
-        if (g_damageLog && (drawArgLogCounter <= kInitialDrawArgLogFrames || drawArgLogCounter % kPeriodicDrawArgLogFrames == 0))
-        {
-            fprintf(g_damageLog,
-                "[DRAWARGS] frame=%d size=%zu fuseB=%.3f fuseT=%.3f wL=%.3f wR=%.3f fLO=%.3f fRO=%.3f fLC=%.3f fRC=%.3f\n",
-                drawArgLogCounter, size, fuseBot, fuseTop, wingLOut, wingROut,
-                flapLOut, flapROut, flapLCtr, flapRCtr);
-            fflush(g_damageLog);
-        }
-
-        const bool anyDamage = (fuseBot > kVisualDamageThreshold || fuseTop > kVisualDamageThreshold ||
-            wingLOut > kVisualDamageThreshold || wingROut > kVisualDamageThreshold ||
-            flapLOut > kVisualDamageThreshold || flapROut > kVisualDamageThreshold ||
-            flapLCtr > kVisualDamageThreshold || flapRCtr > kVisualDamageThreshold);
-
-        if (!anyDamage)
-        {
-            return;
-        }
-
-        const float fuseWorst = max(fuseBot, fuseTop);
-        if (fuseWorst > kVisualDamageThreshold)
-        {
-            const double integrity = 1.0 - static_cast<double>(fuseWorst);
-            g_damage.leftEngine = min(g_damage.leftEngine, integrity);
-            g_damage.rightEngine = min(g_damage.rightEngine, integrity);
-            g_damage.cockpit = min(g_damage.cockpit, integrity);
-            if (integrity < kFireDamageThreshold)
-            {
-                pushFireEvent(8, -4.45, 0.08, -1.7);
-                pushFireEvent(7, -4.45, 0.08, 1.7);
-            }
-        }
-
-        const float leftWorst = max(max(wingLOut, flapLOut), flapLCtr);
-        if (leftWorst > kVisualDamageThreshold)
-        {
-            const double integrity = 1.0 - static_cast<double>(leftWorst);
-            g_damage.leftWing = min(g_damage.leftWing, integrity);
-            if (integrity < kFireDamageThreshold)
-            {
-                pushFireEvent(4, -0.82, 0.265, -2.774);
-            }
-        }
-
-        const float rightWorst = max(max(wingROut, flapROut), flapRCtr);
-        if (rightWorst > kVisualDamageThreshold)
-        {
-            const double integrity = 1.0 - static_cast<double>(rightWorst);
-            g_damage.rightWing = min(g_damage.rightWing, integrity);
-            if (integrity < kFireDamageThreshold)
-            {
-                pushFireEvent(3, -0.82, 0.265, 2.774);
-            }
-        }
-
-        if (g_damageLog)
-        {
-            fprintf(g_damageLog,
-                "[DRAWARG_DMG] fuseB=%.3f fuseT=%.3f wL=%.3f wR=%.3f fLO=%.3f fRO=%.3f fLC=%.3f fRC=%.3f\n",
-                fuseBot, fuseTop, wingLOut, wingROut, flapLOut, flapROut, flapLCtr, flapRCtr);
-            fprintf(g_damageLog,
-                "  -> State: LW=%.2f RW=%.2f LE=%.2f RE=%.2f LT=%.2f RT=%.2f CP=%.2f\n",
-                g_damage.leftWing, g_damage.rightWing,
-                g_damage.leftEngine, g_damage.rightEngine,
-                g_damage.leftTail, g_damage.rightTail,
-                g_damage.cockpit);
-            fflush(g_damageLog);
-        }
-    }
 
     void sync_gear_draw_args(float* drawargs)
     {
@@ -2190,22 +2277,7 @@ namespace
         }
     }
 
-    void update_damage_animation_draw_args(float* drawargs, size_t size)
-    {
-        if (size > kTailDamageDrawArgRequiredSize)
-        {
-            drawargs[kBrokenLeftWingStructureArg] = (g_damage.leftWing < 0.2) ? 1.0f : 0.0f;
-            drawargs[kBrokenLeftRudderArg] = (g_damage.leftTail < 0.5) ? 1.0f : 0.0f;
-            drawargs[kBrokenRightRudderArg] = (g_damage.rightTail < 0.5) ? 1.0f : 0.0f;
-        }
-        if (size > kWingDamageDrawArgRequiredSize)
-        {
-            drawargs[kBrokenLeftElevonOuterArg] = (g_damage.leftWing < 0.7) ? 1.0f : 0.0f;
-            drawargs[kBrokenLeftElevonCenterArg] = (g_damage.leftWing < 0.4) ? 1.0f : 0.0f;
-            drawargs[kBrokenRightElevonCenterArg] = (g_damage.rightWing < 0.3) ? 1.0f : 0.0f;
-            drawargs[kBrokenRightElevonOuterArg] = (g_damage.rightWing < 0.6) ? 1.0f : 0.0f;
-        }
-    }
+
 
     void update_fc3_cockpit_draw_args(float* drawargs)
     {
@@ -2222,12 +2294,11 @@ namespace
 
 void ed_fm_set_draw_args_v2(float* drawargs, size_t size) // Sync external-model draw args between DCS and the FM state.
 {
-    update_damage_from_draw_args(drawargs, size);
+    // DCS owns damage visibility arguments. FM damage arrives via ed_fm_on_damage.
     sync_gear_draw_args(drawargs);
     update_weight_on_wheels_from_draw_args(drawargs);
     update_control_surface_draw_args(drawargs);
     update_misc_draw_args(drawargs, size);
-    update_damage_animation_draw_args(drawargs, size);
 }
 
 
@@ -2410,8 +2481,20 @@ namespace
 
     void reset_damage_and_events()
     {
-        g_damage = F117::DamageState();
         clear_pending_sim_events();
+        // Explicitly stop existing emitters when DCS repairs/reinitializes the aircraft.
+        for (int handle = 0; handle < 9; ++handle)
+        {
+            if (g_damage.fireActive[handle])
+            {
+                ed_fm_simulation_event event = {};
+                event.event_type = ED_FM_EVENT_FIRE;
+                event.event_params[0] = static_cast<float>(handle);
+                event.event_params[8] = 0.0f;
+                g_simEvents.push(event);
+            }
+        }
+        g_damage = F117::DamageState();
     }
 
     void log_damage_lifecycle_event(const char* label)
@@ -2437,6 +2520,7 @@ namespace
         F117::ENGINE::N2 = enginesRunning ? kGroundStartIdleN2 : 0.0;
         reset_damage_and_events();
         reset_weapon_release_sequence();
+        reset_laser();
     }
 
     void apply_air_start_state()
@@ -2453,6 +2537,7 @@ namespace
         F117::ENGINE::N2 = kAirStartN2;
         reset_damage_and_events();
         reset_weapon_release_sequence();
+        reset_laser();
     }
 }
 
@@ -2490,6 +2575,8 @@ void ed_fm_release()
     F117::misc_cmdH = 0.0;
     F117::misc_stateH = 0.0;
     reset_weapon_release_sequence();
+    reset_laser();
+    CockpitInterop::ResetIRADSSession();
 
     F117::alt_hold = 0;
     F117::horiz_hold = 0;
@@ -2582,6 +2669,8 @@ void ed_fm_hot_start_in_air()
 //   [0] = handle, [1-3] = position XYZ, [4-6] = direction XYZ, [7] = speed, [8] = scale
 static void pushFireEvent(int handle, double x, double y, double z)
 {
+    if (handle < 0 || handle >= 9 || g_damage.fireActive[handle]) return;
+    g_damage.fireActive[handle] = true;
 	ed_fm_simulation_event evt = {};
 	evt.event_type = ED_FM_EVENT_FIRE;
 	evt.event_params[0] = (float)handle;  // fire control handle
@@ -2625,7 +2714,7 @@ namespace
             return false;
         }
 
-        fprintf(g_damageLog, "=== F-117 Damage Debug Log ===\n");
+        fprintf(g_damageLog, "=== F-117 Damage Debug Log (DCS-owned visuals v2) ===\n");
         fprintf(g_damageLog, "Log opened at: %s\n", path);
         fprintf(g_damageLog, "invincible_value at init: %d\n\n", static_cast<int>(F117::param_class.invincible_value));
         fflush(g_damageLog);
@@ -2657,28 +2746,40 @@ namespace
         switch (element)
         {
         case kDamageElementCockpit:
-            return "cockpit(ignored, derived from MAIN)";
+            g_damage.cockpit = min(g_damage.cockpit, integrity);
+            return "cockpit";
         case kDamageElementEngine:
-            g_damage.leftEngine = integrity;
-            g_damage.rightEngine = integrity;
-            if (integrity < kFireDamageThreshold)
-            {
+            g_damage.leftEngine = min(g_damage.leftEngine, integrity);
+            g_damage.rightEngine = min(g_damage.rightEngine, integrity);
+            if (g_damage.leftEngine < kFireDamageThreshold)
                 pushFireEvent(8, -4.45, 0.08, -1.7);
+            if (g_damage.rightEngine < kFireDamageThreshold)
                 pushFireEvent(7, -4.45, 0.08, 1.7);
-            }
             return "engines(both)";
         case kDamageElementMain:
-            g_damage.leftWing = min(g_damage.leftWing, max(0.0, integrity - (1.0 - integrity) * 0.3));
+            // Current MAIN shells cover both fixed wings and the fuselage.
+            // Do not invent engine/cockpit/tail hits from this broad collision zone.
+            g_damage.leftWing = min(g_damage.leftWing, integrity);
             g_damage.rightWing = min(g_damage.rightWing, integrity);
+            return "main(fixed structure)";
+        case kDamageElementAileronLeft:
+            g_damage.leftOuterElevon = min(g_damage.leftOuterElevon, integrity);
+            return "left outer elevon";
+        case kDamageElementAileronRight:
+            g_damage.rightOuterElevon = min(g_damage.rightOuterElevon, integrity);
+            return "right outer elevon";
+        case kDamageElementFlapLeft:
+            g_damage.leftInnerElevon = min(g_damage.leftInnerElevon, integrity);
+            return "left inner elevon";
+        case kDamageElementFlapRight:
+            g_damage.rightInnerElevon = min(g_damage.rightInnerElevon, integrity);
+            return "right inner elevon";
+        case kDamageElementRudderLeft:
             g_damage.leftTail = min(g_damage.leftTail, integrity);
+            return "left ruddervator";
+        case kDamageElementRudderRight:
             g_damage.rightTail = min(g_damage.rightTail, integrity);
-            g_damage.cockpit = min(g_damage.cockpit, integrity);
-            if (integrity < kFireDamageThreshold)
-            {
-                pushFireEvent(4, -0.82, 0.265, -2.774);
-                pushFireEvent(3, -0.82, 0.265, 2.774);
-            }
-            return "main(wings+tails+cockpit)";
+            return "right ruddervator";
         default:
             return "IGNORED(unhandled)";
         }
@@ -2736,8 +2837,9 @@ void ed_fm_on_damage(int Element, double element_integrity_factor)
         return;
     }
 
-    double rawDamage = 1.0 - limit(element_integrity_factor, 0.0, 1.0);
-    double integrity = max(0.0, 1.0 - rawDamage * kDamageScale);
+    // DCS already applies Lua critical_damage; do not amplify it a second time.
+    if (!std::isfinite(element_integrity_factor)) return;
+    const double integrity = limit(element_integrity_factor, 0.0, 1.0);
     const char* mapped = apply_damage_for_element(Element, integrity);
     log_damage_mapping_result(mapped);
 }
@@ -2772,7 +2874,11 @@ bool ed_fm_need_to_be_repaired()
 		|| g_damage.rightEngine < 1.0
 		|| g_damage.leftTail    < 1.0
 		|| g_damage.rightTail   < 1.0
-		|| g_damage.cockpit     < 1.0;
+		|| g_damage.cockpit     < 1.0
+        || g_damage.leftOuterElevon < 1.0
+        || g_damage.rightOuterElevon < 1.0
+        || g_damage.leftInnerElevon < 1.0
+        || g_damage.rightInnerElevon < 1.0;
 }
 
 // -----------------------------------------------------------------------

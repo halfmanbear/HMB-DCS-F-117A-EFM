@@ -110,16 +110,12 @@ namespace CockpitInterop
     {
         void* primaryVftable;                // +0x00
         void* platformRoot;                  // +0x08
-        std::uint8_t _pad010[0x29 - 0x10];
-        std::uint8_t deviceSlotIndex;        // +0x29
-        std::uint8_t _pad02A[0x50 - 0x2A];
-        std::uintptr_t luaStateAlias;        // +0x50
-        std::uintptr_t subsystemAlias;       // +0x58
-        std::uint8_t _pad060[0xA8 - 0x60];
+        std::uint8_t _platformMotors[0xA8 - 0x10]; // avPlatform motors; NEVER avDevice fields
         WorldPoseMatrix platformWorldPose;   // +0xA8
         WorldPoseMatrix platformInitialWorldPose; // +0x128
         WorldPoseMatrix platformInitialLocalPose; // +0x1A8
-        std::uint8_t _pad228[0x260 - 0x228];
+        double platformLastUpdateTime;      // +0x228: native render extrapolation timestamp
+        std::uint8_t _pad230[0x260 - 0x230];
         std::uint8_t activeFlag;             // +0x260
         std::uint8_t _pad261[0x268 - 0x261];
         void* searchTimer;                   // +0x268
@@ -130,25 +126,25 @@ namespace CockpitInterop
         double baseFov;                      // +0x348
         std::uint8_t _pad350[0x358 - 0x350];
         double currentZoom;                  // +0x358
-        std::uint8_t _pad360[0x4C0 - 0x360];
+        double targetZoom;                   // +0x360 native zoom motor target
+        std::uint8_t _pad368[0x4C0 - 0x368];
         double aspectRatio;                  // +0x4C0
         SensorFrameLayout currentFrame;      // +0x4C8
         std::uint8_t _pad4D8[0x610 - 0x4D8];
         std::uint8_t hatLock;                // +0x610
     };
     static_assert(offsetof(AvTVSensorLayout, platformRoot) == 0x08);
-    static_assert(offsetof(AvTVSensorLayout, deviceSlotIndex) == 0x29);
-    static_assert(offsetof(AvTVSensorLayout, luaStateAlias) == 0x50);
-    static_assert(offsetof(AvTVSensorLayout, subsystemAlias) == 0x58);
     static_assert(offsetof(AvTVSensorLayout, platformWorldPose) == 0xA8);
     static_assert(offsetof(AvTVSensorLayout, platformInitialWorldPose) == 0x128);
     static_assert(offsetof(AvTVSensorLayout, platformInitialLocalPose) == 0x1A8);
+    static_assert(offsetof(AvTVSensorLayout, platformLastUpdateTime) == 0x228);
     static_assert(offsetof(AvTVSensorLayout, activeFlag) == 0x260);
     static_assert(offsetof(AvTVSensorLayout, searchTimer) == 0x268);
     static_assert(offsetof(AvTVSensorLayout, cachedTrackedPoint) == 0x328);
     static_assert(offsetof(AvTVSensorLayout, trackMode) == 0x340);
     static_assert(offsetof(AvTVSensorLayout, baseFov) == 0x348);
     static_assert(offsetof(AvTVSensorLayout, currentZoom) == 0x358);
+    static_assert(offsetof(AvTVSensorLayout, targetZoom) == 0x360);
     static_assert(offsetof(AvTVSensorLayout, aspectRatio) == 0x4C0);
     static_assert(offsetof(AvTVSensorLayout, currentFrame) == 0x4C8);
     static_assert(offsetof(AvTVSensorLayout, hatLock) == 0x610);
