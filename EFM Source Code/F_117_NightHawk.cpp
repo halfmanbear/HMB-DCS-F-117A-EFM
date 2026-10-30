@@ -23,6 +23,8 @@
 #include "param_functions.h"
 #include "Avionics/CockpitBase_Interop.h"
 #include "Avionics/JdamEnvelope.h"
+#include "Avionics/Autothrottle.h"
+#include "Avionics/Paars.h"
 #include "Avionics/Weapons_Interop.h"
 
 using namespace F117;
@@ -54,6 +56,8 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 {
 	double		ambientTemperature_DegK = 0.0;			// Ambient temperature (kelvin)
 	double		ambientDensity_KgPerM3	= 0.0;			// Ambient density (kg/m^3)
+	double		ambientPressure_PA		= 101325.0;		// Ambient static pressure (Pa)
+	double		calibratedAirspeed_KT	= 0.0;			// Calibrated airspeed (knots)
 	double		aircraftQuaternionX		= 0.0;			// World-frame orientation quaternion
 	double		aircraftQuaternionY		= 0.0;
 	double		aircraftQuaternionZ		= 0.0;
@@ -188,6 +192,10 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 
 static F117::DamageState g_damage;
 static std::queue<ed_fm_simulation_event> g_simEvents;
+static Autothrottle::Controller g_autothrottle;
+static Paars::Controller g_paars;
+static bool g_paarsEngagedAutothrottle = false; // PAARS moved the power levers by engaging A/T
+static double g_paarsRollRateDegS = 0.0;
 static void* g_weaponReleaseGateParam = nullptr;
 static bool g_weaponReleaseGateParamInitialized = false;
 static void* g_iradsLockValidParam = nullptr;
@@ -1227,12 +1235,17 @@ namespace
         case JoystickThrottle:
             if (F117::engineswitch == true)
             {
-                F117::throttleInput = limit(((-value + 1.0) * 0.5) * 100.0, 0.0, 100.0);
+                const double axisPct = limit(((-value + 1.0) * 0.5) * 100.0, 0.0, 100.0);
+                if (g_autothrottle.accept_axis(axisPct))
+                {
+                    F117::throttleInput = axisPct;
+                }
             }
             return true;
         case ThrottleIncrease:
             if (F117::engineswitch == true && F117::internal_fuel >= 5.0)
             {
+                g_autothrottle.pilot_throttle_step();
                 F117::throttleInput += kThrottleStep;
                 F117::throttleInput = limit(F117::throttleInput, 0.0, 100.0);
             }
@@ -1240,6 +1253,7 @@ namespace
         case ThrottleDecrease:
             if (F117::engineswitch == true)
             {
+                g_autothrottle.pilot_throttle_step();
                 F117::throttleInput -= kThrottleStep;
                 F117::throttleInput = limit(F117::throttleInput, 0.0, 100.0);
             }
@@ -1360,14 +1374,122 @@ namespace
             horiz_hold = 0;
             altroll_hold = (altroll_hold < 0.5) ? 1 : 0;
             return true;
-        case autopilot_reset:
+        case autopilot_reset: // stick disengage paddle: A/P, A/T and PAARS
             horiz_hold = 0;
             alt_hold = 0;
             altroll_hold = 0;
+            g_autothrottle.disconnect_button();
+            g_paars.disengage();
+            g_paarsEngagedAutothrottle = false;
             return true;
         }
 
         return false;
+    }
+
+    bool engines_running()
+    {
+        const double avgEngineIntegrity = (g_damage.leftEngine + g_damage.rightEngine) / 2.0;
+        return F117::engineswitch && (F117::internal_fuel >= 5.0) && (avgEngineIntegrity > 0.05);
+    }
+
+    bool handle_autothrottle_command(int command)
+    {
+        switch (command)
+        {
+        case AutothrottleEngage: // A/T engage switch
+            g_paarsEngagedAutothrottle = false;
+            if (g_autothrottle.engaged())
+            {
+                g_autothrottle.disengage();
+            }
+            else
+            {
+                g_autothrottle.engage(F117::calibratedAirspeed_KT, F117::throttleInput,
+                    !F117::weight_on_wheels, engines_running());
+            }
+            return true;
+        case AutothrottleDisconnect: // inboard throttle disengage button
+            g_paarsEngagedAutothrottle = false;
+            g_autothrottle.disconnect_button();
+            return true;
+        }
+
+        return false;
+    }
+
+    // ARS deselected or not functional: a pilot-engaged A/T stays engaged (manual 4-6);
+    // the A/T PAARS engaged to move the power levers is released.
+    void release_paars()
+    {
+        g_paars.disengage();
+        if (g_paarsEngagedAutothrottle)
+        {
+            g_autothrottle.disengage();
+            g_paarsEngagedAutothrottle = false;
+        }
+    }
+
+    bool handle_paars_command(int command)
+    {
+        if (command != PaarsToggle) // stick ARS switch
+        {
+            return false;
+        }
+        if (g_paars.engaged())
+        {
+            release_paars();
+        }
+        else if (g_paars.engage(F117::pitch_angle, F117::roll_angle, F117::weight_on_wheels, F117::airRefuelDoorOpen)
+            && !g_autothrottle.engaged())
+        {
+            g_paarsEngagedAutothrottle = g_autothrottle.engage(F117::calibratedAirspeed_KT, F117::throttleInput,
+                !F117::weight_on_wheels, engines_running());
+        }
+        return true;
+    }
+
+    void update_paars()
+    {
+        Paars::Command command{};
+        const bool active = g_paars.update(F117::pitch_angle, F117::roll_angle,
+            F117::rollRate_RPS * F117::radiansToDegrees, F117::pitchRate_RPS * F117::radiansToDegrees,
+            F117::gearDown > 0.5, F117::weight_on_wheels, F117::airRefuelDoorOpen, &command);
+        if (!active && g_paarsEngagedAutothrottle)
+        {
+            release_paars();
+        }
+        F117::FLIGHTCONTROLS::set_recovery_nz_command(active, command.nz);
+        g_paarsRollRateDegS = active ? command.rollRateDegS : 0.0;
+
+        double pulloutFt = 0.0;
+        if (active)
+        {
+            const double speed = sqrt(velocity_world_cs.x * velocity_world_cs.x
+                + velocity_world_cs.y * velocity_world_cs.y + velocity_world_cs.z * velocity_world_cs.z);
+            const double flightPathDeg = speed > 1.0 ? asin(limit(velocity_world_cs.y / speed, -1.0, 1.0)) * F117::radiansToDegrees : 0.0;
+            pulloutFt = Paars::displayed_pullout_altitude_ft(Paars::minimum_pullout_altitude_ft(
+                F117::altitude_m * 3.28084, F117::totalVelocity_MPS, flightPathDeg, F117::roll_angle));
+        }
+        static void* s_activeParam = nullptr;
+        static void* s_pulloutParam = nullptr;
+        publish_named_param(s_activeParam, "F117_ARS_ACTIVE", active ? 1.0 : 0.0);
+        publish_named_param(s_pulloutParam, "F117_ARS_MIN_ALT", pulloutFt);
+    }
+
+    void update_autothrottle(double dt)
+    {
+        F117::calibratedAirspeed_KT = Autothrottle::calibrated_airspeed_kt(
+            F117::totalVelocity_MPS, F117::ambientTemperature_DegK, F117::ambientPressure_PA);
+        F117::throttleInput = g_autothrottle.update(dt, F117::calibratedAirspeed_KT, F117::throttleInput,
+            !F117::weight_on_wheels, engines_running());
+
+        static void* s_engagedParam = nullptr;
+        static void* s_discParam = nullptr;
+        static void* s_casCommandParam = nullptr;
+        publish_named_param(s_engagedParam, "F117_AT_ENGAGED", g_autothrottle.engaged() ? 1.0 : 0.0);
+        publish_named_param(s_discParam, "F117_AT_DISC", g_autothrottle.disconnect_light() ? 1.0 : 0.0);
+        publish_named_param(s_casCommandParam, "F117_AT_CAS_COMMAND", g_autothrottle.target_cas_kt());
     }
 
 void log_simulation_frame(double dt)
@@ -1519,7 +1641,7 @@ void update_flight_control_commands(double dt, double controlDegradation)
         F117::beta_DEG,
         F117::roll_angle,
         F117::rollRate_RPS * F117::radiansToDegrees,
-        0.0,
+        g_paarsRollRateDegS, // PAARS roll-rate command, added to the pilot's
         F117::dynamicPressure_PA,
         F117::gearDown > 0.5,
         F117::airRefuelDoorOpen,
@@ -1584,7 +1706,7 @@ void update_propulsion_and_control_effectiveness(double dt, double tailIntegrity
     const double avgEngineIntegrity = (g_damage.leftEngine + g_damage.rightEngine) / 2.0;
     F117::throttle_state = F117::ACTUATORS::throttle_actuator(F117::throttleInput * avgEngineIntegrity, dt);
 
-    const bool engineRunning = F117::engineswitch && (F117::internal_fuel >= 5.0) && (avgEngineIntegrity > 0.05);
+    const bool engineRunning = engines_running();
     const double damagedThrottle = F117::throttleInput * avgEngineIntegrity;
     F117::thrust_N = F117::ENGINE::engine_dynamics(damagedThrottle, F117::mach, F117::altitude_m, dt, engineRunning, F117::weight_on_wheels);
 
@@ -1828,7 +1950,13 @@ update_atmosphere_from_total_velocity(temp);
 //-----CONTROL DYNAMICS------------------------
 //---------------------------------------------
 //
-update_autopilot_hold_state();
+// While PAARS flies the recovery the autopilot holds stay selected but do not act.
+if (!g_paars.engaged())
+{
+    update_autopilot_hold_state();
+}
+update_autothrottle(dt);
+update_paars();
 
 // Fuel system
 update_fuel_system(dt);
@@ -1938,6 +2066,7 @@ void ed_fm_set_atmosphere(
 {
 	F117::ambientTemperature_DegK = t;
 	F117::ambientDensity_KgPerM3 = ro;
+	F117::ambientPressure_PA = p;
 	F117::altitude_m = h;
 	wind_world_cs.x = wind_vx;
 	wind_world_cs.y = wind_vy;
@@ -2099,6 +2228,16 @@ void ed_fm_set_command(int command, float value)	// Command = Command Index (See
     }
 
     if (handle_autopilot_command(command))
+    {
+        return;
+    }
+
+    if (handle_autothrottle_command(command))
+    {
+        return;
+    }
+
+    if (handle_paars_command(command))
     {
         return;
     }
@@ -2521,6 +2660,10 @@ namespace
         reset_damage_and_events();
         reset_weapon_release_sequence();
         reset_laser();
+        g_autothrottle.reset();
+        g_paars.reset();
+        g_paarsEngagedAutothrottle = false;
+        g_paarsRollRateDegS = 0.0;
     }
 
     void apply_air_start_state()
@@ -2538,6 +2681,10 @@ namespace
         reset_damage_and_events();
         reset_weapon_release_sequence();
         reset_laser();
+        g_autothrottle.reset();
+        g_paars.reset();
+        g_paarsEngagedAutothrottle = false;
+        g_paarsRollRateDegS = 0.0;
     }
 }
 
@@ -2581,6 +2728,10 @@ void ed_fm_release()
     F117::alt_hold = 0;
     F117::horiz_hold = 0;
     F117::alt_hold = 0;
+    g_autothrottle.reset();
+    g_paars.reset();
+    g_paarsEngagedAutothrottle = false;
+    g_paarsRollRateDegS = 0.0;
 
     F117::ACTUATORS::tailhook_state = 0.0;
     F117::ACTUATORS::tailhook_rate = 0.0;
