@@ -15,6 +15,7 @@ namespace F117
 
 		void reset_runtime_state();
 		void update_pitch_mode_auto_inputs(double gearDown, bool airRefuelDoorOpen);
+		void set_recovery_nz_command(bool active, double nz);
 		void update_yaw_debug_snapshot(double betaDeg, double yawRateRps, double rudderDegCommanded, double rudderDeg, double rudderPct);
 		void update_aero_debug_snapshot(double cyDeltaRudder, double cnDeltaRudder, double clDeltaRudder, double cnDeltaBeta, double clDeltaBeta, double cyTotal, double cnTotal, double clTotal);
 		double fcs_yaw_controller(double pedInput, double pedTrim, double beta_deg, double yaw_rate, double roll_rate, double pitch_rate, double aoa_filtered, double dynPressure_PA, bool gearDown, double dt);

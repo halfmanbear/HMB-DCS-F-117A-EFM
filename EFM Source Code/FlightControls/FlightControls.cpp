@@ -46,6 +46,8 @@ namespace F117
             double stickCommandPosFiltered = 0.0;
             double azFiltered = 0.0;
             double nz_reference = 1.0;  // current 1G reference; reset alongside filter state
+            bool recoveryNzActive = false;  // PAARS load-factor command replaces the 1G reference
+            double recoveryNz = 1.0;
             double pitchIntegratorState = 0.0;  // tracks raw integrator output for state anti-windup
 
             bool yawControllerInitialized = false;
@@ -665,6 +667,8 @@ namespace F117
             stickCommandPosFiltered = 0.0;
             azFiltered = 0.0;
             nz_reference = 1.0;
+            recoveryNzActive = false;
+            recoveryNz = 1.0;
             pitchIntegratorState = 0.0;
 
             yawControllerInitialized = false;
@@ -718,6 +722,12 @@ namespace F117
             {
                 debugLog.close();
             }
+        }
+
+        void set_recovery_nz_command(bool active, double nz)
+        {
+            recoveryNzActive = active;
+            recoveryNz = nz;
         }
 
         void update_pitch_mode_auto_inputs(double gearDown, bool airRefuelDoorOpen)
@@ -957,6 +967,13 @@ namespace F117
                     (-std::cos(roll_RAD) * std::sin(pitch_RAD) * pitch_rate_rad_s);
                 nz_reference += PitchControllerConfig::kGravityFeedForwardGain * gravity_rate * dt;
                 nz_reference = limit(nz_reference, PitchControllerConfig::kNzMin, PitchControllerConfig::kNzMax);
+            }
+
+            // PAARS commands the load factor; pilot stick still adds on top, and on release
+            // the reference continues from the last commanded value.
+            if (recoveryNzActive)
+            {
+                nz_reference = limit(recoveryNz, PitchControllerConfig::kNzMin, PitchControllerConfig::kNzMax);
             }
 
             double nz_cmd = limit(nz_reference + stickCommandPos, PitchControllerConfig::kNzMin, PitchControllerConfig::kNzMax);

@@ -127,6 +127,10 @@ enum InputCommands
 	IRADSSlewVerticalAxis = 10120,
 	IRADSZoomAxis = 10121,
     MasterArmToggle = 10122,
+	// OCIP autothrottle (TO 1F-117A-1A 4-2)
+	AutothrottleEngage = 10125,     // A/T engage switch
+	AutothrottleDisconnect = 10126, // inboard throttle A/T disengage button
+	PaarsToggle = 10127,            // stick ARS switch (PAARS, TO 1F-117A-1A 4-6)
 
 	Reserved // placeholder
 };
