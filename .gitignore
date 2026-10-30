@@ -22,3 +22,4 @@ Tools/
 /EFM Source Code/bin/F_117_NightHawk.dll
 /EFM Source Code/F_117_NightHawk/x64/Release/
 /EFM Source Code/FlightControls/F117_GLimiter_Debug.csv
+/EFM Source Code/bin/*.lib
