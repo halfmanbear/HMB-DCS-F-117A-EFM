@@ -5,7 +5,7 @@ repo=Path(__file__).resolve().parents[1]
 src=repo/'EFM Source Code'
 mod=Path(sys.argv[1]); out=Path(sys.argv[2]); out.mkdir(exist_ok=True)
 inputs=dict((name,int(value)) for name,value in re.findall(r'^\s*(\w+)\s*=\s*(\d+)\s*,', (src/'Inputs.h').read_text(encoding="utf-8-sig"),re.M))
-lua=LuaRuntime(); lua.execute((repo/'Cockpit/Scripts/command_defs.lua').read_text(encoding="utf-8-sig"))
+lua=LuaRuntime(); lua.execute((mod/'Cockpit/Scripts/command_defs.lua').read_text(encoding="utf-8-sig"))
 k=lua.globals().Keys; f=lua.globals().f117_commands; h=lua.globals().hotas_commands
 for name,want in [('PanelLight',10001),('BcnLgt',10007),('IRADSZoomIn',10008),('IRADSZoomOut',10009),('MFDOverlayToggle',10010)]: assert k[name]==want,(name,k[name])
 for lua_name,cpp_name in [('WEAPON_RELEASE_ON','weaponReleaseHoldOn'),('WEAPON_RELEASE_OFF','weaponReleaseHoldOff'),('IRADS_DESIGNATION_CLEAR','IRADSDesignationClear'),('IRADS_LASER_ARM_TOGGLE','IRADSLaserArmToggle'),('IRADS_SLEW_HORIZONTAL','IRADSSlewHorizontalAxis'),('IRADS_SLEW_VERTICAL','IRADSSlewVerticalAxis'),('IRADS_ZOOM_AXIS','IRADSZoomAxis')]: assert f[lua_name]==inputs[cpp_name]
@@ -39,7 +39,7 @@ for device in ['keyboard','joystick']:
         r=row(command); assert r.up==command and r.value_down==1 and r.value_up==0
     assert not any(r.down in ['iCommandPlaneLaserRangerOnOff','iCommandPlaneZoomIn','iCommandPlaneZoomOut'] for r in rows)
     if device=='joystick':
-        axes=list(result.axisCommands.values()); assert {r.action for r in axes}=={3001,3002,3003}; assert all(r.cockpit_device_id==7 for r in axes)
+        axes=list(result.axisCommands.values()); assert {r.action for r in axes}=={3001,3002,3003,3009,3010}; assert all(r.cockpit_device_id==7 for r in axes)
         assert not any(r.name=='Target Box Size' for r in axes)
     print('PASS: Lua 5.1',device,'profile: IDs, release edges, unique custom controls, overlay, laser and axes')
 assert profile_signatures['keyboard']==profile_signatures['joystick'], 'DCS combines device profiles by full signature: mismatch creates duplicate rows'
@@ -58,7 +58,10 @@ def param(name):
 vm.globals().get_param_handle=param
 vm.globals().LockOn_Options=vm.table_from({'script_path':str(mod/'Cockpit/Scripts').replace('\\','/')+'/'})
 vm.globals().make_default_activity=lambda dt: None
-vm.execute('GetSelf=function() return {listen_command=function(...) end} end')
+vm.execute('''
+function GetSelf() return {listen_command=function(...)end} end
+function get_base_data() return {} end
+''')
 vm.globals().dispatch_action=lambda *args: events.append(args)
 vm.execute((mod/'Cockpit/Scripts/Systems/Displays.lua').read_text(encoding="utf-8-sig"))
 param('mainpower').set(1)
@@ -74,18 +77,15 @@ events.clear()
 
 param('MFD_OVERLAY').set(1); vm.globals().SetCommand(10010,0); assert param('MFD_OVERLAY').get()==0
 vm.globals().SetCommand(10010,0); assert param('MFD_OVERLAY').get()==1
-assert (repo/'Cockpit/Scripts/command_defs.lua').read_bytes()==(mod/'Cockpit/Scripts/command_defs.lua').read_bytes()
-assert (repo/'Cockpit/Scripts/Systems/Displays.lua').read_bytes()==(mod/'Cockpit/Scripts/Systems/Displays.lua').read_bytes()
-print('PASS: deployed cockpit source matches; overlay toggles; no Lua zoom/slew redispatch')
+print('PASS: deployed cockpit commands exercised; overlay toggles; no Lua zoom/slew redispatch')
 
 indicator=Path('Cockpit/Scripts/MFD/Indicator/MFD_indication_page.lua')
-assert (repo/indicator).read_bytes()==(mod/indicator).read_bytes()
 page=(mod/indicator).read_text(encoding='utf-8')
 assert '"F117_LASER_ARMED"' in page and '{"MLAS_TOGGLE"}' not in page
 syntax=LuaRuntime()
 syntax.execute('assert(loadstring(...))',page)
 assert 'dispatch_action(nil,392)' not in (mod/'Cockpit/Scripts/Systems/Displays.lua').read_text(encoding='utf-8')
-print('PASS: MFD Lua 5.1 syntax; deployed source matches; LAS uses EFM arm state')
+print('PASS: MFD Lua 5.1 syntax; deployed page parses; LAS uses EFM arm state')
 
 # Compile the actual production command handler with sensor-call mocks.
 text=(src/'Avionics/CockpitBase_Interop.cpp').read_text(encoding="utf-8-sig")

@@ -139,10 +139,11 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
     double      release_target[3] = {};
     bool        laser_armed = false;            // IRADS laser arm/safe
     double      laser_window = 0.0;             // seconds of auto-lase remaining after a release
+    double      weapon_flight_time_remaining = 0.0; // countdown from the last accepted release
     double      ccrp_time_of_flight = 0.0;      // last computed bomb time of flight (s)
 
 	// Integrity-based damage state: 1.0 = perfect, 0.0 = destroyed
-	// DCS Damage.lua: cockpit=3, MAIN=10, ENGINE=11; surfaces=25/26/37/38/53/54.
+	// Cell numbers follow DCS Damage.lua and the section names in the mod's Damage table.
 	struct DamageState {
 		double leftWing    = 1.0;   // Remaining component integrity; damage is monotonic until repair.
 		double rightWing   = 1.0;   // Remaining component integrity; damage is monotonic until repair.
@@ -156,9 +157,27 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
         double rightOuterElevon = 1.0;
         double leftInnerElevon = 1.0;
         double rightInnerElevon = 1.0;
+
+        double nose = 1.0;
+        double leftFuselage = 1.0;
+        double rightFuselage = 1.0;
+        double belly = 1.0;
+        double leftTailStructure = 1.0;
+        double rightTailStructure = 1.0;
+        double leftWingInner = 1.0;
+        double rightWingInner = 1.0;
+        double leftWingOuter = 1.0;
+        double rightWingOuter = 1.0;
+        double noseGear = 1.0;
+        double leftGear = 1.0;
+        double rightGear = 1.0;
+        double noseWheel = 1.0;
+        double leftWheel = 1.0;
+        double rightWheel = 1.0;
         bool fireActive[9] = {};
 
 		// Derived values (updated each frame in ed_fm_simulate)
+		double structuralDragFactor = 1.0;  // Cx multiplier from airframe section damage
 		double wingAsymmetry   = 0.0;  // leftWing - rightWing
 		double totalWingLoss   = 0.0;  // average damage across both wings
 		double totalTailLoss   = 0.0;  // average damage across both tails
@@ -183,7 +202,9 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	double		dragchute_command = 0.0;			// dragChute command
 	double		dragchute = 0.0;					// is the dragChute out?
 
-	double		surface_height_m = 1000.0;			// Height of terrain surface below aircraft centre (m). Default high to suppress ground effect until first DCS call.
+	double      surface_height_m = 0.0; // absolute elevation of the supporting surface (m)
+    bool        surface_height_valid = false;
+    bool        altitude_valid = false;
 	bool		suspension_wow[3] = { false, false, false }; // Per-gear weight-on-wheels from DCS suspension feedback (0=nose, 1=left main, 2=right main)
 
 	EDPARAM cockpitAPI;
@@ -338,9 +359,32 @@ namespace
     constexpr double kAirframeOxygenSupply = 1000.0;
     constexpr double kDefaultFlowVelocity = 100.0;
 
+    constexpr int kDamageElementNose = 0;
     constexpr int kDamageElementCockpit = 3;
-    constexpr int kDamageElementEngine = 11;
-    constexpr int kDamageElementMain = 10;
+    constexpr int kDamageElementNoseGear = 8;
+    constexpr int kDamageElementFuselageLeft = 9;
+    constexpr int kDamageElementFuselageRight = 10; // Also DCS "MAIN".
+    constexpr int kDamageElementEngineLeft = 11;
+    constexpr int kDamageElementEngineRight = 12;
+    constexpr int kDamageElementLeftGear = 15;
+    constexpr int kDamageElementRightGear = 16;
+    constexpr int kDamageElementWingOuterLeft = 23;
+    constexpr int kDamageElementWingOuterRight = 24;
+    constexpr int kDamageElementWingInnerLeft = 35;
+    constexpr int kDamageElementWingInnerRight = 36;
+    constexpr int kDamageElementTailLeft = 56;
+    constexpr int kDamageElementTailRight = 57;
+    constexpr int kDamageElementBelly = 82;
+    constexpr int kDamageElementNoseWheel = 83;
+    constexpr int kDamageElementLeftWheel = 84;
+    constexpr int kDamageElementRightWheel = 85;
+    // DCS 2.9 stops reporting a destroyed cell at 0.1, never 0, and sends no callback for its
+    // deps_cells. Measured with live blasts in DCS 2.9.31.
+    constexpr double kDamageCellDestroyedIntegrity = 0.101;
+    // Outer panel share of one wing's planform, from the section stations in the EDM.
+    constexpr double kOuterWingLiftShare = 0.30;
+    // Added drag with every airframe section destroyed. Gameplay value, not flight-test data.
+    constexpr double kStructuralDragPenalty = 0.30;
     constexpr int kDamageElementAileronLeft = 25;
     constexpr int kDamageElementAileronRight = 26;
     constexpr int kDamageElementFlapLeft = 37;
@@ -1102,6 +1146,7 @@ namespace
     void update_laser(double dt)
     {
         F117::laser_window = max(0.0, F117::laser_window - dt);
+        F117::weapon_flight_time_remaining = max(0.0, F117::weapon_flight_time_remaining - dt);
 
         double lockPoint[3] = {0.0, 0.0, 0.0};
         const bool haveLock = CockpitInterop::GetIRADSLockWorldPoint(lockPoint);
@@ -1126,6 +1171,7 @@ namespace
         F117::release_sequence = 0;
         F117::laser_armed = false;
         F117::laser_window = 0.0;
+        F117::weapon_flight_time_remaining = 0.0;
         F117::ccrp_time_of_flight = 0.0;
         WeaponsInterop::Reset();
     }
@@ -1169,6 +1215,7 @@ namespace
                 F117::weapon_release_gate_fired=true;
                 F117::weapon_release_gate_hold=kWeaponReleaseGateMinHoldSeconds;
                 for (int i=0;i<3;++i) F117::release_target[i]=point[i];
+                F117::weapon_flight_time_remaining=F117::ccrp_time_of_flight;
                 F117::laser_window=F117::ccrp_time_of_flight+kLaserOverrunSeconds;
                 CockpitInterop::Log_("DELIVERY: confirmed native launch; target snapshot saved");
             }
@@ -1194,7 +1241,7 @@ namespace
         publish_named_param(sequenceParam,"F117_RELEASE_SEQUENCE",F117::release_sequence);
         publish_named_param(statusParam,"F117_RELEASE_STATUS",status);
         publish_named_param(armParam,"F117_MASTER_ARM",F117::master_armed?1.0:0.0);
-        publish_named_param(flightParam,"F117_STORE_FLIGHT_TIME",F117::laser_window);
+        publish_named_param(flightParam,"F117_STORE_FLIGHT_TIME",F117::weapon_flight_time_remaining);
         F117::weapon_release_gate=F117::weapon_release_gate_hold>0.0;
 
         if (!F117::weapon_release_pickle_held &&
@@ -1465,9 +1512,8 @@ namespace
         double pulloutFt = 0.0;
         if (active)
         {
-            const double speed = sqrt(velocity_world_cs.x * velocity_world_cs.x
-                + velocity_world_cs.y * velocity_world_cs.y + velocity_world_cs.z * velocity_world_cs.z);
-            const double flightPathDeg = speed > 1.0 ? asin(limit(velocity_world_cs.y / speed, -1.0, 1.0)) * F117::radiansToDegrees : 0.0;
+            const double speed = sqrt(vx_world * vx_world + vy_world * vy_world + vz_world * vz_world);
+            const double flightPathDeg = speed > 1.0 ? asin(limit(vy_world / speed, -1.0, 1.0)) * F117::radiansToDegrees : 0.0;
             pulloutFt = Paars::displayed_pullout_altitude_ft(Paars::minimum_pullout_altitude_ft(
                 F117::altitude_m * 3.28084, F117::totalVelocity_MPS, flightPathDeg, F117::roll_angle));
         }
@@ -1532,6 +1578,11 @@ void update_derived_damage_values()
     g_damage.totalWingLoss = 1.0 - (g_damage.leftWing + g_damage.rightWing) / 2.0;
     g_damage.totalTailLoss = 1.0 - (g_damage.leftTail + g_damage.rightTail) / 2.0;
     g_damage.engineAsymmetry = g_damage.leftEngine - g_damage.rightEngine;
+    const double structuralIntegrity = (g_damage.nose + g_damage.leftFuselage + g_damage.rightFuselage
+        + g_damage.belly + g_damage.leftTailStructure + g_damage.rightTailStructure
+        + g_damage.leftWingInner + g_damage.rightWingInner
+        + g_damage.leftWingOuter + g_damage.rightWingOuter) / 10.0;
+    g_damage.structuralDragFactor = 1.0 + kStructuralDragPenalty * (1.0 - structuralIntegrity);
 }
 
 void update_total_velocity_from_airmass()
@@ -1587,12 +1638,16 @@ void update_autopilot_hold_state()
 
 void update_fuel_system(double dt)
 {
-    // SFC (cemax) calculation:
-    // Thrust (Newtons) -> kgf (divide by 9.81)
-    // kg/kgf/hr (1.24) -> kg/s (divide by 3600)
-    const double cemax = 1.24;
-    F117::fuel_consumption_since_last_time = (F117::thrust_N / 9.81) * (cemax / 3600.0) * dt;
-    F117::internal_fuel -= F117::fuel_consumption_since_last_time * F117::param_class.fuelvalue;
+    // Only actual consumption changes both the indicated quantity and DCS mass.
+    // Accumulate until DCS collects it; unlimited fuel produces no mass change.
+    if (!F117::param_class.fuelvalue || !std::isfinite(dt) || dt <= 0.0 ||
+        !std::isfinite(F117::thrust_N) || F117::thrust_N <= 0.0 ||
+        !std::isfinite(F117::internal_fuel) || F117::internal_fuel <= 0.0) return;
+    const double cemax = 1.24; // kg / kgf / hour
+    const double requested = (F117::thrust_N / 9.81) * (cemax / 3600.0) * dt;
+    const double consumed = (std::min)(F117::internal_fuel, requested);
+    F117::internal_fuel -= consumed;
+    F117::fuel_consumption_since_last_time += consumed;
 }
 
 
@@ -1727,6 +1782,14 @@ void update_propulsion_and_control_effectiveness(double dt, double tailIntegrity
 }
 
 
+double induced_drag_ground_effect()
+{
+    if (!F117::surface_height_valid || !F117::altitude_valid) return 1.0;
+    const double clearance = (std::max)(0.0, F117::altitude_m - F117::surface_height_m);
+    const double ratio = 16.0 * clearance / F117::wingSpan_M;
+    return ratio * ratio / (1.0 + ratio * ratio);
+}
+
 void update_aerodynamic_coefficients(double* temp)
 {
     const double alpha1_DEG_Limited = limit(F117::alpha_DEG, -20.0, 90.0);
@@ -1753,8 +1816,7 @@ void update_aerodynamic_coefficients(double* temp)
 
     // Wieselberger ground effect: phi approaches 0 near the ground (reducing induced drag)
     // and approaches 1 in free air (no effect). h/b = height / wingspan.
-    const double h_over_b    = F117::surface_height_m / F117::wingSpan_M;
-    const double phi_GE      = (16.0 * h_over_b * 16.0 * h_over_b) / (1.0 + 16.0 * h_over_b * 16.0 * h_over_b);
+    const double phi_GE = induced_drag_ground_effect();
     const double Cd_induced  = K_induced * Cz * Cz * phi_GE;
 
     double Cd_wave = 0.0;
@@ -1859,7 +1921,7 @@ double apply_aerodynamic_forces_and_thrust()
     Vec3 cy_force_pos(0.0, 0, 0);
     add_local_force(cy_force, cy_force_pos);
 
-    Vec3 cx_force(-F117::AERO::Cx_total * qS, 0, 0);
+    Vec3 cx_force(-F117::AERO::Cx_total * qS * g_damage.structuralDragFactor, 0, 0);
     Vec3 cx_force_pos(0, 0.0, 0.0);
     add_local_force(cx_force, cx_force_pos);
 
@@ -2045,12 +2107,12 @@ double weightOnWheelsReferenceForce = apply_aerodynamic_forces_and_thrust();
 
 }
 
-void ed_fm_set_surface(double h, double /*h_obj*/, unsigned /*surface_type*/,
+void ed_fm_set_surface(double h, double h_obj, unsigned /*surface_type*/,
                        double /*normal_x*/, double /*normal_y*/, double /*normal_z*/)
 {
-    // h is the height of the terrain surface directly below the aircraft centre of mass.
-    // Used for ground effect modelling in update_aerodynamic_coefficients.
-    F117::surface_height_m = h;
+    F117::surface_height_valid = std::isfinite(h);
+    if (F117::surface_height_valid)
+        F117::surface_height_m = std::isfinite(h_obj) ? (std::max)(h, h_obj) : h;
 }
 
 void ed_fm_set_atmosphere(
@@ -2068,6 +2130,7 @@ void ed_fm_set_atmosphere(
 	F117::ambientDensity_KgPerM3 = ro;
 	F117::ambientPressure_PA = p;
 	F117::altitude_m = h;
+    F117::altitude_valid = std::isfinite(h);
 	wind_world_cs.x = wind_vx;
 	wind_world_cs.y = wind_vy;
 	wind_world_cs.z = wind_vz;
@@ -2086,7 +2149,7 @@ void ed_fm_set_current_mass_state ( double mass,
 	center_of_gravity.y  = center_of_mass_y;
 	center_of_gravity.z  = center_of_mass_z;
 
-	inertia.x = moment_of_inertia_x; // Stored so ed_fm_change_mass can compare against the current DCS inertia state.
+	inertia.x = moment_of_inertia_x; // Current DCS-owned inertia state.
 	inertia.y = moment_of_inertia_y;
 	inertia.z = moment_of_inertia_z;
 
@@ -2273,53 +2336,23 @@ void ed_fm_set_command(int command, float value)	// Command = Command Index (See
 	//internal DCS calculations for changing mass, center of gravity,  and moments of inertia
 	}
 */
-bool ed_fm_change_mass  (double & delta_mass,
-						double & delta_mass_pos_x,
-						double & delta_mass_pos_y,
-						double & delta_mass_pos_z,
-						double & delta_mass_moment_of_inertia_x,
-						double & delta_mass_moment_of_inertia_y,
-						double & delta_mass_moment_of_inertia_z
-						)
+bool ed_fm_change_mass(double& delta_mass, double& delta_mass_pos_x,
+    double& delta_mass_pos_y, double& delta_mass_pos_z,
+    double& delta_mass_moment_of_inertia_x, double& delta_mass_moment_of_inertia_y,
+    double& delta_mass_moment_of_inertia_z)
 {
-	if((inertia.x != F117::inertia_Ix_KGM2) ||
-	   (inertia.y != F117::inertia_Iz_KGM2) ||
-	   (inertia.z != F117::inertia_Iy_KGM2))
-	{
-		delta_mass = 0.0;
-		delta_mass_pos_x = 0.0;
-		delta_mass_pos_y = 0.0;
-		delta_mass_pos_z = 0.0;
-		delta_mass_moment_of_inertia_x = F117::inertia_Ix_KGM2 - inertia.x;
-		delta_mass_moment_of_inertia_y = F117::inertia_Ix_KGM2 - inertia.z;
-		delta_mass_moment_of_inertia_z = F117::inertia_Ix_KGM2 - inertia.y;
+    delta_mass = 0.0;
+    delta_mass_pos_x = delta_mass_pos_y = delta_mass_pos_z = 0.0;
+    delta_mass_moment_of_inertia_x = delta_mass_moment_of_inertia_y = delta_mass_moment_of_inertia_z = 0.0;
+    if (!(F117::fuel_consumption_since_last_time > 0.0)) return false;
 
-		// Can't set to true...crashing right now :(
-		return false;
-	}
-	else
-	{
-		return false;
-	}
-	if (F117::fuel_consumption_since_last_time > 0)
-	{
-		delta_mass		 = F117::fuel_consumption_since_last_time;
-		delta_mass_pos_x = -1.0;
-		delta_mass_pos_y =  1.0;
-		delta_mass_pos_z =  0;
-
-		delta_mass_moment_of_inertia_x	= 0;
-		delta_mass_moment_of_inertia_y	= 0;
-		delta_mass_moment_of_inertia_z	= 0;
-
-		F117::fuel_consumption_since_last_time = 0; // set it 0 to avoid infinite loop, because it called in cycle 
-		// better to use stack like structure for mass changing 
-		return true;
-	}
-	else 
-	{
-		return false;
-	}
+    // Positive consumed mass is removed by DCS. Keep inertia updates owned by
+    // DCS rather than mixing an absolute airframe-inertia correction into this.
+    delta_mass = F117::fuel_consumption_since_last_time;
+    delta_mass_pos_x = -1.0;
+    delta_mass_pos_y = 1.0;
+    F117::fuel_consumption_since_last_time = 0.0;
+    return true;
 }
 
 /*
@@ -2646,8 +2679,52 @@ namespace
         }
     }
 
+    void reset_session_controls()
+    {
+        F117::simInitialized = false;
+        F117::ACTUATORS::simInitialized = false;
+        F117::FLIGHTCONTROLS::reset_runtime_state();
+        F117::alt_hold = F117::altroll_hold = F117::horiz_hold = 0;
+        F117::airRefuelDoorOpen = false;
+        F117::pitchTrim = F117::rollTrim = F117::yawTrim = 0.0;
+        F117::pedInput = 0.0;
+        F117::FLIGHTCONTROLS::latStickInput = F117::FLIGHTCONTROLS::longStickInput = 0.0;
+        F117::FLIGHTCONTROLS::longStickForce = 0.0;
+        F117::throttleInput = F117::throttle_state = F117::thrust_N = 0.0;
+        F117::engineswitch = false;
+        F117::ENGINE::N2 = 0.0;
+        F117::elev_pos = F117::rudder_pos = 0.0f;
+        F117::elevator_DEG = F117::aileron_DEG = F117::rudder_DEG = 0.0;
+        F117::elevator_DEG_commanded = F117::aileron_DEG_commanded = F117::rudder_DEG_commanded = 0.0;
+        F117::elevator_PCT = F117::aileron_PCT = F117::rudder_PCT = 0.0;
+        F117::WheelBrakeCommand = 0.0;
+        F117::rolling_friction = kWheelBrakeOffFriction;
+        F117::tailhook_command = F117::tailhook_pos = 0.0;
+        F117::dragchute_command = F117::dragchute = 0.0;
+        F117::misc_cmd = F117::misc_state = F117::misc_cmdH = F117::misc_stateH = 0.0;
+        F117::fuel_consumption_since_last_time = 0.0;
+        F117::surface_height_valid = F117::altitude_valid = false;
+        for (bool& wow : F117::suspension_wow) wow = false;
+        F117::ACTUATORS::elevatorPosition_DEG = F117::ACTUATORS::elevatorRate_DEGPERSEC = 0.0;
+        F117::ACTUATORS::aileronPosition_DEG = F117::ACTUATORS::aileronRate_DEGPERSEC = 0.0;
+        F117::ACTUATORS::rudderPosition_DEG = F117::ACTUATORS::rudderRate_DEGPERSEC = 0.0f;
+        F117::ACTUATORS::throttle_state = F117::ACTUATORS::throttle_rate = 0.0;
+        F117::ACTUATORS::gear_state = F117::ACTUATORS::gear_rate = 0.0;
+        F117::ACTUATORS::tailhook_state = F117::ACTUATORS::tailhook_rate = 0.0;
+        F117::ACTUATORS::dragchute_state = F117::ACTUATORS::dragchute_rate = 0.0;
+        F117::ACTUATORS::elev_pos = F117::ACTUATORS::elev_rate = 0.0f;
+        F117::ACTUATORS::misc_pos = F117::ACTUATORS::misc_rate = 0.0f;
+        F117::ACTUATORS::misc_posH = F117::ACTUATORS::misc_rateH = 0.0f;
+        g_autothrottle.reset();
+        g_paars.reset();
+        g_paarsEngagedAutothrottle = false;
+        g_paarsRollRateDegS = 0.0;
+    }
+
     void apply_ground_start_state(bool enginesRunning)
     {
+        reset_session_controls();
+        F117::ACTUATORS::gear_state = kGearCommandDown;
         F117::gearDown = kGearCommandDown;
         F117::GearCommand = kGearCommandDown;
         F117::weight_on_wheels = true;
@@ -2660,14 +2737,11 @@ namespace
         reset_damage_and_events();
         reset_weapon_release_sequence();
         reset_laser();
-        g_autothrottle.reset();
-        g_paars.reset();
-        g_paarsEngagedAutothrottle = false;
-        g_paarsRollRateDegS = 0.0;
     }
 
     void apply_air_start_state()
     {
+        reset_session_controls();
         F117::gearDown = kGearCommandUp;
         F117::GearCommand = kGearCommandUp;
         F117::weight_on_wheels = false;
@@ -2681,10 +2755,6 @@ namespace
         reset_damage_and_events();
         reset_weapon_release_sequence();
         reset_laser();
-        g_autothrottle.reset();
-        g_paars.reset();
-        g_paarsEngagedAutothrottle = false;
-        g_paarsRollRateDegS = 0.0;
     }
 }
 
@@ -2692,55 +2762,15 @@ namespace
 
 void ed_fm_release()
 {
-    F117::DeltaTime = 0;
-    F117::simInitialized = false;
-    F117::ACTUATORS::simInitialized = false;
-    F117::FLIGHTCONTROLS::reset_runtime_state();
+    reset_session_controls();
+    F117::DeltaTime = 0.0;
     F117::ENGINE::N2 = 0.0;
-
+    F117::gearDown = F117::GearCommand = 0.0;
+    F117::weight_on_wheels = F117::wow_from_draw_args = false;
     reset_damage_and_events();
-
-    F117::pedInput = 0;
-    F117::throttleInput = 0.0;
-    F117::elevator_DEG = 0;
-    F117::aileron_DEG = 0;
-    F117::rudder_DEG = 0;
-    F117::elevator_DEG_commanded = 0;
-    F117::rudder_DEG_commanded = 0;
-    F117::throttle_state = 0;
-    F117::rolling_friction = kWheelBrakeOffFriction;
-    F117::WheelBrakeCommand = 0.0;
-    F117::pitchTrim = 0.0;
-    F117::rollTrim = 0.0;
-    F117::yawTrim = 0.0;
-    F117::tailhook_command = 0.0;
-    F117::tailhook_pos = 0.0;
-    F117::dragchute_command = 0.0;
-    F117::dragchute = 0.0;
-    F117::misc_cmd = 0.0;
-    F117::misc_state = 0.0;
-    F117::misc_cmdH = 0.0;
-    F117::misc_stateH = 0.0;
     reset_weapon_release_sequence();
     reset_laser();
     CockpitInterop::ResetIRADSSession();
-
-    F117::alt_hold = 0;
-    F117::horiz_hold = 0;
-    F117::alt_hold = 0;
-    g_autothrottle.reset();
-    g_paars.reset();
-    g_paarsEngagedAutothrottle = false;
-    g_paarsRollRateDegS = 0.0;
-
-    F117::ACTUATORS::tailhook_state = 0.0;
-    F117::ACTUATORS::tailhook_rate = 0.0;
-    F117::ACTUATORS::throttle_state = 0.0;
-    F117::ACTUATORS::throttle_rate = 0.0;
-    F117::ACTUATORS::misc_pos = 0.0;
-    F117::FLIGHTCONTROLS::latStickInput = 0.0;
-    F117::FLIGHTCONTROLS::longStickInput = 0.0;
-    F117::FLIGHTCONTROLS::longStickForce = 0.0;
 }
 
 
@@ -2892,27 +2922,107 @@ namespace
         }
     }
 
+    double damage_integrity_from_dcs(double reported)
+    {
+        const double integrity = limit(reported, 0.0, 1.0);
+        return integrity <= kDamageCellDestroyedIntegrity ? 0.0 : integrity;
+    }
+
+    // Combines both panels of one wing. A destroyed panel takes the surfaces it carries with it,
+    // because DCS does not report the dependent cells to the EFM.
+    void update_wing_from_sections(double& wing, double& inner, double& outer,
+        double& innerElevon, double& outerElevon)
+    {
+        wing = min(wing, inner * (1.0 - kOuterWingLiftShare + kOuterWingLiftShare * outer));
+        if (inner <= 0.0)
+        {
+            outer = 0.0;
+            innerElevon = 0.0;
+        }
+        if (outer <= 0.0)
+        {
+            outerElevon = 0.0;
+        }
+    }
+
     const char* apply_damage_for_element(int element, double integrity)
     {
         switch (element)
         {
+        case kDamageElementNose:
+            g_damage.nose = min(g_damage.nose, integrity);
+            return "nose";
         case kDamageElementCockpit:
             g_damage.cockpit = min(g_damage.cockpit, integrity);
             return "cockpit";
-        case kDamageElementEngine:
+        case kDamageElementFuselageLeft:
+            g_damage.leftFuselage = min(g_damage.leftFuselage, integrity);
+            return "left fuselage";
+        case kDamageElementFuselageRight:
+            g_damage.rightFuselage = min(g_damage.rightFuselage, integrity);
+            return "right fuselage";
+        case kDamageElementBelly:
+            g_damage.belly = min(g_damage.belly, integrity);
+            return "weapon bay doors";
+        case kDamageElementEngineLeft:
             g_damage.leftEngine = min(g_damage.leftEngine, integrity);
-            g_damage.rightEngine = min(g_damage.rightEngine, integrity);
             if (g_damage.leftEngine < kFireDamageThreshold)
                 pushFireEvent(8, -4.45, 0.08, -1.7);
+            return "left engine";
+        case kDamageElementEngineRight:
+            g_damage.rightEngine = min(g_damage.rightEngine, integrity);
             if (g_damage.rightEngine < kFireDamageThreshold)
                 pushFireEvent(7, -4.45, 0.08, 1.7);
-            return "engines(both)";
-        case kDamageElementMain:
-            // Current MAIN shells cover both fixed wings and the fuselage.
-            // Do not invent engine/cockpit/tail hits from this broad collision zone.
-            g_damage.leftWing = min(g_damage.leftWing, integrity);
-            g_damage.rightWing = min(g_damage.rightWing, integrity);
-            return "main(fixed structure)";
+            return "right engine";
+        case kDamageElementTailLeft:
+            g_damage.leftTailStructure = min(g_damage.leftTailStructure, integrity);
+            if (g_damage.leftTailStructure <= 0.0)
+                g_damage.leftTail = 0.0;
+            return "left tail structure";
+        case kDamageElementTailRight:
+            g_damage.rightTailStructure = min(g_damage.rightTailStructure, integrity);
+            if (g_damage.rightTailStructure <= 0.0)
+                g_damage.rightTail = 0.0;
+            return "right tail structure";
+        case kDamageElementWingInnerLeft:
+            g_damage.leftWingInner = min(g_damage.leftWingInner, integrity);
+            update_wing_from_sections(g_damage.leftWing, g_damage.leftWingInner, g_damage.leftWingOuter,
+                g_damage.leftInnerElevon, g_damage.leftOuterElevon);
+            return "left inner wing";
+        case kDamageElementWingInnerRight:
+            g_damage.rightWingInner = min(g_damage.rightWingInner, integrity);
+            update_wing_from_sections(g_damage.rightWing, g_damage.rightWingInner, g_damage.rightWingOuter,
+                g_damage.rightInnerElevon, g_damage.rightOuterElevon);
+            return "right inner wing";
+        case kDamageElementWingOuterLeft:
+            g_damage.leftWingOuter = min(g_damage.leftWingOuter, integrity);
+            update_wing_from_sections(g_damage.leftWing, g_damage.leftWingInner, g_damage.leftWingOuter,
+                g_damage.leftInnerElevon, g_damage.leftOuterElevon);
+            return "left outer wing";
+        case kDamageElementWingOuterRight:
+            g_damage.rightWingOuter = min(g_damage.rightWingOuter, integrity);
+            update_wing_from_sections(g_damage.rightWing, g_damage.rightWingInner, g_damage.rightWingOuter,
+                g_damage.rightInnerElevon, g_damage.rightOuterElevon);
+            return "right outer wing";
+        case kDamageElementNoseGear:
+            g_damage.noseGear = min(g_damage.noseGear, integrity);
+            return "nose gear bay";
+        case kDamageElementLeftGear:
+            g_damage.leftGear = min(g_damage.leftGear, integrity);
+            return "left gear bay";
+        case kDamageElementRightGear:
+            g_damage.rightGear = min(g_damage.rightGear, integrity);
+            return "right gear bay";
+        // DCS applies wheel damage through each suspension's damage_element.
+        case kDamageElementNoseWheel:
+            g_damage.noseWheel = min(g_damage.noseWheel, integrity);
+            return "nose wheel";
+        case kDamageElementLeftWheel:
+            g_damage.leftWheel = min(g_damage.leftWheel, integrity);
+            return "left wheel";
+        case kDamageElementRightWheel:
+            g_damage.rightWheel = min(g_damage.rightWheel, integrity);
+            return "right wheel";
         case kDamageElementAileronLeft:
             g_damage.leftOuterElevon = min(g_damage.leftOuterElevon, integrity);
             return "left outer elevon";
@@ -2975,7 +3085,7 @@ static void initDamageLog()
 }
 
 
-// Damage callback. DCS reports remaining integrity where 1.0 is intact and 0.0 is destroyed.
+// Damage callback. DCS reports remaining integrity from 1.0 intact down to 0.1 destroyed.
 
 void ed_fm_on_damage(int Element, double element_integrity_factor)
 {
@@ -2990,7 +3100,7 @@ void ed_fm_on_damage(int Element, double element_integrity_factor)
 
     // DCS already applies Lua critical_damage; do not amplify it a second time.
     if (!std::isfinite(element_integrity_factor)) return;
-    const double integrity = limit(element_integrity_factor, 0.0, 1.0);
+    const double integrity = damage_integrity_from_dcs(element_integrity_factor);
     const char* mapped = apply_damage_for_element(Element, integrity);
     log_damage_mapping_result(mapped);
 }
@@ -3029,7 +3139,23 @@ bool ed_fm_need_to_be_repaired()
         || g_damage.leftOuterElevon < 1.0
         || g_damage.rightOuterElevon < 1.0
         || g_damage.leftInnerElevon < 1.0
-        || g_damage.rightInnerElevon < 1.0;
+        || g_damage.rightInnerElevon < 1.0
+        || g_damage.nose < 1.0
+        || g_damage.leftFuselage < 1.0
+        || g_damage.rightFuselage < 1.0
+        || g_damage.belly < 1.0
+        || g_damage.leftTailStructure < 1.0
+        || g_damage.rightTailStructure < 1.0
+        || g_damage.leftWingInner < 1.0
+        || g_damage.rightWingInner < 1.0
+        || g_damage.leftWingOuter < 1.0
+        || g_damage.rightWingOuter < 1.0
+        || g_damage.noseGear < 1.0
+        || g_damage.leftGear < 1.0
+        || g_damage.rightGear < 1.0
+        || g_damage.noseWheel < 1.0
+        || g_damage.leftWheel < 1.0
+        || g_damage.rightWheel < 1.0;
 }
 
 // -----------------------------------------------------------------------

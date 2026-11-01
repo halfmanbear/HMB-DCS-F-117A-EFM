@@ -3,39 +3,48 @@ import subprocess,sys,math
 from lupa.lua51 import LuaRuntime
 repo=Path(__file__).resolve().parents[1];mod=Path(sys.argv[1]);out=Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 vm=LuaRuntime();params={}
+# Keep the mock handles inside Lua: repeated colon calls must not depend on
+# Lupa's Python bound-method/userdata caching or garbage-collection behavior.
+vm.execute("""
+parameter_handles={}
+function get_param_handle(name)
+ if not parameter_handles[name] then
+  parameter_handles[name]={value=0,get=function(self)return self.value end,
+   set=function(self,value)self.value=value end}
+ end
+ return parameter_handles[name]
+end
+""")
 class Param:
- def __init__(self):self.v=0
- def get(self):return self.v
- def set(self,v):self.v=v
- def __getitem__(self,k):return getattr(self,k)
-def param(n):
- if n not in params:params[n]=Param()
- return params[n]
-vm.globals().get_param_handle=param
+ def __init__(self,name):self.handle=vm.globals().get_param_handle(name)
+ def get(self):return self.handle['value']
+ def set(self,value):self.handle['value']=value
+ v=property(get,set)
+
+def param(name):
+ if name not in params:params[name]=Param(name)
+ return params[name]
 vm.globals().LockOn_Options=vm.table_from({'script_path':str(mod/'Cockpit/Scripts').replace('\\','/')+'/'})
 vm.globals().make_default_activity=lambda _:None
 vm.execute('''log={INFO=1,write=function(...)end};stations={
  [0]={count=1,CLSID="GBU31_V3B_JDAM"},[1]={count=1,CLSID="GBU32_JDAM"},[2]={count=1,CLSID="UNKNOWN"},[3]={count=1,CLSID="GBU-12"}}
  GetSelf=function()return{listen_command=function(...)end,get_station_info=function(_,s)return stations[s]end}end''')
-vm.execute((repo/'Cockpit/Scripts/Systems/Weapons.lua').read_text(encoding='utf-8'))
+vm.execute((mod/'Cockpit/Scripts/Systems/Weapons.lua').read_text(encoding='utf-8'))
 vm.globals().post_initialize();assert param('F117_RELEASE_STATION').v==0
 # Actual accepted-release sequence drives stepping, even with delayed native inventory.
-param('F117_RELEASE_SEQUENCE').set(1);vm.globals().update();assert param('F117_RELEASE_STATION').v==1 and param('F117_CCRP_PROFILE').v==2
-for _ in range(20):vm.globals().update()
+param('F117_RELEASE_SEQUENCE').set(1);vm.globals()['update']();assert param('F117_RELEASE_STATION').v==1 and param('F117_CCRP_PROFILE').v==2
+for _ in range(20):vm.globals()['update']()
 assert param('F117_RELEASE_STATION').v==1 # no step from held consent/status/repeated polling
-param('F117_RELEASE_SEQUENCE').set(2);vm.globals().update();assert param('F117_RELEASE_STATION').v==3 and param('F117_CCRP_PROFILE').v==3
+param('F117_RELEASE_SEQUENCE').set(2);vm.globals()['update']();assert param('F117_RELEASE_STATION').v==3 and param('F117_CCRP_PROFILE').v==3
 vm.execute('stations[0].count=0;stations[1].count=0;stations[3].count=0')
-param('F117_RELEASE_SEQUENCE').set(3);vm.globals().update();assert param('F117_STORE_VALID').v==0
-param('F117_RELEASE_SEQUENCE').set(0);vm.globals().update();assert param('F117_STORE_VALID').v==0
-vm.execute('stations[3].count=1');vm.globals().update();assert param('F117_RELEASE_STATION').v==3
+param('F117_RELEASE_SEQUENCE').set(3);vm.globals()['update']();assert param('F117_STORE_VALID').v==0
+param('F117_RELEASE_SEQUENCE').set(0);vm.globals()['update']();assert param('F117_STORE_VALID').v==0
+vm.execute('stations[3].count=1');vm.globals()['update']();assert param('F117_RELEASE_STATION').v==3
 print('PASS: actual Weapons.lua auto-steps once per accepted release, skips unsupported/empty stations, tolerates inventory lag, handles depletion/reset/rearm')
-# Confirm saved keyboard no longer overrides release to Space or removes gun Space.
-saved=vm.execute((Path(r'E:\Saved Games\DCS\Config\Input\F-117-NightHawk/keyboard/Keyboard.diff.lua')).read_text(encoding='utf-8'))
-assert saved.keyDiffs['d10103pnilu10104cdnilvdnilvpnilvunil'] is None
-assert saved.keyDiffs['d84pnilu85cdnilvdnilvpnilvunil'] is None
+# Validate the deployed pickle binding without depending on a personal saved profile.
 keyboard=(mod/'Input/F-117-NightHawk/keyboard/default.lua').read_text(encoding='utf-8')
 assert "combos = {{key = 'Space', reformers = {'RAlt'}}}, down = 350, up = 351" in keyboard
-print('PASS: generic pickle 350/351 uses RAlt+Space; saved plain-Space release override and gun suppression removed')
+print('PASS: deployed generic pickle uses RAlt+Space with separate press/release commands')
 source=(repo/'EFM Source Code/Avionics/CockpitBase_Interop.cpp').read_text(encoding='utf-8-sig')
 def extract(name):
  start=source.index(name);brace=source.index('{',start);end=brace+1;depth=1

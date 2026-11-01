@@ -5,7 +5,7 @@ class param_stuff
 protected:
 
 public:
-	bool fuelvalue;
+	bool fuelvalue = true;
 	
 	void fuelparam(bool value)
 	{
