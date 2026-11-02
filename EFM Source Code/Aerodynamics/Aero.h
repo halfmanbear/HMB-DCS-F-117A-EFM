@@ -134,31 +134,45 @@ namespace F117
 			return lookup_3d(cache, _CmData, 20, alpha1, 19, beta1, 5, dh1, alpha, beta, dele);
 		}
 
-		double _Cy(double alpha, double beta)
+		double _Cy_table(double alpha, double beta)
 		{
 			static InterpCache cache;
-			// For a symmetric airframe, side-force coefficient is odd in beta.
-			const double betaSymmetric = std::abs(beta);
-			const double betaSign = (beta < 0.0) ? -1.0 : 1.0;
-			return betaSign * lookup_2d(cache, _CyData, 20, alpha1, 19, beta1, alpha, betaSymmetric);
+			return lookup_2d(cache, _CyData, 20, alpha1, 19, beta1, alpha, beta);
+		}
+
+		double _Cn_table(double alpha, double beta, double dele)
+		{
+			static InterpCache cache;
+			return lookup_3d(cache, _CnData, 20, alpha1, 19, beta1, 3, dh2, alpha, beta, dele);
+		}
+
+		double _Cl_table(double alpha, double beta, double dele)
+		{
+			static InterpCache cache;
+			return lookup_3d(cache, _ClData, 20, alpha1, 19, beta1, 3, dh2, alpha, beta, dele);
+		}
+
+		// A symmetric airframe has no side force, yaw or roll moment at zero sideslip, but the tables aren't quite
+		// zero there. Taking that offset out keeps the coefficients continuous through zero: with it left in they
+		// jump as sideslip changes sign, and the jump flips the forces on the aircraft every frame.
+		inline double odd_in_beta(double beta, double tableAtBeta, double tableAtZero)
+		{
+			return (beta < 0.0 ? -1.0 : 1.0) * (tableAtBeta - tableAtZero);
+		}
+
+		double _Cy(double alpha, double beta)
+		{
+			return odd_in_beta(beta, _Cy_table(alpha, std::abs(beta)), _Cy_table(alpha, 0.0));
 		}
 
 		double _Cn(double alpha, double beta, double dele)
 		{
-			static InterpCache cache;
-			// For a symmetric airframe, yawing-moment coefficient is odd in beta.
-			const double betaSymmetric = std::abs(beta);
-			const double betaSign = (beta < 0.0) ? -1.0 : 1.0;
-			return betaSign * lookup_3d(cache, _CnData, 20, alpha1, 19, beta1, 3, dh2, alpha, betaSymmetric, dele);
+			return odd_in_beta(beta, _Cn_table(alpha, std::abs(beta), dele), _Cn_table(alpha, 0.0, dele));
 		}
 
 		double _Cl(double alpha, double beta, double dele)
 		{
-			static InterpCache cache;
-			// For a symmetric airframe, rolling-moment coefficient is odd in beta.
-			const double betaSymmetric = std::abs(beta);
-			const double betaSign = (beta < 0.0) ? -1.0 : 1.0;
-			return betaSign * lookup_3d(cache, _ClData, 20, alpha1, 19, beta1, 3, dh2, alpha, betaSymmetric, dele);
+			return odd_in_beta(beta, _Cl_table(alpha, std::abs(beta), dele), _Cl_table(alpha, 0.0, dele));
 		}
 
 		double _CXq(double alpha)
@@ -312,17 +326,18 @@ namespace F117
 				// so use the positive-beta half as the canonical source for both sides.
 				alpha = (alpha < -20.0 ? -20.0 : (alpha > 90.0 ? 90.0 : alpha));
 				const double betaSymmetric = (std::abs(beta) > 30.0 ? 30.0 : std::abs(beta));
-				retVal[0] = _Cy_r30(alpha,betaSymmetric) - _Cy(alpha,betaSymmetric);
-				retVal[1] = _Cn_r30(alpha,betaSymmetric) - _Cn(alpha,betaSymmetric,0);
-				retVal[2] = _Cl_r30(alpha,betaSymmetric) - _Cl(alpha,betaSymmetric,0);
+				retVal[0] = _Cy_r30(alpha,betaSymmetric) - _Cy_table(alpha,betaSymmetric);
+				retVal[1] = _Cn_r30(alpha,betaSymmetric) - _Cn_table(alpha,betaSymmetric,0);
+				retVal[2] = _Cl_r30(alpha,betaSymmetric) - _Cl_table(alpha,betaSymmetric,0);
 		}
 
 		void hifi_ailerons(double alpha, double beta, double *retVal){
+				// Like the rudder, aileron effectiveness on a symmetric airframe is even in beta.
 				alpha = (alpha < -20.0 ? -20.0 : (alpha > 90.0 ? 90.0 : alpha));
-				beta  = (beta < -30.0 ? -30.0 : (beta > 30.0 ? 30.0 : beta));
-				retVal[0] = _Cy_a20(alpha,beta) - _Cy(alpha,beta);
-				retVal[2] = _Cn_a20(alpha,beta) - _Cn(alpha,beta,0);
-				retVal[4] = _Cl_a20(alpha,beta) - _Cl(alpha,beta,0);
+				const double betaSymmetric = (std::abs(beta) > 30.0 ? 30.0 : std::abs(beta));
+				retVal[0] = _Cy_a20(alpha,betaSymmetric) - _Cy_table(alpha,betaSymmetric);
+				retVal[2] = _Cn_a20(alpha,betaSymmetric) - _Cn_table(alpha,betaSymmetric,0);
+				retVal[4] = _Cl_a20(alpha,betaSymmetric) - _Cl_table(alpha,betaSymmetric,0);
 		}
 
 		void hifi_other_coeffs(double alpha, double el, double *retVal){

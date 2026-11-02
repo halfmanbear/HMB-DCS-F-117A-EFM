@@ -201,7 +201,7 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	
 	double		DeltaTime				= 0.0;			// Delta time of the simulation, in seconds.
 	bool		engineswitch			= true;			// Is the engine(s) on? If there are two engines they are treated as one.
-	double		fuel_consumption_since_last_time = 0;
+	double		fuel_mass_in_dcs = 0;					// Fuel mass DCS has been told about through ed_fm_change_mass (kg)
 	double		internal_fuel;
 	double		external_fuel;
 	
@@ -224,6 +224,7 @@ static Autothrottle::Controller g_autothrottle;
 static Paars::Controller g_paars;
 static bool g_paarsEngagedAutothrottle = false; // PAARS moved the power levers by engaging A/T
 static double g_paarsRollRateDegS = 0.0;
+static constexpr double kAileronFullScale_DEG = 25.5; // Surface deflection that gives the full Cl_delta_a20 from the aero tables.
 static void* g_weaponReleaseGateParam = nullptr;
 static bool g_weaponReleaseGateParamInitialized = false;
 static void* g_iradsLockValidParam = nullptr;
@@ -1651,16 +1652,18 @@ void update_autopilot_hold_state()
 
 void update_fuel_system(double dt)
 {
-    // Only actual consumption changes both the indicated quantity and DCS mass.
-    // Accumulate until DCS collects it; unlimited fuel produces no mass change.
-    if (!F117::param_class.fuelvalue || !std::isfinite(dt) || dt <= 0.0 ||
-        !std::isfinite(F117::thrust_N) || F117::thrust_N <= 0.0 ||
+    // Unlimited fuel burns nothing, so the quantity and DCS's mass both stay put.
+    if (!F117::param_class.fuelvalue || !std::isfinite(dt) || dt <= 0.0 || !engines_running() ||
+        !std::isfinite(F117::thrust_N) ||
         !std::isfinite(F117::internal_fuel) || F117::internal_fuel <= 0.0) return;
-    const double cemax = 1.24; // kg / kgf / hour
-    const double requested = (F117::thrust_N / 9.81) * (cemax / 3600.0) * dt;
+    // Fitted to the fuel used in TO 1F-117A-1's acceleration and endurance tables, with the idle flow from
+    // page A9-3 (1580 lb/hr). Net thrust at idle is small, so the flow can't simply follow thrust there.
+    const double specific_fuel = 0.762 + 0.146 * F117::ENGINE::thrustFractionOfMax; // kg / kgf / hour
+    const double idle_flow_kg_s = 0.2;
+    const double flow_kg_s = (std::max)(idle_flow_kg_s, (std::max)(F117::thrust_N, 0.0) / 9.81 * specific_fuel / 3600.0);
+    const double requested = flow_kg_s * dt;
     const double consumed = (std::min)(F117::internal_fuel, requested);
     F117::internal_fuel -= consumed;
-    F117::fuel_consumption_since_last_time += consumed;
 }
 
 
@@ -1680,6 +1683,9 @@ void update_flight_control_commands(double dt, double controlDegradation)
     aoa_filter = 1;
 
     F117::FLIGHTCONTROLS::update_pitch_mode_auto_inputs(F117::gearDown, F117::airRefuelDoorOpen);
+    // Wheel contact only. weight_on_wheels can't be used here, because it's also true in the air with the gear down when lift is below weight.
+    F117::FLIGHTCONTROLS::update_ground_contact(
+        F117::gearDown > 0.5 && (F117::suspension_wow[0] || F117::suspension_wow[1] || F117::suspension_wow[2]), dt);
 
     F117::elevator_DEG_commanded = -(F117::FLIGHTCONTROLS::fcs_pitch_controller(
         F117::FLIGHTCONTROLS::longStickInput * controlDegradation,
@@ -1701,6 +1707,13 @@ void update_flight_control_commands(double dt, double controlDegradation)
     // Physical actuator stop is ±45° — pitch authority does not reach the stop.
     F117::elevator_DEG = limit(F117::elevator_DEG_commanded + F117::pitchTrim, -25.0, 37.5);
 
+    // What the roll law needs to know about the airframe at this flight condition. It uses the inertia DCS is flying,
+    // so changing moment_of_inertia in the mod's FM/config.lua doesn't change the loop's bandwidth.
+    const double rollMomentPerSurfaceDeg = (std::max)(std::abs(F117::AERO::Cl_delta_a20), 0.005) / kAileronFullScale_DEG;
+    const double rollInertia = inertia.x > 1.0 ? inertia.x : 40000.0;
+    const double rollAccelPerSurfaceDeg = rollMomentPerSurfaceDeg * F117::dynamicPressure_PA * F117::wingArea_M2 * F117::wingSpan_M / rollInertia * F117::radiansToDegrees;
+    const double surfacePerRollRate = std::abs(F117::AERO::Clp) * F117::wingSpan_M / (2.0 * (std::max)(F117::totalVelocity_MPS, 30.0)) / F117::radiansToDegrees / rollMomentPerSurfaceDeg;
+
     F117::aileron_DEG_commanded = F117::FLIGHTCONTROLS::fcs_roll_controller(
         F117::FLIGHTCONTROLS::latStickInput * controlDegradation,
         F117::FLIGHTCONTROLS::longStickForce,
@@ -1711,6 +1724,8 @@ void update_flight_control_commands(double dt, double controlDegradation)
         F117::rollRate_RPS * F117::radiansToDegrees,
         g_paarsRollRateDegS, // PAARS roll-rate command, added to the pilot's
         F117::dynamicPressure_PA,
+        rollAccelPerSurfaceDeg,
+        surfacePerRollRate,
         F117::gearDown > 0.5,
         F117::airRefuelDoorOpen,
         dt);
@@ -1747,7 +1762,8 @@ void update_flight_control_commands(double dt, double controlDegradation)
         F117::gearDown > 0.5,
         dt);
     F117::rudder_DEG = F117::rudder_DEG_commanded + F117::yawTrim;
-    F117::rudder_DEG = limit(F117::rudder_DEG, -15.0 / aos_filter, 15.0 / aos_filter);
+    // 25 deg lets full pedal reach the 8 deg of steady sideslip on TO 1F-117A-1 page 6-3 at low speed.
+    F117::rudder_DEG = limit(F117::rudder_DEG, -25.0 / aos_filter, 25.0 / aos_filter);
 }
 
 double update_airframe_actuators(double dt)
@@ -1780,12 +1796,12 @@ void update_propulsion_and_control_effectiveness(double dt, double tailIntegrity
 
     const bool engineRunning = engines_running();
     const double damagedThrottle = F117::throttleInput * avgEngineIntegrity;
-    F117::thrust_N = F117::ENGINE::engine_dynamics(damagedThrottle, F117::mach, F117::altitude_m, dt, engineRunning, F117::weight_on_wheels);
+    F117::thrust_N = F117::ENGINE::engine_dynamics(damagedThrottle, F117::mach, F117::altitude_m, F117::dynamicPressure_PA, dt, engineRunning, F117::weight_on_wheels);
 
     const double wingIntegrity = 1.0 - g_damage.totalWingLoss;
     const double elevonIntegrity = (g_damage.leftOuterElevon + g_damage.rightOuterElevon
         + g_damage.leftInnerElevon + g_damage.rightInnerElevon) / 4.0;
-    F117::aileron_PCT = (F117::aileron_DEG * wingIntegrity * elevonIntegrity) / 25.5;
+    F117::aileron_PCT = (F117::aileron_DEG * wingIntegrity * elevonIntegrity) / kAileronFullScale_DEG;
     F117::elevator_PCT = (F117::elevator_DEG * (1.0 - g_damage.totalTailLoss) * elevonIntegrity) / 25.0;
 
     const double tailAsymmetry = g_damage.leftTail - g_damage.rightTail;
@@ -1799,6 +1815,7 @@ void update_propulsion_and_control_effectiveness(double dt, double tailIntegrity
 }
 
 
+// Fraction of induced drag remaining near the ground (Wieselberger): 0 on the ground, 1 in free air.
 double induced_drag_ground_effect()
 {
     if (!F117::surface_height_valid || !F117::altitude_valid) return 1.0;
@@ -1825,32 +1842,36 @@ void update_aerodynamic_coefficients(double* temp)
 
     F117::AERO::hifi_C(alpha1_DEG_Limited, beta1_DEG_Limited, F117::elevator_DEG, temp);
 
-    const double Cz = temp[1];
+    // The tables' lift slope is an F-16's. This scales it to CN = 0.056 per degree x (indicated AOA - 1.02),
+    // the line through the AOA and speed tables in TO 1F-117A-1 (Figures A6-1 and 2-2).
+    const double Cz = 0.7754 * temp[1] + 0.0684;
     F117::AERO::Cz = Cz;
 
-    const double Cd0 = 0.0155;
-    const double K_induced = 0.18;
+    // Cd0 and the wave drag below Mlimit are fitted to TO 1F-117A-1 by tools/fm_bench/fit_performance.py in the
+    // mod repository. Normal force acts along the body axis here, so tilting it with AOA supplies most of the
+    // induced drag the data shows, as on a sharp-edged wing. Cz is negative for upward lift, so the lift terms are
+    // the remainder: less drag than the tilt alone at low lift and more at high lift.
+    const double Cd0 = 0.017657 + 0.024449 * Cz + 0.065507 * Cz * Cz;
 
-    // Wieselberger ground effect: phi approaches 0 near the ground (reducing induced drag)
-    // and approaches 1 in free air (no effect). h/b = height / wingspan.
+    // Ground effect relieves part of that tilted normal force.
     const double phi_GE = induced_drag_ground_effect();
-    const double Cd_induced  = K_induced * Cz * Cz * phi_GE;
+    const double Cd_induced = (1.0 - phi_GE) * Cz * tan(alpha1_DEG_Limited * F117::pi / 180.0);
 
     double Cd_wave = 0.0;
-    const double Mcrit = 0.87;
-    const double Mdiv = 0.90;
+    const double Mdiv = 0.85;
+    const double Mlimit = 0.90; // The manual has no data above this. The barrier keeps the aircraft near it.
 
-    if (F117::mach > Mcrit)
+    if (F117::mach > Mdiv)
     {
         if (F117::mach < 1.05)
         {
-            const double mach_factor = (F117::mach - Mcrit) / (1.05 - Mcrit);
-            Cd_wave = 0.05 * mach_factor * mach_factor;
+            const double div_factor = (F117::mach - Mdiv) / (1.05 - Mdiv);
+            Cd_wave = 0.0029327 * div_factor * div_factor;
 
-            if (F117::mach > Mdiv)
+            if (F117::mach > Mlimit)
             {
-                const double barrier_factor = (F117::mach - Mdiv) / (1.05 - Mdiv);
-                Cd_wave += 0.07 * barrier_factor * barrier_factor;
+                const double barrier_factor = (F117::mach - Mlimit) / (1.05 - Mlimit);
+                Cd_wave += 0.096098 * barrier_factor * barrier_factor;
             }
         }
         else
@@ -1893,9 +1914,9 @@ void update_aerodynamic_coefficients(double* temp)
     F117::AERO::eta_el = temp[3];
     F117::AERO::Cm_delta_ds = 0;
 
-    F117::AERO::dXdQ = (F117::meanChord_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Cxq;
-    F117::AERO::Cx_total = F117::AERO::Cx + F117::AERO::dXdQ * F117::pitchRate_RPS;
-    F117::AERO::Cx_total += CxGear + Cxchute + Cxbay;
+    // No pitch rate term here. The F-16 table's Cxq means forward force, but Cx here means drag, so adding it
+    // charged sustained turns about 12 kN of drag that the turn data in TO 1F-117A-1 doesn't show.
+    F117::AERO::Cx_total = F117::AERO::Cx + CxGear + Cxchute + Cxbay;
 
     F117::AERO::dZdQ = (F117::meanChord_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Czq;
     F117::AERO::Cz_total = F117::AERO::Cz + F117::AERO::dZdQ * F117::pitchRate_RPS;
@@ -2361,14 +2382,16 @@ bool ed_fm_change_mass(double& delta_mass, double& delta_mass_pos_x,
     delta_mass = 0.0;
     delta_mass_pos_x = delta_mass_pos_y = delta_mass_pos_z = 0.0;
     delta_mass_moment_of_inertia_x = delta_mass_moment_of_inertia_y = delta_mass_moment_of_inertia_z = 0.0;
-    if (!(F117::fuel_consumption_since_last_time > 0.0)) return false;
 
-    // Positive consumed mass is removed by DCS. Keep inertia updates owned by
-    // DCS rather than mixing an absolute airframe-inertia correction into this.
-    delta_mass = F117::fuel_consumption_since_last_time;
-    delta_mass_pos_x = -1.0;
-    delta_mass_pos_y = 1.0;
-    F117::fuel_consumption_since_last_time = 0.0;
+    // DCS starts the aircraft at M_empty with no fuel in its mass and adds delta_mass to it, as measured in
+    // DCS 2.9.31. So the EFM reports fuel as it is loaded (positive) and burned (negative). It goes in at the
+    // empty centre of mass (center_of_mass in the mod's FM/config.lua), so fuel state doesn't move the CG.
+    const double change = F117::internal_fuel - F117::fuel_mass_in_dcs;
+    if (!std::isfinite(change) || std::abs(change) < 0.01) return false;
+
+    delta_mass = change;
+    delta_mass_pos_y = 0.1;
+    F117::fuel_mass_in_dcs += change;
     return true;
 }
 
@@ -2721,7 +2744,6 @@ namespace
         F117::tailhook_command = F117::tailhook_pos = 0.0;
         F117::dragchute_command = F117::dragchute = 0.0;
         F117::misc_cmd = F117::misc_state = F117::misc_cmdH = F117::misc_stateH = 0.0;
-        F117::fuel_consumption_since_last_time = 0.0;
         F117::surface_height_valid = F117::altitude_valid = false;
         for (bool& wow : F117::suspension_wow) wow = false;
         F117::ACTUATORS::elevatorPosition_DEG = F117::ACTUATORS::elevatorRate_DEGPERSEC = 0.0;
@@ -2782,6 +2804,8 @@ namespace
 void ed_fm_release()
 {
     reset_session_controls();
+    // The next aircraft starts at M_empty again. Only here: DCS collects the loaded fuel before the start calls.
+    F117::fuel_mass_in_dcs = 0.0;
     F117::DeltaTime = 0.0;
     F117::ENGINE::N2 = 0.0;
     F117::gearDown = F117::GearCommand = 0.0;

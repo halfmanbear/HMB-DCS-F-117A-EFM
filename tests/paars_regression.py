@@ -52,7 +52,7 @@ struct Jet {
         const double cl = n * weight / (q * area);
         const double drag = q * area * (0.020 + 0.194 * cl * cl);
         throttle = at.update(dt, cas(), throttle, true, true);
-        const double thrust = F117::ENGINE::engine_dynamics(throttle, v / std::sqrt(1.4 * 287.058 * temperature()), alt, dt, true, false);
+        const double thrust = F117::ENGINE::engine_dynamics(throttle, v / std::sqrt(1.4 * 287.058 * temperature()), alt, q, dt, true, false);
         const double qBody = 9.81 * (n - (-dot(kUp, z))) / v, rBody = -9.81 * dot(kUp, y) / v, pBody = p * kDegToRad;
         V3 w = pBody * x + qBody * y + rBody * z;
         x = unit(x + dt * cross(w, x)); y = unit(y + dt * cross(w, y)); y = unit(y + (-dot(x, y)) * x); z = cross(x, y);

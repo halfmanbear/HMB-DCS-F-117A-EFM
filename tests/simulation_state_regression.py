@@ -38,7 +38,7 @@ struct V {double x=0,y=0,z=0;};
 V wind_world_cs;
 double vx_world=0,vy_world=0,vz_world=0;
 namespace F117 {
-double fuel_consumption_since_last_time=0,internal_fuel=100,thrust_N=0;
+double fuel_mass_in_dcs=0,internal_fuel=100,thrust_N=0,mach=0;
 param_stuff param_class;
 double surface_height_m=0,altitude_m=0,wingSpan_M=13.21;
 bool surface_height_valid=false,altitude_valid=false;
@@ -47,13 +47,14 @@ double pitch_angle=0,roll_angle=0,rollRate_RPS=0,pitchRate_RPS=0,gearDown=0,Gear
 bool weight_on_wheels=false,wow_from_draw_args=false,airRefuelDoorOpen=false,suspension_wow[3]={};
 double radiansToDegrees=180/3.141592653589793,totalVelocity_MPS=200;
 bool simInitialized=false;int alt_hold=0,horiz_hold=0,altroll_hold=0;
+constexpr double kNoseWheelYawLow_RAD=0.1745;bool nwsAuthorityHeld=false;double noseWheelYawRange_RAD=0;
 double DeltaTime=0,pedInput=0,throttleInput=0,elevator_DEG=0,aileron_DEG=0,rudder_DEG=0;
 double elevator_DEG_commanded=0,aileron_DEG_commanded=0,rudder_DEG_commanded=0;
 float elev_pos=0,rudder_pos=0;
 double elevator_PCT=0,aileron_PCT=0,rudder_PCT=0,throttle_state=0,rolling_friction=0,WheelBrakeCommand=0;
 double pitchTrim=0,rollTrim=0,yawTrim=0,tailhook_command=0,tailhook_pos=0,dragchute_command=0,dragchute=0;
 double misc_cmd=0,misc_state=0,misc_cmdH=0,misc_stateH=0;
-namespace ENGINE {double N2=0;}
+namespace ENGINE {double N2=0,thrustFractionOfMax=0;}
 namespace FLIGHTCONTROLS {
     double latStickInput=0,longStickInput=0,longStickForce=0;int resets=0;
     void reset_runtime_state(){++resets;}
@@ -61,6 +62,7 @@ namespace FLIGHTCONTROLS {
 }
 }
 using namespace F117;
+bool engines_running(){return true;}
 Autothrottle::Controller g_autothrottle;
 Paars::Controller g_paars;
 bool g_paarsEngagedAutothrottle=false;double g_paarsRollRateDegS=0;
@@ -91,16 +93,16 @@ code += r"""
 void check_mass(double expected) {
     double mass=99,x=99,y=99,z=99,ix=99,iy=99,iz=99;
     const bool changed=ed_fm_change_mass(mass,x,y,z,ix,iy,iz);
-    assert(changed==(expected>0));assert(std::fabs(mass-expected)<1e-10);
+    assert(changed==(expected!=0));assert(std::fabs(mass-expected)<1e-10);
     assert(ix==0&&iy==0&&iz==0&&z==0);
-    if(changed)assert(x==-1&&y==1);
+    if(changed)assert(x==0&&y==.1);
 }
 void dirty_session() {
     alt_hold=altroll_hold=horiz_hold=1;airRefuelDoorOpen=true;
     pitchTrim=rollTrim=yawTrim=3;surface_height_valid=altitude_valid=true;
     ACTUATORS::dragchute_state=1;ACTUATORS::gear_state=.4;ACTUATORS::misc_posH=1;
     thrust_N=80000;elev_pos=rudder_pos=1;
-    FLIGHTCONTROLS::longStickInput=1;fuel_consumption_since_last_time=3;
+    FLIGHTCONTROLS::longStickInput=1;fuel_mass_in_dcs=3;
     g_autothrottle.engage(300,50,true,true);g_paars.engage(-30,0,false,false);
 }
 void check_clean_session() {
@@ -109,20 +111,22 @@ void check_clean_session() {
     assert(ACTUATORS::dragchute_state==0&&ACTUATORS::misc_posH==0);
     assert(!ACTUATORS::simInitialized&&!simInitialized&&FLIGHTCONTROLS::longStickInput==0);
     assert(!g_autothrottle.engaged()&&!g_paars.engaged());
-    assert(!surface_height_valid&&!altitude_valid&&fuel_consumption_since_last_time==0);
+    assert(!surface_height_valid&&!altitude_valid);
     assert(thrust_N==0&&elev_pos==0&&rudder_pos==0);
 }
 int main() {
     // Fuel is accumulated across multiple ticks, clamped to available quantity,
     // and collected once even when DCS's inertia does not match an FM constant.
-    thrust_N=9.81*3600/1.24;internal_fuel=100;
+    thrust_N=9.81*3600/0.762;internal_fuel=100;
+    check_mass(100);check_mass(0); // Loaded fuel is added to the DCS mass once.
     assert(param_class.fuelvalue);
     update_fuel_system(.25);update_fuel_system(.75);
-    assert(std::fabs(internal_fuel-99)<1e-10);check_mass(1);check_mass(0);
+    assert(std::fabs(internal_fuel-99)<1e-10);check_mass(-1);check_mass(0); // Burned fuel is removed.
     ed_fm_unlimited_fuel(true);update_fuel_system(10);assert(internal_fuel==99);check_mass(0);
     ed_fm_unlimited_fuel(false);internal_fuel=.1;update_fuel_system(2);
-    assert(internal_fuel==0);check_mass(.1);update_fuel_system(2);check_mass(0);
-    internal_fuel=10;update_fuel_system(-1);update_fuel_system(NAN);check_mass(0);assert(internal_fuel==10);
+    assert(internal_fuel==0);check_mass(-99);update_fuel_system(2);check_mass(0);
+    internal_fuel=10;update_fuel_system(-1);update_fuel_system(NAN);check_mass(10);assert(internal_fuel==10);
+    thrust_N=0;update_fuel_system(1);assert(std::fabs(internal_fuel-9.8)<1e-10);check_mass(-.2);
 
     // Unknown/invalid observations use free air; the same AGL produces the same
     // effect over different elevations, with object surfaces handled explicitly.
@@ -154,8 +158,9 @@ int main() {
 
     // Reused modules are safe on release and on every start path, independently
     // of whether a preceding release callback ran.
-    dirty_session();ed_fm_release();check_clean_session();
-    dirty_session();apply_ground_start_state(false);check_clean_session();
+    dirty_session();ed_fm_release();check_clean_session();assert(fuel_mass_in_dcs==0);
+    // DCS collects the loaded fuel before it calls the start functions, so they must not forget it.
+    dirty_session();apply_ground_start_state(false);check_clean_session();assert(fuel_mass_in_dcs==3);
     assert(gearDown==1&&ACTUATORS::gear_state==1&&weight_on_wheels&&!engineswitch&&ENGINE::N2==0);
     dirty_session();apply_ground_start_state(true);check_clean_session();
     assert(gearDown==1&&ACTUATORS::gear_state==1&&engineswitch&&ENGINE::N2==kGroundStartIdleN2);

@@ -96,12 +96,19 @@ namespace F117
 
             double autoBetaTrimState      = 0.0; // automatic Beta trim accumulator (deg)
             double aoaLimiterIntegrator   = 0.0; // P+I AOA limiter integrator state
+            bool aoaLimiterActive         = false; // Limiter overrode the g command on the last step
 
             constexpr double kPi = 3.14159265358979323846;
             constexpr double kFixedControlTimeStep = 0.005;
             constexpr int kMaxControlSubstepsPerFrame = 20;
             constexpr double kMaxAccumulatedControlTime = kFixedControlTimeStep * kMaxControlSubstepsPerFrame;
             constexpr int kPitchDebugLogIntervalFrames = 10;
+
+            // 1 with a wheel on the ground, 0 in the air, moving between them in half a second so liftoff and
+            // touchdown don't step the surfaces. On the ground, runway bumps reach the roll rate and load factor
+            // sensors but the gear holds the aircraft, so feeding them back only moves the elevons.
+            constexpr double kGroundContactFadeRate = 2.0; // per second
+            double groundContactFade = 0.0;
 
 
             namespace YawControllerConfig
@@ -110,14 +117,16 @@ namespace F117
                 // Pedal position commands a target Beta; fins are driven to satisfy that Beta.
 
                 // Pedal → Beta command gain (deg Beta per unit normalised pedal).
-                constexpr double kBetaCommandGain = 10.0;
+                // The law droops, so these commands sit above the sideslip they produce.
+                constexpr double kBetaCommandGain = 16.0;
                 // Beta command limit schedule vs dynamic pressure.
                 // Below kBetaCmdQbarLow the full limit applies (crosswind landing authority).
                 // Above kBetaCmdQbarHigh the limit is reduced to protect the airframe.
                 constexpr double kBetaCmdQbarLow  = 2000.0;   // Pa (~80 kts)
                 constexpr double kBetaCmdQbarHigh = 28000.0;  // Pa (~370 kts)
-                constexpr double kBetaCmdLimitHigh = 10.0;    // deg (low-speed limit)
-                constexpr double kBetaCmdLimitLow  =  3.0;    // deg (high-speed limit)
+                // Set so full pedal gives the steady sideslip on TO 1F-117A-1 page 6-3: 8 deg at 170 KCAS, 4 deg at 500 KCAS.
+                constexpr double kBetaCmdLimitHigh = 14.6;    // deg (low-speed limit)
+                constexpr double kBetaCmdLimitLow  =  7.3;    // deg (high-speed limit)
                 // Small pedal deadband at neutral (normalised units).
                 constexpr double kBetaPedalDeadband = 0.02;
                 // Base Beta feedback gain (deg fin per deg Beta error).
@@ -185,24 +194,18 @@ namespace F117
                 constexpr double kPitchRateBlendWashoutTauInv = 1.0;  // rad/s (1-second washout time constant)
                 constexpr double kPitchIntegratorLimit = 25.0;
                 constexpr double kAoAMax = 20.0;
-                // Base AOA limiter threshold — Mach-scheduled at runtime: threshold rises at high Mach
-                // (airframe becomes more stable transsonically) so the limiter is less conservative.
-                constexpr double kAoALimitStart = 19.0;
-                constexpr double kAoALimiterMachGain = 2.5; // deg threshold added per Mach unit
-                // Gear-down: AOA limiter biased higher to allow lower approach/landing speeds.
-                constexpr double kAoALimitStartGearDownBias = 3.0; // deg added to threshold
                 // High-gain P+I AOA limiter (has more authority than the pilot).
                 // The limiter is triggered by alpha + washed-out pitch rate anticipation exceeding
-                // the Mach-scheduled threshold.
-                constexpr double kAoALimiterProportionalGain = 8.0;
+                // the threshold from aoa_limit_for_mach.
+                constexpr double kAoALimiterProportionalGain = 3.0;
                 constexpr double kAoALimiterIntegratorGain   = 2.5;
                 constexpr double kAoALimiterIntegratorLimit  = 30.0;
                 // Pitch-rate anticipation for the AOA limiter.
                 // Washed-out pitch rate is scaled by kAoAAnticipationGainRef / qbar so the anticipation
                 // is stronger at low q (where departure risk is highest on aggressive pull-ups).
                 constexpr double kAoAAnticipationWashoutTauInverse = 2.0;  // 0.5 s washout
-                constexpr double kAoAAnticipationGainRef            = 1.5; // deg AoA per deg/s at kQbarRef
-                constexpr double kAoAAnticipationMax                = 8.0; // deg (anticipation clamp)
+                constexpr double kAoAAnticipationGainRef            = 0.2; // deg AoA per deg/s at kQbarRef
+                constexpr double kAoAAnticipationMax                = 6.0; // deg (anticipation clamp)
                 // Dynamic pressure scheduling of forward-loop gains (1/qbar).
                 // All forward-loop gains are proportional to qbarRef/qbar, clamped to [min, max].
                 constexpr double kQbarRef          = 14000.0; // Pa (~300 kts SL)
@@ -283,15 +286,14 @@ namespace F117
                 constexpr double kRollFeelFixedGain = 0.7;
                 constexpr double kRollFeelSlope = 0.012;
                 constexpr double kStickDeadband = 3.0;
-                constexpr double kPressureLow = 19153.0;
-                constexpr double kPressureHigh = 23941.0;
-                constexpr double kPressureLowGain = 2.0;
-                constexpr double kPressureSlope = -0.0002088;
-                constexpr double kPressureOffset = 5.998;
-                constexpr double kPressureHighGain = 1.0;
+                // Roll rate loop bandwidth, rad/s. The gain comes from the aircraft's current control power and
+                // roll inertia, so the loop responds the same at every speed and doesn't need retuning if the inertia changes.
+                constexpr double kRollLoopBandwidth = 15.0;
+                constexpr double kRollLoopGainMax = 3.0;      // deg surface per deg/s, for very low dynamic pressure
+                constexpr double kRollFeedForwardMax = 0.35;  // deg surface per deg/s
                 constexpr double kRollCommandLimit = 21.5;
                 constexpr double kLatForceFilterPole = 60.0;
-                constexpr double kRollCommandFilterPole = 20.0;
+                constexpr double kRollCommandFilterPole = 10.0;
                 constexpr double kRollServoNaturalFrequency = 52.0;
                 constexpr double kRollServoDampingRatio = 0.85;
                 constexpr double kRollRateFilterPole = 50.0;
@@ -303,17 +305,36 @@ namespace F117
                 // Parabolic stick-force-to-roll-rate shaping (real F-117 uses non-linear parabolic
                 // shaping per Loschke). The schedule is: rollRateCmd = K * (force - deadband)^2
                 // giving a gentle onset near centre and increasing responsiveness toward full stick.
-                // kRollRateMax is the commanded rate at full stick deflection (150 deg/s estimated
-                // from stock footage analysis). kRollParabolicGain is derived from these two values
-                // so changing kRollRateMax automatically keeps the curve consistent.
-                constexpr double kRollRateMax       = 150.0;  // deg/s at full stick
+                // The rate at full stick follows TO 1F-117A-1 page 6-3: about 80 deg/s at low speed to about
+                // 190 deg/s above 300 KCAS. Sideslip adds a little to the low speed figure, so that command sits below it.
+                constexpr double kRollRateMaxLowSpeed  = 74.0;    // deg/s commanded at or below kRollRateQbarLow
+                constexpr double kRollRateMaxHighSpeed = 190.0;   // deg/s commanded at or above kRollRateQbarHigh
+                constexpr double kRollRateQbarLow      = 4700.0;  // Pa, about 170 KCAS
+                constexpr double kRollRateQbarHigh     = 14600.0; // Pa, about 300 KCAS
                 constexpr double kRollUsableForce   = kLatStickForceScale - kStickDeadband; // 72 lbf
-                constexpr double kRollParabolicGain = kRollRateMax / (kRollUsableForce * kRollUsableForce);
                 // Gear down: roll rate feedback gain is increased to reduce turbulence response on approach.
                 constexpr double kGearDownRateFeedbackGainFactor = 1.6;
                 // Air refuelling: lateral stick input gain is reduced for control harmony with the
                 // reduced pitch gain in AAR mode.
                 constexpr double kAARLateralStickGainScale = 0.6;
+            }
+
+            // Maximum indicated AOA against Mach from the flight test limits in TO 1F-117A-1 Figure 5-7.
+            inline double aoa_limit_for_mach(double mach, bool gearDown)
+            {
+                if (gearDown)
+                {
+                    return mach <= 0.35 ? 14.6 : 14.6 - (limit(mach, 0.35, 0.70) - 0.35) * (1.9 / 0.35);
+                }
+                if (mach <= 0.53)
+                {
+                    return 12.6;
+                }
+                if (mach <= 0.70)
+                {
+                    return 12.6 - (mach - 0.53) * (1.1 / 0.17);
+                }
+                return 11.5 - (limit(mach, 0.70, 0.90) - 0.70) * (3.3 / 0.20);
             }
 
             inline bool yaw_filters_need_init()
@@ -382,6 +403,13 @@ namespace F117
 
             std::string get_saved_games_root_path()
             {
+                // The offline flight model bench sets this so its runs can't overwrite the log from the last flight.
+                const char* logRootOverride = getenv("F117_LOG_ROOT");
+                if (logRootOverride != nullptr && *logRootOverride)
+                {
+                    return std::string(logRootOverride);
+                }
+
                 PWSTR savedGamesPath = nullptr;
                 if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_SavedGames, KF_FLAG_DEFAULT, nullptr, &savedGamesPath)))
                 {
@@ -418,7 +446,7 @@ namespace F117
             {
                 // Columns: pitch_mode=0 always in flight (NormalAcceleration P+I law).
                 // pitch_rate_blend = washed pitch-rate contribution (g) blended into the Nz error signal.
-                debugLog << "roll_deg,pitch_deg,roll_rate_dps,roll_stick,roll_stick_force,roll_rate_cmd,roll_flat_turn_cmd,roll_rate_cmd_filt,roll_cmd_surface,roll_surface_out,yaw_ped_input,beta_deg,yaw_rate_rps,yaw_rate_dps,yaw_rudder_cmd,yaw_rudder_cmd_filt,yaw_pedal_cmd,yaw_damping,yaw_side_accel,yaw_ari_cmd,yaw_combined_cmd,yaw_surface_out,rudder_deg_cmd,rudder_deg,rudder_pct,aero_cy_dr,aero_cn_dr,aero_cl_dr,aero_cn_dbeta,aero_cl_dbeta,aero_cy_total,aero_cn_total,aero_cl_total,az_raw,gravity_comp,nz_measured,nz_reference,stickCmdPos,nz_cmd,nz_error,nz_proportional,pitch_rate_blend,nz_control,integratorOut,alpha_raw,alphaFiltered,stickInput,pitchRate,dynPressure_pa,velocity_mps,mach,thrust_N,Cx_total,elevatorOut\n";
+                debugLog << "roll_deg,pitch_deg,roll_rate_dps,roll_stick,roll_stick_force,roll_rate_cmd,roll_flat_turn_cmd,roll_rate_cmd_filt,roll_cmd_surface,roll_surface_out,yaw_ped_input,beta_deg,yaw_rate_rps,yaw_rate_dps,yaw_rudder_cmd,yaw_rudder_cmd_filt,yaw_pedal_cmd,yaw_damping,yaw_side_accel,yaw_ari_cmd,yaw_combined_cmd,yaw_surface_out,rudder_deg_cmd,rudder_deg,rudder_pct,aero_cy_dr,aero_cn_dr,aero_cl_dr,aero_cn_dbeta,aero_cl_dbeta,aero_cy_total,aero_cn_total,aero_cl_total,az_raw,gravity_comp,nz_measured,nz_reference,stickCmdPos,nz_cmd,nz_error,nz_proportional,pitch_rate_blend,nz_control,integratorOut,alpha_raw,alphaFiltered,stickInput,pitchRate,dynPressure_pa,velocity_mps,mach,thrust_N,Cx_total,elevatorOut,ground_contact_fade\n";
             }
 
             void open_pitch_debug_log()
@@ -536,7 +564,8 @@ namespace F117
                          << mach << ","
                          << thrustN << ","
                          << cxTotal << ","
-                         << elevatorOut << "\n";
+                         << elevatorOut << ","
+                         << groundContactFade << "\n";
             }
 
             void init_yaw_filters(double dt)
@@ -614,6 +643,8 @@ namespace F117
                 nz_reference = 1.0;
                 pitchIntegratorState = 0.0;
                 aoaLimiterIntegrator  = 0.0;
+                aoaLimiterActive = false;
+                groundContactFade = 0.0;
                 pitchControlAccumulator = 0.0;
                 pitchHeldOutput = 0.0;
                 logCounter = 0;
@@ -709,6 +740,7 @@ namespace F117
             pitchModeAirRefuelDoorOpen = false;
             autoBetaTrimState = 0.0;
             aoaLimiterIntegrator = 0.0;
+            aoaLimiterActive = false;
             lastRollStickInput = 0.0;
             lastRollStickForce = 0.0;
             lastRollRateCommand = 0.0;
@@ -734,6 +766,12 @@ namespace F117
         {
             pitchModeGearDown = gearDown;
             pitchModeAirRefuelDoorOpen = airRefuelDoorOpen;
+        }
+
+        void update_ground_contact(bool wheelOnGround, double dt)
+        {
+            const double change = kGroundContactFadeRate * dt;
+            groundContactFade = limit(groundContactFade + (wheelOnGround ? change : -change), 0.0, 1.0);
         }
 
         void update_yaw_debug_snapshot(double betaDeg, double yawRateRps, double rudderDegCommanded, double rudderDeg, double rudderPct)
@@ -1006,7 +1044,8 @@ namespace F117
                 // P+I g-command law per Loschke.
                 // Pitch-rate blend damps transients via the error signal; 1/qbar scaling on the
                 // proportional gain automatically scales the blend contribution across the envelope.
-                const double blendedNzFeedback = nz_measured
+                // On the ground the load factor is ignored, which leaves the stick's path to the elevons unchanged.
+                const double blendedNzFeedback = nz_measured + groundContactFade * (nz_reference - nz_measured)
                     + PitchControllerConfig::kPitchRateBlendGain * pitchRateWashedBlend;
                 nz_error      = nz_cmd - blendedNzFeedback;
                 nzProportional = scaledNzErrorGain * nz_error;
@@ -1035,8 +1074,9 @@ namespace F117
                         (unsaturatedCommandBeforeIntegration >= integratorLimit && nz_error > 0.0);
                     const bool actuatorSaturatedLow =
                         (unsaturatedCommandBeforeIntegration <= -integratorLimit && nz_error < 0.0);
+                    // Frozen while the AOA limiter holds the nose, or it stores a pull that carries on after the stick is released.
                     integratorInput =
-                        (nzAtUpperLimit || nzAtLowerLimit || actuatorSaturatedHigh || actuatorSaturatedLow) ? 0.0 : nz_error;
+                        (nzAtUpperLimit || nzAtLowerLimit || actuatorSaturatedHigh || actuatorSaturatedLow || aoaLimiterActive) ? 0.0 : nz_error;
 
                     if ((pitchIntegratorState > 0.0 && integratorInput < 0.0) ||
                         (pitchIntegratorState < 0.0 && integratorInput > 0.0))
@@ -1057,23 +1097,15 @@ namespace F117
             }
 
             const double integratorOutput = pitchIntegratorState;
-            double finalPitchCommandTotal = pitchActuatorDynamicsFilter.Filter(resetFilters, dt, finalCombinedCommandFilteredLimited);
+            double pitchCommandTotal = finalCombinedCommandFilteredLimited;
 
             // ---- Real F-117 AOA limiter: high-gain P+I, activated by AoA + washed-out pitch-rate anticipation ----
-            // Threshold is Mach-scheduled (rises at high Mach; airframe more stable transonically).
+            // Threshold is Mach-scheduled from flight test limits (falls at high Mach).
             // Pitch-rate anticipation is dynamic-pressure-scheduled (stronger at low q for aggressive pull-ups).
             // When active the limiter has MORE authority than the pilot.
             {
-                // Gear-down biases the limiter threshold higher (lower approach/landing speed possible).
                 const bool gearIsDown = (pitchModeGearDown > PitchControllerConfig::kGearDownThreshold);
-                const double machClamped = limit(mach, 0.0, 1.0);
-                double limiterThreshold = PitchControllerConfig::kAoALimitStart
-                                        + PitchControllerConfig::kAoALimiterMachGain * machClamped;
-                if (gearIsDown)
-                {
-                    limiterThreshold += PitchControllerConfig::kAoALimitStartGearDownBias;
-                }
-                limiterThreshold = limit(limiterThreshold, PitchControllerConfig::kAoALimitStart, PitchControllerConfig::kAoAMax - 0.5);
+                const double limiterThreshold = aoa_limit_for_mach(mach, gearIsDown);
 
                 // Washed-out pitch rate for anticipation (q-scheduled gain)
                 const double pitchRateForAnticipation = pitchRateWashoutFilter.Filter(resetFilters, dt, pitch_rate_DEG_s);
@@ -1085,32 +1117,28 @@ namespace F117
                                                    PitchControllerConfig::kAoAAnticipationMax);
 
                 const double limiterInput = alphaFiltered + anticipation;
+                const double limiterError = limiterInput - limiterThreshold;
 
-                if (limiterInput > limiterThreshold)
+                // The limiter's command keeps rising as AOA falls below the limit, and the lower of it and the pilot's
+                // command wins, so the handover is continuous. Switching straight to the pilot's command as soon as AOA
+                // dipped under the limit stepped the surface and made a 7 Hz load factor buzz at the limit.
+                const double limiterCommand = -(PitchControllerConfig::kAoALimiterProportionalGain * limiterError
+                                              + aoaLimiterIntegrator);
+                aoaLimiterActive = limiterCommand < pitchCommandTotal;
+
+                if (aoaLimiterActive)
                 {
-                    const double limiterError = limiterInput - limiterThreshold;
-
-                    // Integrator (clamp and freeze at limit)
-                    const bool limIntSatHigh = (aoaLimiterIntegrator >= PitchControllerConfig::kAoALimiterIntegratorLimit);
-                    if (!limIntSatHigh)
-                    {
-                        aoaLimiterIntegrator = limit(
-                            aoaLimiterIntegrator + PitchControllerConfig::kAoALimiterIntegratorGain * dt * limiterError,
-                            0.0, PitchControllerConfig::kAoALimiterIntegratorLimit);
-                    }
-
-                    const double limiterCommand = -(PitchControllerConfig::kAoALimiterProportionalGain * limiterError
-                                                  + aoaLimiterIntegrator);
-                    // Limiter overrides if it produces a stronger nose-down command
-                    if (limiterCommand < finalPitchCommandTotal)
-                    {
-                        finalPitchCommandTotal = limiterCommand;
-                    }
+                    pitchCommandTotal = limiterCommand;
+                    // Either sign, because holding the limit can take a little nose-up surface.
+                    aoaLimiterIntegrator = limit(
+                        aoaLimiterIntegrator + PitchControllerConfig::kAoALimiterIntegratorGain * dt * limiterError,
+                        -PitchControllerConfig::kAoALimiterIntegratorLimit, PitchControllerConfig::kAoALimiterIntegratorLimit);
                 }
                 else
                 {
                     // Decay integrator when not active so re-entry is smooth
-                    aoaLimiterIntegrator = limit(aoaLimiterIntegrator - PitchControllerConfig::kAoALimiterIntegratorGain * dt * 2.0, 0.0, PitchControllerConfig::kAoALimiterIntegratorLimit);
+                    const double decay = PitchControllerConfig::kAoALimiterIntegratorGain * dt * 2.0;
+                    aoaLimiterIntegrator = limit(0.0, aoaLimiterIntegrator - decay, aoaLimiterIntegrator + decay);
                 }
             }
 
@@ -1122,7 +1150,7 @@ namespace F117
                     && std::abs(rollRateRadS) > PitchControllerConfig::kRollRateSquaredRateThreshold)
                 {
                     const double rollRateSq = rollRateRadS * rollRateRadS;
-                    finalPitchCommandTotal -= PitchControllerConfig::kRollRateSquaredGain * rollRateSq;
+                    pitchCommandTotal -= PitchControllerConfig::kRollRateSquaredGain * rollRateSq;
                 }
             }
 
@@ -1134,9 +1162,13 @@ namespace F117
                 {
                     const double speedFade = 1.0 - velocity_mps / PitchControllerConfig::kSpeedStabilityVelocityMPS;
                     const double aoaExcess = alphaFiltered - PitchControllerConfig::kSpeedStabilityAoAThreshold;
-                    finalPitchCommandTotal -= PitchControllerConfig::kSpeedStabilityGain * aoaExcess * speedFade;
+                    pitchCommandTotal -= PitchControllerConfig::kSpeedStabilityGain * aoaExcess * speedFade;
                 }
             }
+
+            // Every path goes through the servo model, the AOA limiter included. Without this the limiter
+            // switched the elevons between stops at about 15 Hz at low dynamic pressure.
+            const double finalPitchCommandTotal = pitchActuatorDynamicsFilter.Filter(resetFilters, dt, pitchCommandTotal);
 
             log_pitch_debug_sample(
                 roll_angle_DEG,
@@ -1207,7 +1239,7 @@ namespace F117
 
             return pitchHeldOutput;
         }
-        double fcs_roll_controller_step(double latStickInputCommand, double longStickForceCommand, double ay, double pedInput, double beta_deg, double roll_angle_deg, double roll_rate, double roll_rate_trim, double dynPressure_PA, bool gearDown, bool airRefuelDoorOpen, double dt, bool resetFilters)
+        double fcs_roll_controller_step(double latStickInputCommand, double longStickForceCommand, double ay, double pedInput, double beta_deg, double roll_angle_deg, double roll_rate, double roll_rate_trim, double dynPressure_PA, double rollAccelPerSurfaceDeg, double surfacePerRollRate, bool gearDown, bool airRefuelDoorOpen, double dt, bool resetFilters)
         {
             // Air refuelling: lateral stick gain reduced for control harmony with reduced pitch gain.
             const double effectiveLateralStick = airRefuelDoorOpen
@@ -1244,14 +1276,19 @@ namespace F117
             {
                 const double sign = (latStickForceFinal > 0.0) ? 1.0 : -1.0;
                 const double forceBeyondDeadband = std::abs(latStickForceFinal) - RollControllerConfig::kStickDeadband;
-                rollRateCommand = sign * RollControllerConfig::kRollParabolicGain * forceBeyondDeadband * forceBeyondDeadband;
-                rollRateCommand = limit(rollRateCommand, -RollControllerConfig::kRollRateMax, RollControllerConfig::kRollRateMax);
+                const double speedFraction = limit((dynPressure_PA - RollControllerConfig::kRollRateQbarLow)
+                    / (RollControllerConfig::kRollRateQbarHigh - RollControllerConfig::kRollRateQbarLow), 0.0, 1.0);
+                const double rollRateMax = RollControllerConfig::kRollRateMaxLowSpeed
+                    + speedFraction * (RollControllerConfig::kRollRateMaxHighSpeed - RollControllerConfig::kRollRateMaxLowSpeed);
+                const double parabolicGain = rollRateMax / (RollControllerConfig::kRollUsableForce * RollControllerConfig::kRollUsableForce);
+                rollRateCommand = sign * parabolicGain * forceBeyondDeadband * forceBeyondDeadband;
+                rollRateCommand = limit(rollRateCommand, -rollRateMax, rollRateMax);
             }
 
             double flatTurnPedalBlend = limit(std::abs(pedInput) / RollControllerConfig::kFlatTurnPedalFull, 0.0, 1.0);
             double flatTurnStickBlend = 1.0 - limit(std::abs(effectiveLateralStick) / RollControllerConfig::kFlatTurnLatStickFade, 0.0, 1.0);
             double flatTurnBlend = flatTurnPedalBlend * flatTurnStickBlend;
-            double flatTurnRollCommand = flatTurnBlend * limit(
+            double flatTurnRollCommand = (1.0 - groundContactFade) * flatTurnBlend * limit(
                 beta_deg * RollControllerConfig::kFlatTurnBetaGain - roll_angle_deg * RollControllerConfig::kFlatTurnBankGain,
                 -RollControllerConfig::kFlatTurnCommandLimit,
                 RollControllerConfig::kFlatTurnCommandLimit);
@@ -1260,29 +1297,23 @@ namespace F117
             double rollRateCommandFiltered = rollCommandFilter.Filter(resetFilters, dt, rollRateCommandTotal);
             double rollRateFiltered1 = rollRateFilter1.Filter(resetFilters, dt, roll_rate);
             double rollRateFiltered2 = rollRateFilter2.Filter(resetFilters, dt, rollRateFiltered1);
-            double rollRateCommandCombined = rollRateFiltered2 - rollRateCommandFiltered - roll_rate_trim;
+            const double rollRateCommandWithTrim = rollRateCommandFiltered + roll_rate_trim;
 
-            double pressureGain = 0.0;
-            if (dynPressure_PA < RollControllerConfig::kPressureLow)
-            {
-                pressureGain = RollControllerConfig::kPressureLowGain;
-            }
-            else if ((dynPressure_PA >= RollControllerConfig::kPressureLow) && (dynPressure_PA <= RollControllerConfig::kPressureHigh))
-            {
-                pressureGain = RollControllerConfig::kPressureSlope * dynPressure_PA + RollControllerConfig::kPressureOffset;
-            }
-            else
-            {
-                pressureGain = RollControllerConfig::kPressureHighGain;
-            }
+            // Positive surface rolls left. Feedback sets how the rate error dies away; the feed-forward holds
+            // the surface that balances roll damping at the commanded rate, so the rate doesn't droop.
+            double rollLoopGain = (std::min)(RollControllerConfig::kRollLoopBandwidth / (std::max)(rollAccelPerSurfaceDeg, 1.0), RollControllerConfig::kRollLoopGainMax);
 
             // Gear down: increase roll rate feedback gain to reduce response to turbulence on approach.
             if (gearDown)
             {
-                pressureGain *= RollControllerConfig::kGearDownRateFeedbackGainFactor;
+                rollLoopGain *= RollControllerConfig::kGearDownRateFeedbackGainFactor;
             }
 
-            double rollCommandGained = limit(rollRateCommandCombined * pressureGain, -RollControllerConfig::kRollCommandLimit, RollControllerConfig::kRollCommandLimit);
+            const double rollFeedForward = limit(surfacePerRollRate, 0.0, RollControllerConfig::kRollFeedForwardMax);
+            // On the ground the roll rate is ignored, which leaves the stick's path to the elevons unchanged.
+            const double rollRateFeedback = rollRateFiltered2 * (1.0 - groundContactFade);
+            double rollCommandGained = limit((rollRateFeedback - rollRateCommandWithTrim) * rollLoopGain - rollRateCommandWithTrim * rollFeedForward,
+                -RollControllerConfig::kRollCommandLimit, RollControllerConfig::kRollCommandLimit);
             double rollSurfaceCommand = rollActuatorDynamicsFilter.Filter(resetFilters, dt, rollCommandGained);
 
             lastRollStickInput = effectiveLateralStick;
@@ -1296,7 +1327,7 @@ namespace F117
             return rollSurfaceCommand;
         }
 
-        double fcs_roll_controller(double latStickInputCommand, double longStickForceCommand, double ay, double pedInput, double beta_deg, double roll_angle_deg, double roll_rate, double roll_rate_trim, double dynPressure_PA, bool gearDown, bool airRefuelDoorOpen, double dt)
+        double fcs_roll_controller(double latStickInputCommand, double longStickForceCommand, double ay, double pedInput, double beta_deg, double roll_angle_deg, double roll_rate, double roll_rate_trim, double dynPressure_PA, double rollAccelPerSurfaceDeg, double surfacePerRollRate, bool gearDown, bool airRefuelDoorOpen, double dt)
         {
             const bool needsInit = roll_filters_need_init();
             if (needsInit)
@@ -1323,6 +1354,8 @@ namespace F117
                     roll_rate,
                     roll_rate_trim,
                     dynPressure_PA,
+                    rollAccelPerSurfaceDeg,
+                    surfacePerRollRate,
                     gearDown,
                     airRefuelDoorOpen,
                     kFixedControlTimeStep,

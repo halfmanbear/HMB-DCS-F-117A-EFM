@@ -13,7 +13,7 @@
 
 namespace CockpitInterop
 {
-    static constexpr const char* kIRADSBuildMarker = "2026-11-02-nws-authority-v14";
+    static constexpr const char* kIRADSBuildMarker = "2026-11-02-ground-contact-v24";
 
     // â”€â”€ Globals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     HMODULE                   g_hDLL                   = nullptr;
