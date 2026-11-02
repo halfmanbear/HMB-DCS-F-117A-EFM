@@ -1,8 +1,8 @@
 #pragma once
-// Generated from mod Weapons/gbu-31.lua, gbu-31v3b.lua, gbu-32.lua.
-// gbu-31.lua SHA256 a6f80a1523c53dc14f70cc387b945ad2032d30ed66d4f8e8fe1faf1551e5e130
-// gbu-31v3b.lua SHA256 2d811088a4977479eeaee2d493101df6e97ade11fc9a6eca146992c4d5157d56
-// gbu-32.lua SHA256 144312087903c3d3f0babdc43466860de1b222486e40854c254cf83612c92373
+// Release ranges copied from the stock DCS weapon definitions in
+// CoreMods/aircraft/AircraftWeaponPack/JDAM.lua. Profiles 0, 1 and 2 are the
+// GBU-31(V)1/B, GBU-31(V)3/B and GBU-32(V)2/B. tests/jdam_envelope_regression.py
+// fails if this copy stops matching the installed DCS definitions.
 namespace JdamEnvelope {
 constexpr double speeds[10] = {100, 150, 200, 250, 300, 350, 400, 450, 500, 550};
 constexpr double heights[21] = {400, 500, 600, 700, 800, 900, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000, 13000, 14000, 15000};

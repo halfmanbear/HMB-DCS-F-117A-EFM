@@ -16,7 +16,7 @@ namespace CockpitInterop
     // F-117A DLIR belly position in model-local coordinates (metres).
     // X = forward from CG, Y = right, Z = up.
     // Tune these if the camera renders the wrong part of the scene.
-    static constexpr double IRADS_POS_X =  4.0;   // 4 m forward (matches avTVSensor::initialize() hardcode)
+    static constexpr double IRADS_POS_X =  4.0;   // 4 m forward (same default as the native sensor)
     static constexpr double IRADS_POS_Y =  0.0;   // centreline
     static constexpr double IRADS_POS_Z = -0.3;   // 0.3 m below centreline (belly mount)
 

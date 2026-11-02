@@ -77,16 +77,16 @@ namespace CockpitInterop
     static double s_last_aircraft_quat[4] = {0.0, 0.0, 0.0, 1.0};
     static double s_irads_lock_world[3]   = {0.0, 0.0, 0.0};
     static double s_irads_lock_polar[3]   = {0.0, 0.0, 0.0};
-    // When designation could not run stabilizeOnGround (which rewrites +0x328
-    // synchronously), the cached point may still hold the previous designation.
-    // Reject a capture until +0x328 differs from this snapshot.
+    // When designation could not run ground stabilisation (which updates the cached
+    // point synchronously), the cached point may still hold the previous designation.
+    // Reject a capture until the cached point differs from this snapshot.
     static bool   s_require_fresh_point   = false;
     static double s_stale_point[3]        = {0.0, 0.0, 0.0};
     static void*  s_our_ind               = nullptr;   // cached DLIR indicator (owned by DCS)
 
     // â”€â”€ Sensor state accessors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // Vtable slot indices (multiply by 8 for byte offset into vtable).
-    static constexpr size_t VTABLE_SLOT_SET_POS  = 4;     // avPlatform::setPlatformLocalPosition
+    // Native call positions used by the sensor bridge.
+    static constexpr size_t VTABLE_SLOT_SET_POS  = 4;     // sets the sensor's local mount position
 
     static AvTVSensorLayout* AsSensor(void* sensor)
     {
@@ -181,8 +181,8 @@ namespace CockpitInterop
         AvTVSensorLayout* sensor = AsSensor(g_avTVSensor_instance);
 
         // Mode 3 = active object-tracking; any other active mode returns the cached
-        // designated/stabilised ground point at +0x328. Both are valid for CCRP.
-        // We use the native function for mode 3, and read +0x328 directly for other modes.
+        // designated/stabilised ground point. Both are valid for CCRP.
+        // We use the native function for mode 3, and read the cached point for other modes.
         if (sensor->trackMode == 3)
         {
             if (g_avTVSensor_get_tracked_point)
@@ -195,7 +195,7 @@ namespace CockpitInterop
                 return (out_point[0] != 0.0 || out_point[1] != 0.0 || out_point[2] != 0.0);
             }
 
-            // Fallback: matrix multiply from avTrackData (confirmed correct against binary)
+            // Fallback: compute the point from the track data transform
             auto* track = AsTrackData(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x3B0);
             const double* m = track->worldTransform;
             const double local_x = track->localPointOffset[0];
@@ -207,8 +207,8 @@ namespace CockpitInterop
             return (out_point[0] != 0.0 || out_point[1] != 0.0 || out_point[2] != 0.0);
         }
 
-        // Non-tracking modes: read cached designated/stabilised point at +0x328.
-        // This is populated by set_external_designation â†’ mode 4/5 stabilisation loop.
+        // Non-tracking modes: read the cached designated/stabilised point.
+        // This is populated by the external designation stabilisation loop.
         out_point[0] = sensor->cachedTrackedPoint[0];
         out_point[1] = sensor->cachedTrackedPoint[1];
         out_point[2] = sensor->cachedTrackedPoint[2];
@@ -265,9 +265,8 @@ namespace CockpitInterop
             return false;
         }
 
-        // avPlatform::get_carrier_position() reads the LinkBase host pointer from self+0x20.
-        // set_carrier() seeds that through LinkBase::Set(MovingObject+0x100). For the injected
-        // sensor we bypass set_carrier and copy the already-live cockpit host pointer directly.
+        // The platform's carrier position comes from its link host pointer. For the injected
+        // sensor we skip set_carrier and copy the live cockpit host pointer directly.
         *reinterpret_cast<void**>(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x20) = linkHost;
 
         if (!s_link_host_seed_logged)
@@ -319,9 +318,8 @@ namespace CockpitInterop
             return false;
         }
 
-        // ccCockpitContext::init_unit() initializes a LinkBase object from
-        // a temporary into context+0x18, and avPlatform::set_carrier() expects an
-        // equivalent LinkBase at sensor+0x10. Recreate that object directly.
+        // The sensor needs a carrier link equivalent to the cockpit context's.
+        // Recreate that object directly.
         std::memcpy(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x10,
                     sourceCtx->carrierLinkBaseStorage,
                     sizeof(sourceCtx->carrierLinkBaseStorage));
@@ -703,8 +701,8 @@ namespace CockpitInterop
         }
 
         // Un-cage the sensor.
-        // initialize() always calls cage() which sets byte+0x3AA=1. Every slew function
-        // (slew_left/right/up/down) checks this byte and returns immediately if set.
+        // initialize() leaves the sensor caged, and the slew functions do nothing
+        // while it is caged.
         // We clear it here so manual gimbal control is available from mission start.
         *(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938) = 0;
         if (g_avTVSensor_uncage)
@@ -712,18 +710,17 @@ namespace CockpitInterop
         Log_("InjectIRADSSensor_Late: sensor uncaged (byte+0x3AA cleared)");
 
         // â”€â”€ Fix 3: override camera mount position â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        // initialize() reads getPlatformInitialLocalPosition() which returns zeros
-        // for an unmodeled sensor station, then hardcodes X=4.0 and leaves Y/Z=0.
+        // initialize() has no modelled position for this sensor station, so it uses
+        // a default.
         // We override with the correct F-117A DLIR belly position. This is safe
-        // to call even if initialize() already ran â€” it just overwrites vtable[4]'s
-        // previous result.
+        // to call even if initialize() already ran; it overwrites the previous
+        // result.
         Log_("InjectIRADSSensor_Late: setting IRADS camera mount position.");
         SetCameraPosition(g_avTVSensor_instance);
 
         // â”€â”€ Activate IR render pass â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // cockpit::avTVSensor::preffered_IR_effect is an exported static, so
-        // resolve it by name. A hardcoded address broke on DCS updates and
-        // wrote into unrelated memory.
+        // resolve it by name so it keeps working across DCS updates.
         // ForceIRADSIndicatorActive also forces screenCondition=11 per-frame, but
         // setting the global static ensures the render pass is selected before
         // the first indicator draw call.
@@ -744,8 +741,7 @@ namespace CockpitInterop
         }
 
         // â”€â”€ Fix 4: initialize zoom through avTVSensor's real setup path â”€â”€â”€â”€â”€â”€
-        // The recovered binary shows current zoom at +0x358 is motor-driven and
-        // the preset list lives in a vector at +0x390. Initialize the native
+        // Zoom is motor-driven and has its own preset list. Initialize the native
         // zoom motor, then set both current and target for our 1.4/10/80 presets.
         {
             Log("InjectIRADSSensor_Late: camera params before fix: "
@@ -767,15 +763,10 @@ namespace CockpitInterop
         }
 
         // â”€â”€ Diagnostic: dump indicator array â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        // context+0xB0 = void** array start, context+0xB8 = void** array end.
-        // Each element is a pointer to a ccIndicator object. We log the key
-        // offsets that determine whether the DLIR camera feed will render and
-        // keep the live indicator state pinned to the IRADS values:
-        //   indicator+0x38  (+56)   = avDevice* controller
-        //   indicator+0x3A0 (+928)  = screen_condition
-        //   indicator+0x46C (+1132) = indicator_type byte
-        //   indicator+0x470 (+1136) = render_target_id
-        //   indicator+0x48C (+1164) = camera_condition gate
+        // Walk the cockpit context's indicators. We log the indicator state that
+        // decides whether the DLIR camera feed renders, and keep it pinned to the
+        // IRADS values: controller, screen condition, indicator type, render target
+        // and camera condition.
         {
             auto logContextIndicators = [&](const char* label, CcCockpitContextLayout* whichCtx)
             {
@@ -878,7 +869,7 @@ namespace CockpitInterop
             return false;
         };
 
-        // avTVSensor::slew_stop -> on_axis_stop stops BOTH gimbal motors and
+        // Stopping slew stops BOTH gimbal motors and
         // rebases slew state, so after stopping one axis re-apply the other.
         auto stopAndResume = [&](bool resumeVertical) -> bool
         {
@@ -1099,11 +1090,10 @@ namespace CockpitInterop
         SeedInjectedSensorPose(
             aircraft_x, aircraft_y, aircraft_z,
             quat_x, quat_y, quat_z, quat_w);
-        // Do not call avPlatform::set_carrier for the injected sensor. DCS crash
-        // logs showed avTVSensor::update -> update_platform_position ->
-        // get_carrier_position dereferencing an unsafe carrier chain after this
-        // link was installed. Keeping platformRoot self-referential preserves the
-        // native update path without entering that crash-prone MovingObject chain.
+        // Do not call set_carrier for the injected sensor: it leads to an unsafe
+        // carrier chain during the sensor update and crashed DCS. Keeping
+        // platformRoot self-referential preserves the native update path without
+        // entering that chain.
         if (!s_carrier_link_disabled_logged)
         {
             Log_("UpdateIRADSSensorFrame: native carrier link disabled for injected sensor");
@@ -1123,17 +1113,15 @@ namespace CockpitInterop
         }
 
         // Keep the sensor uncaged every frame.
-        // initialize() calls cage() which sets byte+0x3AA=1, blocking all slew.
+        // initialize() cages the sensor, which blocks all slew.
         // Some DCS mode transitions may also re-cage â€” clearing it each frame
         // ensures slew is always available during IRADS operation.
         *(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938) = 0;
         if (g_avTVSensor_uncage)
             g_avTVSensor_uncage(g_avTVSensor_instance);
 
-        // Tick the sensor: avTVSensor::update drives the AZ/EL additive motors
-        // (from slew commands), then avPlatform::update_platform_position reads
-        // those motor angles via update_angles()/elevation() and applies them to
-        // the world pose at sensor+0xA8. No direct pose write needed.
+        // Tick the sensor: the update drives the gimbal motors from slew commands
+        // and applies their angles to the world pose. No direct pose write needed.
         if (s_irads_lock_valid)
         {
             using SlaveToPoint = void (__fastcall*)(void*, const double*);
@@ -1239,11 +1227,6 @@ namespace CockpitInterop
     // controller pointer matches our injected avTVSensor. Every subsequent frame
     // it forces screenCondition = FLIR (11) and cameraCondition = ON (1) to
     // prevent DCS from reverting the indicator to a non-camera state.
-    //
-    // ccDrawable / ccIndicator field offsets:
-    //   indicator + 0x38  = avDevice* controller
-    //   indicator + 0x3A0 = screenCondition (TVScreenCondition)
-    //   indicator + 0x48C = cameraCondition (must be non-zero for camera feed)
 
     using IndicatorGetCamera = void* (__fastcall*)(void*);
     static IndicatorGetCamera s_original_get_camera = nullptr;
@@ -1258,8 +1241,8 @@ namespace CockpitInterop
         auto* sensor = AsSensor(g_avTVSensor_instance);
         const bool locked = s_irads_lock_valid &&
             AimPoseAtWorldPoint(sensor->platformWorldPose.m, s_irads_lock_world);
-        // fill_camera -> get_camera_position -> avPlatform::get_position normally
-        // extrapolates from mount/motor history whenever model time exceeds +0x228.
+        // The native camera normally extrapolates the pose from mount and motor
+        // history between updates.
         // That overwrites our corrected pose. Suppress ONLY this render prediction
         // while building a locked camera, then restore the native update timestamp.
         const double savedUpdateTime = sensor->platformLastUpdateTime;
@@ -1281,8 +1264,7 @@ namespace CockpitInterop
         static unsigned renderSamples=0, renderFrames=0;
         if (locked && renderSamples<120 && (++renderFrames==1 || renderFrames%120==0))
         {
-            // fill_camera uses float forward +0x230 and eye
-            // +0x260. Observe the FINAL rendered ray, not just the cached pose.
+            // Observe the FINAL rendered ray, not just the cached pose.
             float forward[3],eye[3];
             std::memcpy(forward,static_cast<char*>(camera)+0x230,sizeof(forward));
             std::memcpy(eye,static_cast<char*>(camera)+0x260,sizeof(eye));
@@ -1315,7 +1297,7 @@ namespace CockpitInterop
         for (size_t i = 0; i < slots; ++i)
             if (vtable[i] == reinterpret_cast<void*>(nativeGetCamera)) { slot = i; break; }
         if (slot == slots) { Log_("IRADS camera bridge: get_camera slot not found; disabled"); return false; }
-        // Keep the complete-object locator at vtable[-1] for native RTTI.
+        // Keep the type information entry ahead of the copied table for native RTTI.
         auto** copy = new void*[slots + 1];
         std::memcpy(copy, vtable - 1, sizeof(void*) * (slots + 1));
         s_original_get_camera = nativeGetCamera;
@@ -1379,10 +1361,10 @@ namespace CockpitInterop
         }
     }
 
-    // Called from ed_fm_release. ccCockpitContext::release destroys the
-    // context's indicators (and walks devices_keeper), so drop every pointer
+    // Called from ed_fm_release. Cockpit teardown destroys the
+    // context's indicators, so drop every pointer
     // into that context and re-inject on the next start. The old sensor block
-    // is intentionally not freed: ownership after devices_keeper teardown is
+    // is intentionally not freed: ownership after cockpit teardown is
     // unconfirmed, and a small leak is safer than a double free.
     void ResetIRADSSession()
     {

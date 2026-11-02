@@ -38,13 +38,14 @@ def param(name):
 vm.globals().LockOn_Options=vm.table_from({'script_path':str(mod/'Cockpit/Scripts').replace('\\','/')+'/'})
 vm.globals().make_default_activity=lambda _:None
 vm.execute('''log={INFO=1,write=function(...) end}; stations={
- [0]={count=1,CLSID="GBU31_V3B_JDAM"},[1]={count=1,CLSID="{DB769D48-67D7-42ED-A2AA-108835D538F3}"}}
+ [0]={count=1,CLSID="{GBU-31V3B}"},[1]={count=1,CLSID="{DB769D48-67D7-42ED-A2AA-108835D538F3}"}}
  GetSelf=function() return {listen_command=function(_,c) end,get_station_info=function(_,s) return stations[s] end} end''')
 vm.execute((mod/'Cockpit/Scripts/Systems/Weapons.lua').read_text(encoding='utf-8'))
 vm.globals().post_initialize();assert param('F117_CCRP_PROFILE').v==1 and param('F117_RELEASE_STATION').v==0
 vm.globals().SetCommand(10123,0);assert param('F117_CCRP_PROFILE').v==3 and param('F117_RELEASE_STATION').v==1
 vm.execute('stations[1].count=0');vm.globals()['update']();assert param('F117_STORE_VALID').v==0 and param('F117_RELEASE_STATION').v==-1
-vm.execute('stations[1]={count=1,CLSID="GBU32_JDAM"}');vm.globals()['update']();assert param('F117_CCRP_PROFILE').v==2
+vm.execute('stations[1]={count=1,CLSID="{GBU_32_V_2B}"}');vm.globals()['update']();assert param('F117_CCRP_PROFILE').v==2
+vm.execute('stations[1]={count=1,CLSID="{GBU-31}"}');vm.globals()['update']();assert param('F117_CCRP_PROFILE').v==0
 vm.execute('stations[1]={count=1,CLSID="UNKNOWN"}');vm.globals()['update']();assert param('F117_STORE_VALID').v==0
 print('PASS: actual Weapons.lua: V3B classification, selected-station agreement, mixed stores, depletion, rearm and unknown-store inhibition')
 for rel in ['command_defs.lua','Systems/Weapons.lua','Systems/bomb_bay.lua','MFD/Indicator/MFD_indication_page.lua']:
@@ -124,7 +125,7 @@ int main(){
 }
 '''
 compile_run('delivery_gate_tests',code)
-# Test real native interop against mock vtables; no DCS library is loaded or executed.
+# Test real native interop against mock interfaces; no DCS library is loaded or executed.
 (out/'stdafx.h').write_text('#pragma once\n#include <Windows.h>\n',encoding='utf-8')
 weaponpath=str(src/'Avionics/Weapons_Interop.cpp').replace('\\','/')
 code=r'''

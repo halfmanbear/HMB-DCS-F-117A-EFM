@@ -1,23 +1,9 @@
 // ============================================================================
 // Weapons_Interop.cpp — IRADS target hand-off to DCS weapons
 // ============================================================================
-// All entry points are resolved by export name. Vtable slots are specific to
-// DCS 2.9.29.27468 and must be re-checked after DCS updates:
-//
-// avSimpleWeaponSystem::launch_station:
-//   manager = contextMovingObject->vtbl[0x120]()          weapon manager
-//   manager->vtbl[0x0A0](station)                          select station
-//   manager->vtbl[0x190](station, substation, targetId,
-//                        const Vec3f* point, bool armed)   launch -> int
-// avSimpleWeaponSystem::Launch:        manager->vtbl[0x168]() current station
-// avSimpleWeaponSystem::get_weapon_count: manager->vtbl[0x0D0](station) count
-// Launch::vtbl[0x1B8]()                                    station count
-//
-// avRangefinder::update_spot:
-//   spot = woSpot::create_laser_spot(ownerId, &mountLocalPos, &aimWorld, code)
-//   woSpot::set_point(spot, &aimWorld)
-//   wSimCalendar::registerToKill(spot + <Suicide base>)   remove
-//   ownerId = *(uint32*)(contextLinkHost - 0xE4)  (MovingObject+0x1C)
+// Store launch and laser spot calls go through exported DCS functions and the
+// weapon manager interface. Tested with DCS 2.9.29.27468; the interface
+// positions are build-specific and must be re-checked after DCS updates.
 // ============================================================================
 
 #include "stdafx.h"
@@ -219,8 +205,8 @@ namespace WeaponsInterop
             return GetWeaponManagerRaw(ctx->movingObjectRaw);
         }
 
-        // woSpot's Suicide base offset differs between DCS builds; find it by
-        // locating the exported Suicide-subobject vtable inside a live spot.
+        // This position differs between DCS builds; find it by locating the
+        // exported table inside a live spot.
         ptrdiff_t FindSuicideOffset(void* spot)
         {
             if (!s_spotSuicideVtbl)

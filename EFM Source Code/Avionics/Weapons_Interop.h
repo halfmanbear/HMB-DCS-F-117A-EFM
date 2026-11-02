@@ -5,7 +5,7 @@
 // Store launch goes straight to the aircraft's DCS weapon manager with the
 // IRADS designated point as the launch target (JDAM coordinates / LGB initial
 // aim point), instead of avSimpleWeaponSystem's default "10 km ahead" point.
-// The laser uses the same native woSpot path as avRangefinder (Litening), so
+// The laser uses the same native path as the Litening pod's rangefinder, so
 // laser-guided bombs track it and it is network replicated.
 
 namespace WeaponsInterop

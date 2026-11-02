@@ -27,7 +27,7 @@ def param(name):
 vm.globals().LockOn_Options=vm.table_from({'script_path':str(mod/'Cockpit/Scripts').replace('\\','/')+'/'})
 vm.globals().make_default_activity=lambda _:None
 vm.execute('''log={INFO=1,write=function(...)end};stations={
- [0]={count=1,CLSID="GBU31_V3B_JDAM"},[1]={count=1,CLSID="GBU32_JDAM"},[2]={count=1,CLSID="UNKNOWN"},[3]={count=1,CLSID="GBU-12"}}
+ [0]={count=1,CLSID="{GBU-31V3B}"},[1]={count=1,CLSID="{GBU_32_V_2B}"},[2]={count=1,CLSID="UNKNOWN"},[3]={count=1,CLSID="GBU-12"}}
  GetSelf=function()return{listen_command=function(...)end,get_station_info=function(_,s)return stations[s]end}end''')
 vm.execute((mod/'Cockpit/Scripts/Systems/Weapons.lua').read_text(encoding='utf-8'))
 vm.globals().post_initialize();assert param('F117_RELEASE_STATION').v==0

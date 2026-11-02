@@ -19,36 +19,36 @@ namespace CockpitInterop
 
     struct SearchItemLayout
     {
-        std::uint32_t objectId;              // +0x00
-        std::uint32_t _pad04;                // +0x04
-        double relativeAzimuth;              // +0x08
-        double relativeElevation;            // +0x10
-        double relativeRange;                // +0x18
-        double localTrackOffsetX;            // +0x20
-        double localTrackOffsetY;            // +0x28
-        double localTrackOffsetZ;            // +0x30
-        SensorFrameLayout candidateFrame;    // +0x38
-        std::uint8_t hasLosIntersection;     // +0x48
-        std::uint8_t preciseTrackCandidate;  // +0x49
-        std::uint8_t _pad4A[6];              // +0x4A
+        std::uint32_t objectId;
+        std::uint32_t _pad04;
+        double relativeAzimuth;
+        double relativeElevation;
+        double relativeRange;
+        double localTrackOffsetX;
+        double localTrackOffsetY;
+        double localTrackOffsetZ;
+        SensorFrameLayout candidateFrame;
+        std::uint8_t hasLosIntersection;
+        std::uint8_t preciseTrackCandidate;
+        std::uint8_t _pad4A[6];
     };
     static_assert(sizeof(SearchItemLayout) == 0x50);
 
     struct AvTrackDataLayout
     {
-        std::uint32_t objectId;              // +0x00
-        std::uint32_t _pad04;                // +0x04
-        double relativeAzimuth;              // +0x08
-        double relativeElevation;            // +0x10
-        double relativeRange;                // +0x18
-        double worldTransform[16];           // +0x20 .. +0x9F
-        double velocity[3];                  // +0xA0 .. +0xB7
-        std::uint8_t _pad0B8[0xD0 - 0xB8];    // +0xB8 .. +0xCF
-        double lastUpdateModelTime;          // +0xD0
-        std::uint8_t _pad0D8[0xE8 - 0xD8];    // +0xD8 .. +0xE7
-        void* movingObjectOrType;            // +0xE8
-        double approxSize;                   // +0xF0
-        double localPointOffset[3];          // +0xF8 .. +0x10F
+        std::uint32_t objectId;
+        std::uint32_t _pad04;
+        double relativeAzimuth;
+        double relativeElevation;
+        double relativeRange;
+        double worldTransform[16];
+        double velocity[3];
+        std::uint8_t _pad0B8[0xD0 - 0xB8];
+        double lastUpdateModelTime;
+        std::uint8_t _pad0D8[0xE8 - 0xD8];
+        void* movingObjectOrType;
+        double approxSize;
+        double localPointOffset[3];
     };
     static_assert(offsetof(AvTrackDataLayout, localPointOffset) == 0xF8);
     static_assert(sizeof(AvTrackDataLayout) == 0x110);
@@ -64,21 +64,21 @@ namespace CockpitInterop
     struct CcCockpitContextLayout
     {
         std::uint8_t _pad000[0x10];
-        void* movingObjectRaw;               // +0x10 — IwHumanPlane/MovingObject* (from init_unit *(this+2))
+        void* movingObjectRaw;  // the aircraft object
         union
         {
-            std::uint8_t carrierLinkBaseStorage[0x18]; // +0x18 — LinkBase copied by init_unit
+            std::uint8_t carrierLinkBaseStorage[0x18];  // carrier link
             struct
             {
                 std::uint8_t _pad018[0x10];
-                void* carrierLinkHostRaw;    // +0x28 — LinkBase host pointer (MovingObject+0x100)
+                void* carrierLinkHostRaw;  // carrier link host pointer
             };
         };
-        std::uint8_t devicesKeeperStorage[0x18]; // +0x30
+        std::uint8_t devicesKeeperStorage[0x18];
         std::uint8_t _pad048[0xB0 - 0x48];
-        PointerVectorView indicators;        // +0xB0
+        PointerVectorView indicators;
         std::uint8_t _pad0C8[0x130 - 0xC8];
-        PointerVectorView childContexts;     // +0x130
+        PointerVectorView childContexts;
     };
     static_assert(offsetof(CcCockpitContextLayout, movingObjectRaw) == 0x10);
     static_assert(offsetof(CcCockpitContextLayout, carrierLinkBaseStorage) == 0x18);
@@ -90,15 +90,15 @@ namespace CockpitInterop
     struct CcIndicatorLayout
     {
         std::uint8_t _pad000[0x38];
-        void* controller;                    // +0x38
+        void* controller;
         std::uint8_t _pad040[0x3A0 - 0x40];
-        std::uint32_t screenCondition;       // +0x3A0
+        std::uint32_t screenCondition;
         std::uint8_t _pad3A4[0x46C - 0x3A4];
-        std::uint8_t indicatorType;          // +0x46C
+        std::uint8_t indicatorType;
         std::uint8_t _pad46D[0x470 - 0x46D];
-        std::uint32_t renderTargetId;        // +0x470
+        std::uint32_t renderTargetId;
         std::uint8_t _pad474[0x48C - 0x474];
-        std::uint32_t cameraCondition;       // +0x48C
+        std::uint32_t cameraCondition;
     };
     static_assert(offsetof(CcIndicatorLayout, controller) == 0x38);
     static_assert(offsetof(CcIndicatorLayout, screenCondition) == 0x3A0);
@@ -108,30 +108,30 @@ namespace CockpitInterop
 
     struct AvTVSensorLayout
     {
-        void* primaryVftable;                // +0x00
-        void* platformRoot;                  // +0x08
+        void* primaryVftable;
+        void* platformRoot;
         std::uint8_t _platformMotors[0xA8 - 0x10]; // avPlatform motors; NEVER avDevice fields
-        WorldPoseMatrix platformWorldPose;   // +0xA8
-        WorldPoseMatrix platformInitialWorldPose; // +0x128
-        WorldPoseMatrix platformInitialLocalPose; // +0x1A8
-        double platformLastUpdateTime;      // +0x228: native render extrapolation timestamp
+        WorldPoseMatrix platformWorldPose;
+        WorldPoseMatrix platformInitialWorldPose;
+        WorldPoseMatrix platformInitialLocalPose;
+        double platformLastUpdateTime;  // render extrapolation timestamp
         std::uint8_t _pad230[0x260 - 0x230];
-        std::uint8_t activeFlag;             // +0x260
+        std::uint8_t activeFlag;
         std::uint8_t _pad261[0x268 - 0x261];
-        void* searchTimer;                   // +0x268
+        void* searchTimer;
         std::uint8_t _pad270[0x328 - 0x270];
-        double cachedTrackedPoint[3];        // +0x328 .. +0x33F
-        std::uint8_t trackMode;              // +0x340
+        double cachedTrackedPoint[3];
+        std::uint8_t trackMode;
         std::uint8_t _pad341[0x348 - 0x341];
-        double baseFov;                      // +0x348
+        double baseFov;
         std::uint8_t _pad350[0x358 - 0x350];
-        double currentZoom;                  // +0x358
-        double targetZoom;                   // +0x360 native zoom motor target
+        double currentZoom;
+        double targetZoom;  // zoom motor target
         std::uint8_t _pad368[0x4C0 - 0x368];
-        double aspectRatio;                  // +0x4C0
-        SensorFrameLayout currentFrame;      // +0x4C8
+        double aspectRatio;
+        SensorFrameLayout currentFrame;
         std::uint8_t _pad4D8[0x610 - 0x4D8];
-        std::uint8_t hatLock;                // +0x610
+        std::uint8_t hatLock;
     };
     static_assert(offsetof(AvTVSensorLayout, platformRoot) == 0x08);
     static_assert(offsetof(AvTVSensorLayout, platformWorldPose) == 0xA8);
@@ -151,12 +151,12 @@ namespace CockpitInterop
 
     struct AvPlatformLayout
     {
-        void* primaryVftable;                // +0x00
-        void* selfOrRoot;                    // +0x08
+        void* primaryVftable;
+        void* selfOrRoot;
         std::uint8_t _pad010[0xA8 - 0x10];
-        WorldPoseMatrix platformWorldPose;   // +0xA8
-        WorldPoseMatrix platformInitialWorldPose; // +0x128
-        WorldPoseMatrix platformInitialLocalPose; // +0x1A8
+        WorldPoseMatrix platformWorldPose;
+        WorldPoseMatrix platformInitialWorldPose;
+        WorldPoseMatrix platformInitialLocalPose;
     };
     static_assert(offsetof(AvPlatformLayout, selfOrRoot) == 0x08);
     static_assert(offsetof(AvPlatformLayout, platformWorldPose) == 0xA8);
