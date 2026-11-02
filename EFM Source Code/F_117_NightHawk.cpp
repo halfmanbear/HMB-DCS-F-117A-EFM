@@ -116,6 +116,13 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	bool		wow_from_draw_args		= false;		// Suspension contact state from DCS draw args
 
 	double		rolling_friction		= 0.015;		// Relative wheel braking/rolling resistance reported to DCS.
+	// Nosewheel steering ranges, TO 1F-117A-1 page 1-29. Full pedal gives the current range.
+	// Keep the high range in step with yaw_limit in the mod's FM/config.lua.
+	constexpr double kNoseWheelYawLow_RAD = 0.1745;  // 10 deg: normal range
+	constexpr double kNoseWheelYawHigh_RAD = 0.7854; // 45 deg: while the authority button is held
+	constexpr double kNoseWheelYawRangeRate_RADPS = 0.6; // So pressing the button doesn't jump the wheel
+	bool		nwsAuthorityHeld		= false;			// Stick NWS authority button held
+	double		noseWheelYawRange_RAD	= kNoseWheelYawLow_RAD;
 	double		WheelBrakeCommand		= 0.0;			// Commanded wheel brake
 	double		GearCommand				= 0.0;			// Commanded gear lever
 	double		tailhook_command		= 0.0;			// Tail hook command
@@ -574,6 +581,12 @@ namespace
         }
         case rudderleftend:
             F117::pedInput = 0.0;
+            return true;
+        case NwsAuthorityOn:
+            F117::nwsAuthorityHeld = true;
+            return true;
+        case NwsAuthorityOff:
+            F117::nwsAuthorityHeld = false;
             return true;
         case ruddertrimLeft:
             F117::yawTrim += kYawTrimStep;
@@ -1746,6 +1759,10 @@ double update_airframe_actuators(double dt)
     const double tailIntegrity = (g_damage.leftTail + g_damage.rightTail) / 2.0;
     F117::rudder_pos = static_cast<float>(F117::ACTUATORS::rudder_actuator(static_cast<float>(F117::pedInput), dt) * tailIntegrity);
 
+    const double noseWheelRangeTarget = F117::nwsAuthorityHeld ? F117::kNoseWheelYawHigh_RAD : F117::kNoseWheelYawLow_RAD;
+    const double noseWheelRangeStep = F117::kNoseWheelYawRangeRate_RADPS * dt;
+    F117::noseWheelYawRange_RAD += limit(noseWheelRangeTarget - F117::noseWheelYawRange_RAD, -noseWheelRangeStep, noseWheelRangeStep);
+
     F117::GearCommand = clamp_gear_command_for_weight_on_wheels(F117::GearCommand);
     F117::gearDown = F117::ACTUATORS::gear_actuator(F117::GearCommand, dt, gear_retraction_blocked());
 
@@ -2506,7 +2523,7 @@ namespace
             value = 0.0;
             return true;
         case ED_FM_SUSPENSION_0_WHEEL_YAW:
-            value = limit(F117::rudder_pos, -0.3, 0.3);
+            value = F117::rudder_pos * F117::noseWheelYawRange_RAD;
             return true;
         case ED_FM_ANTI_SKID_ENABLE:
             value = true;
@@ -2688,6 +2705,8 @@ namespace
         F117::airRefuelDoorOpen = false;
         F117::pitchTrim = F117::rollTrim = F117::yawTrim = 0.0;
         F117::pedInput = 0.0;
+        F117::nwsAuthorityHeld = false;
+        F117::noseWheelYawRange_RAD = F117::kNoseWheelYawLow_RAD;
         F117::FLIGHTCONTROLS::latStickInput = F117::FLIGHTCONTROLS::longStickInput = 0.0;
         F117::FLIGHTCONTROLS::longStickForce = 0.0;
         F117::throttleInput = F117::throttle_state = F117::thrust_N = 0.0;

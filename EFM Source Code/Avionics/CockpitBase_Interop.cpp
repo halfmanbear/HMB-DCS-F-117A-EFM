@@ -13,7 +13,7 @@
 
 namespace CockpitInterop
 {
-    static constexpr const char* kIRADSBuildMarker = "2026-10-28-terrain-lock-v11";
+    static constexpr const char* kIRADSBuildMarker = "2026-11-02-nws-authority-v14";
 
     // â”€â”€ Globals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     HMODULE                   g_hDLL                   = nullptr;
@@ -377,6 +377,24 @@ namespace CockpitInterop
 
     // â”€â”€ Logging â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+    // Keeps the log bounded on disk. When the DLL loads, a log over kLogRotateBytes becomes
+    // F117_IRADS.old.log, replacing the previous one. One load stops writing to the file after
+    // kLogLoadBytes, so a runaway message can't fill the disk or push out the older log.
+    static constexpr unsigned long long kLogRotateBytes = 10ULL * 1024 * 1024;
+    static constexpr unsigned long long kLogLoadBytes = 20ULL * 1024 * 1024;
+    static unsigned long long s_log_load_bytes = 0;
+
+    static void RotateLogIfLarge(const std::string& directory, const std::string& path)
+    {
+        WIN32_FILE_ATTRIBUTE_DATA info = {};
+        if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &info)) return;
+        const unsigned long long size =
+            (static_cast<unsigned long long>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
+        if (size <= kLogRotateBytes) return;
+        // On failure the log keeps appending to the same file, and the next load tries again.
+        MoveFileExA(path.c_str(), (directory + "F117_IRADS.old.log").c_str(), MOVEFILE_REPLACE_EXISTING);
+    }
+
     static void OpenLog()
     {
         if (s_log || !g_hDLL) return;
@@ -386,6 +404,7 @@ namespace CockpitInterop
             char* lastSlash = strrchr(dllPath, '\\');
             if (lastSlash) *(lastSlash + 1) = '\0';
             std::string path = std::string(dllPath) + "F117_IRADS.log";
+            RotateLogIfLarge(dllPath, path);
             s_log = fopen(path.c_str(), "a");
         }
         if (s_log)
@@ -399,7 +418,14 @@ namespace CockpitInterop
     void Log_(const char* msg)
     {
         OpenLog();
-        if (s_log) { fprintf(s_log, "[F117-IRADS] %s\n", msg); fflush(s_log); }
+        if (s_log && s_log_load_bytes < kLogLoadBytes)
+        {
+            const int written = fprintf(s_log, "[F117-IRADS] %s\n", msg);
+            if (written > 0) s_log_load_bytes += static_cast<unsigned long long>(written);
+            if (s_log_load_bytes >= kLogLoadBytes)
+                fprintf(s_log, "[F117-IRADS] Log limit reached; file output stops until the DLL next loads\n");
+            fflush(s_log);
+        }
         OutputDebugStringA("[F117-IRADS] ");
         OutputDebugStringA(msg);
         OutputDebugStringA("\n");
@@ -813,6 +839,8 @@ namespace CockpitInterop
             static unsigned int axisLogs = 0;
             if (axisLogs++ < 48) Log("IRADS routed axis: command=%d value=%.4f", command, value);
         }
+        // Slew commands can arrive continuously, so log only the first ones of each load.
+        static unsigned int slewLogs = 0;
         if (!g_avTVSensor_instance) return false;
 
         if (!std::isfinite(value)) return false;
@@ -970,7 +998,7 @@ namespace CockpitInterop
             else if (s_irads_keyboard_horizontal < 0.0f) s_irads_keyboard_horizontal = 0.0f;
             s_irads_horizontal_axis = s_irads_keyboard_horizontal != 0.0f
                 ? s_irads_keyboard_horizontal : s_irads_analog_horizontal;
-            Log("HandleIRADSCommand: SlewLeft value=%.2f axis=%.2f caged=%d", value, s_irads_horizontal_axis, (int)(*(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938)));
+            if (slewLogs++ < 48) Log("HandleIRADSCommand: SlewLeft value=%.2f axis=%.2f caged=%d", value, s_irads_horizontal_axis, (int)(*(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938)));
             dispatchHorizontal();
             return true;
         case IRADSSlewRight:
@@ -978,7 +1006,7 @@ namespace CockpitInterop
             else if (s_irads_keyboard_horizontal > 0.0f) s_irads_keyboard_horizontal = 0.0f;
             s_irads_horizontal_axis = s_irads_keyboard_horizontal != 0.0f
                 ? s_irads_keyboard_horizontal : s_irads_analog_horizontal;
-            Log("HandleIRADSCommand: SlewRight value=%.2f axis=%.2f caged=%d", value, s_irads_horizontal_axis, (int)(*(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938)));
+            if (slewLogs++ < 48) Log("HandleIRADSCommand: SlewRight value=%.2f axis=%.2f caged=%d", value, s_irads_horizontal_axis, (int)(*(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938)));
             dispatchHorizontal();
             return true;
         case IRADSSlewUp:
@@ -986,7 +1014,7 @@ namespace CockpitInterop
             else if (s_irads_keyboard_vertical > 0.0f) s_irads_keyboard_vertical = 0.0f;
             s_irads_vertical_axis = s_irads_keyboard_vertical != 0.0f
                 ? s_irads_keyboard_vertical : s_irads_analog_vertical;
-            Log("HandleIRADSCommand: SlewUp value=%.2f axis=%.2f caged=%d", value, s_irads_vertical_axis, (int)(*(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938)));
+            if (slewLogs++ < 48) Log("HandleIRADSCommand: SlewUp value=%.2f axis=%.2f caged=%d", value, s_irads_vertical_axis, (int)(*(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938)));
             dispatchVertical();
             return true;
         case IRADSSlewDown:
@@ -994,7 +1022,7 @@ namespace CockpitInterop
             else if (s_irads_keyboard_vertical < 0.0f) s_irads_keyboard_vertical = 0.0f;
             s_irads_vertical_axis = s_irads_keyboard_vertical != 0.0f
                 ? s_irads_keyboard_vertical : s_irads_analog_vertical;
-            Log("HandleIRADSCommand: SlewDown value=%.2f axis=%.2f caged=%d", value, s_irads_vertical_axis, (int)(*(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938)));
+            if (slewLogs++ < 48) Log("HandleIRADSCommand: SlewDown value=%.2f axis=%.2f caged=%d", value, s_irads_vertical_axis, (int)(*(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938)));
             dispatchVertical();
             return true;
         case IRADSSlewStop:

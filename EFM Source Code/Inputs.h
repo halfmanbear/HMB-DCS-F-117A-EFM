@@ -131,6 +131,8 @@ enum InputCommands
 	AutothrottleEngage = 10125,     // A/T engage switch
 	AutothrottleDisconnect = 10126, // inboard throttle A/T disengage button
 	PaarsToggle = 10127,            // stick ARS switch (PAARS, TO 1F-117A-1A 4-6)
+	NwsAuthorityOn = 10128,         // stick NWS authority button pressed (TO 1F-117A-1 1-29)
+	NwsAuthorityOff = 10129,        // stick NWS authority button released
 
 	Reserved // placeholder
 };
