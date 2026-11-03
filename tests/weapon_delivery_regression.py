@@ -97,6 +97,8 @@ bool weapon_bay_is_open(){return bayOpen;}bool weapon_bay_is_closed(){return !ba
 void command_weapon_bay_open(){}void command_weapon_bay_close(){}
 void publish_weapon_release_gate_param(){}void publish_release_cue_params(){}
 int get_ccrp_profile_index(){return profile;}
+'''+fm[fm.index('    enum class StoreKind'):fm.index('    std::string build_saved_games_dcs_path')]+r'''
+const CcrpStoreModel& get_ccrp_profile(){return kCcrpStoreModels[profile];}
 bool compute_release_solution(double*,double*,double*,bool* z){*z=zone;return solution;}
 '''+ '\n'.join(extract(fm,n) for n in names)+r'''
 int main(){
@@ -119,9 +121,17 @@ int main(){
  update_weapon_release_sequence(.3);assert(!F117::weapon_release_gate&&launches==2);
  handle_weapon_release_released();handle_weapon_release_pressed();profile=0;F117::laser_armed=false;
  update_weapon_release_sequence(.01);assert(launches==3&&!laserLive); // JDAM does not require laser
+ handle_weapon_release_released();handle_weapon_release_pressed();profile=6;
+ update_weapon_release_sequence(.01);assert(launches==4&&!laserLive); // Mk-82 does not require laser
+ handle_weapon_release_released();handle_weapon_release_pressed();profile=13;
+ update_weapon_release_sequence(.01);assert(launches==4&&F117::release_status==5); // AGM-65E needs the laser
+ profile=12;update_weapon_release_sequence(.01);assert(launches==5); // AGM-65D does not
+ handle_weapon_release_released();handle_weapon_release_pressed();profile=5;
+ update_weapon_release_sequence(.01);assert(launches==5&&F117::release_status==5); // GBU-10 needs the laser
+ profile=0;
  power=false;update_weapon_release_sequence(.01);assert(!laserLive);
  update_weapon_release_sequence(100);assert(F117::weapon_flight_time_remaining==0&&F117::laser_window==0&&publishedFlight==0);
- puts("PASS: production release gate: safe/power/ground/target/store/laser/bay/zone/backend inhibits, retry, one release per consent and JDAM target snapshot");
+ puts("PASS: production release gate: safe/power/ground/target/store/laser/bay/zone/backend inhibits, retry, one release per consent, JDAM target snapshot and laser need for all 14 stores");
 }
 '''
 compile_run('delivery_gate_tests',code)

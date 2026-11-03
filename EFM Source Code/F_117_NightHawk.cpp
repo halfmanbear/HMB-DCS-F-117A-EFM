@@ -247,6 +247,15 @@ static bool g_ccrpProfileParamInitialized = false;
 
 namespace
 {
+    // How a store decides it is in its release zone.
+    //  Jdam      GPS bomb, stock DCS min/max release range table
+    //  Lgb       laser-guided bomb, window around the ballistic impact, laser must fire
+    //  Unguided  free-fall bomb, released on the CCRP cue
+    //  Wcmd      wind-corrected dispenser, wide window around the ballistic impact
+    //  Glide     glide weapon (JSOW), stock DCS min/max release range table
+    //  Missile*  powered missile, slant range and seeker cone
+    enum class StoreKind { Jdam, Lgb, Unguided, Wcmd, Glide, MissileIr, MissileLaser };
+
     struct CcrpStoreModel
     {
         const char* name;
@@ -256,16 +265,42 @@ namespace
         double releaseWindowMeters;
         double minSpeedMPS;
         double minDropMeters;
+        StoreKind kind;
+        int envelope;               // JdamEnvelope / GlideEnvelope table, or -1
+        double minRangeMeters;      // missiles only
+        double maxRangeMeters;      // missiles only
+        double seekerHalfAngleRad;  // missiles only
     };
 
+    // Index = F117_CCRP_PROFILE, set by Cockpit/Scripts/Systems/Weapons.lua classify().
+    // Keep the two lists in the same order. Profiles 0-4 must never move.
+    // Stores 5-13 take mass and caliber from the stock DCS weapon tables; missile
+    // ranges and seeker cones come from the stock AGM-65 definitions. The MK-82 and
+    // MK-84 drag coefficients are fitted to impacts measured in DCS from 4500 m at
+    // 218 m/s (tools/missions/store_drop_test.py in the mod repo).
     constexpr CcrpStoreModel kCcrpStoreModels[] =
     {
-        { "GBU-31(V)1/B",   934.0, 0.00264, 0.45,  75.0, 30.0,  10.0 },
-        { "GBU-31(V)3/B",   981.0, 0.00170, 0.45,  90.0, 30.0,  10.0 },
-        { "GBU-32(V)2/B",   467.0, 0.00035, 0.30,  65.0, 30.0,  10.0 },
-        { "GBU-12",         277.0, 0.000413, 0.22,  55.0, 30.0,  10.0 },
-        { "GBU-27",         991.0, 0.00071,  0.45,  80.0, 30.0,  10.0 },
+        { "GBU-31(V)1/B",   934.0, 0.00264,  0.45,    75.0, 30.0,  10.0, StoreKind::Jdam,          0,    0.0,     0.0, 0.0 },
+        { "GBU-31(V)3/B",   981.0, 0.00170,  0.45,    90.0, 30.0,  10.0, StoreKind::Jdam,          1,    0.0,     0.0, 0.0 },
+        { "GBU-32(V)2/B",   467.0, 0.00035,  0.30,    65.0, 30.0,  10.0, StoreKind::Jdam,          2,    0.0,     0.0, 0.0 },
+        { "GBU-12",         277.0, 0.000413, 0.22,    55.0, 30.0,  10.0, StoreKind::Lgb,          -1,    0.0,     0.0, 0.0 },
+        { "GBU-27",         991.0, 0.00071,  0.45,    80.0, 30.0,  10.0, StoreKind::Lgb,          -1,    0.0,     0.0, 0.0 },
+        { "GBU-10",         959.0, 0.00071,  0.45,    80.0, 30.0,  10.0, StoreKind::Lgb,          -1,    0.0,     0.0, 0.0 },
+        { "MK-82",          228.0, 0.151,    0.0585,  15.0, 30.0,  10.0, StoreKind::Unguided,     -1,    0.0,     0.0, 0.0 },
+        { "MK-84",          908.0, 0.256,    0.164,   20.0, 30.0,  10.0, StoreKind::Unguided,     -1,    0.0,     0.0, 0.0 },
+        { "CBU-105",        420.0, 0.55,     0.1233, 150.0, 30.0, 300.0, StoreKind::Wcmd,         -1,    0.0,     0.0, 0.0 },
+        { "AGM-154A",       485.0, 0.0018,   0.1257,   0.0, 30.0, 300.0, StoreKind::Glide,         0,    0.0,     0.0, 0.0 },
+        { "AGM-154B",       485.0, 0.0018,   0.1257,   0.0, 30.0, 300.0, StoreKind::Glide,         1,    0.0,     0.0, 0.0 },
+        { "AGM-154C",       484.0, 0.0018,   0.1257,   0.0, 30.0, 300.0, StoreKind::Glide,         0,    0.0,     0.0, 0.0 },
+        { "AGM-65D",        218.0, 0.0,      0.073,    0.0, 30.0,  10.0, StoreKind::MissileIr,    -1,  500.0, 12964.0, 0.5 },
+        { "AGM-65E",        293.0, 0.0,      0.073,    0.0, 30.0,  10.0, StoreKind::MissileLaser, -1, 1000.0, 11112.0, 0.5 },
     };
+    constexpr int kCcrpStoreCount = (int)(sizeof(kCcrpStoreModels) / sizeof(kCcrpStoreModels[0]));
+
+    constexpr bool store_needs_laser(StoreKind kind) { return kind == StoreKind::Lgb || kind == StoreKind::MissileLaser; }
+    constexpr bool store_is_missile(StoreKind kind) { return kind == StoreKind::MissileIr || kind == StoreKind::MissileLaser; }
+    // Bombs whose impact point comes from the ballistic integration below.
+    constexpr bool store_falls_ballistic(StoreKind kind) { return kind != StoreKind::Glide && !store_is_missile(kind); }
 
     std::string build_saved_games_dcs_path(const char* dcsFolderName, const char* relativePath)
     {
@@ -319,6 +354,9 @@ namespace
     constexpr double kAtmosphereScaleHeight_M = 8500.0;
     constexpr double kReleaseIntegrationStepSeconds = 0.02;
     constexpr double kReleaseIntegrationMaxSeconds = 180.0;
+    constexpr double kUnguidedMaxCrossTrackMeters = 30.0;  // farther off the line misses the target
+    constexpr double kGlideWeaponSpeedMPS = 200.0;         // JSOW mid-glide speed, for the laser/flight timer
+    constexpr double kMissileAverageSpeedMPS = 300.0;      // AGM-65 average speed, for the laser/flight timer
 
     constexpr double kLuaDamageDose = 0.25;
     constexpr double kWingDamageDoseScale = 0.6;
@@ -777,8 +815,8 @@ namespace
         }
 
         const double rawIndex = F117::cockpitAPI.getParamNumber(g_ccrpProfileParam);
-        int profileIndex = std::isfinite(rawIndex) && rawIndex>=0.0 && rawIndex<5.0 ? (int)floor(rawIndex + 0.5) : 0;
-        const int profileCount = (int)(sizeof(kCcrpStoreModels) / sizeof(kCcrpStoreModels[0]));
+        int profileIndex = std::isfinite(rawIndex) && rawIndex>=0.0 && rawIndex<kCcrpStoreCount ? (int)floor(rawIndex + 0.5) : 0;
+        const int profileCount = kCcrpStoreCount;
         if (profileIndex < 0)
         {
             profileIndex = 0;
@@ -876,16 +914,16 @@ namespace
 
     // Provisional guided-store envelope around the ballistic prediction, not a
     // measured DCS DLZ. Keep the ballistic error/TTG as cues, not a pinpoint gate.
-    bool guided_release_in_zone(int profileIndex, double ballisticRange,
+    bool guided_release_in_zone(StoreKind kind, double ballisticRange,
         double alongTrack, double crossTrack, double minimumWindow, bool* aligned)
     {
         if (!aligned) return false;
         *aligned = false;
-        if (profileIndex < 0 || profileIndex > 4 || !std::isfinite(ballisticRange) ||
+        if (!store_falls_ballistic(kind) || kind == StoreKind::Unguided || !std::isfinite(ballisticRange) ||
             !std::isfinite(alongTrack) || !std::isfinite(crossTrack) ||
             !std::isfinite(minimumWindow) || ballisticRange <= 0.0 ||
             alongTrack <= 0.0 || crossTrack < 0.0 || minimumWindow < 0.0) return false;
-        const bool jdam = profileIndex < 3;
+        const bool jdam = kind == StoreKind::Jdam;
         const double lateralRatio = jdam ? 0.577350269 : 0.267949192; // 30 / 15 degrees
         *aligned = crossTrack <= max(50.0, alongTrack * lateralRatio);
         const double rangeMargin = max(minimumWindow, ballisticRange * (jdam ? 0.35 : 0.20));
@@ -936,37 +974,76 @@ namespace
         const double crossTrackSq = (horizRange * horizRange) - (alongTrack * alongTrack);
         const double crossTrack = sqrt((crossTrackSq > 0.0) ? crossTrackSq : 0.0);
         const Vec3 worldWind = get_world_wind_vector();
-        Vec3 impactPos{};
-        double impactTime = 0.0;
-        if (!simulate_bomb_impact_point(profile, position_world_cs, releaseVel, worldWind, targetWorld[1], &impactPos, &impactTime))
+        const double airX=releaseVel.x-worldWind.x, airY=releaseVel.y-worldWind.y, airZ=releaseVel.z-worldWind.z;
+        const double airSpeed=std::sqrt(airX*airX+airY*airY+airZ*airZ);
+        const StoreKind kind = profile.kind;
+        double impactAlongTrack = 0.0, errorMeters = 0.0, timeToGo = 0.0;
+        if (store_falls_ballistic(kind))
         {
-            return false;
+            Vec3 impactPos{};
+            double impactTime = 0.0;
+            if (!simulate_bomb_impact_point(profile, position_world_cs, releaseVel, worldWind, targetWorld[1], &impactPos, &impactTime))
+            {
+                return false;
+            }
+            F117::ccrp_time_of_flight = impactTime;
+            const Vec3 impactDelta
+            {
+                impactPos.x - position_world_cs.x,
+                impactPos.y - position_world_cs.y,
+                impactPos.z - position_world_cs.z
+            };
+            impactAlongTrack = (impactDelta.x * vx) + (impactDelta.z * vz);
+            errorMeters = alongTrack - impactAlongTrack;
+            timeToGo = (errorMeters > 0.0) ? (errorMeters / max(horizSpeed, profile.minSpeedMPS)) : 0.0;
         }
-        F117::ccrp_time_of_flight = impactTime;
-
-        const Vec3 impactDelta
-        {
-            impactPos.x - position_world_cs.x,
-            impactPos.y - position_world_cs.y,
-            impactPos.z - position_world_cs.z
-        };
-        const double impactAlongTrack = (impactDelta.x * vx) + (impactDelta.z * vz);
-        const double errorMeters = alongTrack - impactAlongTrack;
-        const double timeToGo = (errorMeters > 0.0) ? (errorMeters / max(horizSpeed, profile.minSpeedMPS)) : 0.0;
         bool inZone = false;
-        if (get_ccrp_profile_index()<3)
+        if (kind == StoreKind::Jdam || kind == StoreKind::Glide)
         {
-            const double airX=releaseVel.x-worldWind.x, airY=releaseVel.y-worldWind.y, airZ=releaseVel.z-worldWind.z;
-            const double airSpeed=std::sqrt(airX*airX+airY*airY+airZ*airZ);
-            // Weapon-authored JDAM launch tables, interpolated in target-relative
+            // Weapon-authored launch tables, interpolated in target-relative
             // height and true airspeed. No extrapolation outside the table domain.
-            if (!JdamEnvelope::lookup(get_ccrp_profile_index(),dropMeters,airSpeed,&g_releaseMinRange,&g_releaseMaxRange)) return false;
+            const bool tabled = kind == StoreKind::Jdam
+                ? JdamEnvelope::lookup(profile.envelope,dropMeters,airSpeed,&g_releaseMinRange,&g_releaseMaxRange)
+                : GlideEnvelope::lookup(profile.envelope,dropMeters,airSpeed,&g_releaseMinRange,&g_releaseMaxRange);
+            if (!tabled) return false;
             g_releaseAlignmentValid = crossTrack<=max(50.0,alongTrack*0.577350269);
             inZone = g_releaseAlignmentValid && horizRange>=g_releaseMinRange && horizRange<=g_releaseMaxRange;
+            if (kind == StoreKind::Glide)
+            {
+                // A glide weapon has no ballistic impact: cue the distance still to close
+                // to the maximum range, and time the flight at a typical glide speed.
+                errorMeters = max(0.0, horizRange - g_releaseMaxRange);
+                timeToGo = errorMeters / max(horizSpeed, profile.minSpeedMPS);
+                F117::ccrp_time_of_flight = horizRange / kGlideWeaponSpeedMPS;
+            }
+        }
+        else if (kind == StoreKind::Unguided)
+        {
+            // True CCRP: the release fires as the predicted impact crosses the target.
+            g_releaseAlignmentValid = crossTrack <= kUnguidedMaxCrossTrackMeters;
+            inZone = g_releaseAlignmentValid && fabs(errorMeters) <= profile.releaseWindowMeters;
+            g_releaseMinRange = max(1.0, impactAlongTrack - profile.releaseWindowMeters);
+            g_releaseMaxRange = impactAlongTrack + profile.releaseWindowMeters;
+        }
+        else if (store_is_missile(kind))
+        {
+            // Powered missile: target inside the seeker cone around the flight path
+            // and slant range inside the stock launch limits.
+            const double slant = sqrt(horizRange * horizRange + dropMeters * dropMeters);
+            const double speed = sqrt(releaseVel.x * releaseVel.x + releaseVel.y * releaseVel.y + releaseVel.z * releaseVel.z);
+            const double cosine = (slant > 1.0 && speed > 1.0)
+                ? (dx * releaseVel.x - dropMeters * releaseVel.y + dz * releaseVel.z) / (slant * speed) : -1.0;
+            g_releaseAlignmentValid = cosine >= cos(profile.seekerHalfAngleRad);
+            g_releaseMinRange = profile.minRangeMeters;
+            g_releaseMaxRange = profile.maxRangeMeters;
+            inZone = g_releaseAlignmentValid && slant >= g_releaseMinRange && slant <= g_releaseMaxRange;
+            errorMeters = max(0.0, slant - g_releaseMaxRange);
+            timeToGo = errorMeters / max(horizSpeed, profile.minSpeedMPS);
+            F117::ccrp_time_of_flight = slant / kMissileAverageSpeedMPS;
         }
         else
         {
-            inZone = guided_release_in_zone(get_ccrp_profile_index(), impactAlongTrack,
+            inZone = guided_release_in_zone(kind, impactAlongTrack,
                 alongTrack, crossTrack, profile.releaseWindowMeters, &g_releaseAlignmentValid);
             g_releaseMinRange=max(1.0,impactAlongTrack-max(profile.releaseWindowMeters,impactAlongTrack*0.20));
             g_releaseMaxRange=impactAlongTrack+max(profile.releaseWindowMeters,impactAlongTrack*0.20);
@@ -1206,7 +1283,7 @@ namespace
         const double stationRaw=stationParam ? F117::cockpitAPI.getParamNumber(stationParam) : -1.0;
         const int station=std::isfinite(stationRaw) && stationRaw>=0.0 && stationRaw<=8.0 ? static_cast<int>(stationRaw) : -1;
         const bool efmLaunchAvailable=WeaponsInterop::IsLaunchAvailable();
-        const bool laserRequired=get_ccrp_profile_index()>=3;
+        const bool laserRequired=store_needs_laser(get_ccrp_profile().kind);
         int status=9; // ready: hold consent to release at computed CCRP point
         if (!F117::master_armed) status=1;
         else if (F117::weight_on_wheels || F117::wow_from_draw_args) status=12;
