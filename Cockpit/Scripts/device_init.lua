@@ -25,7 +25,7 @@ indicators = {}
 indicators[#indicators + 1] = {"ccIndicator", LockOn_Options.script_path.."MFD/Indicator/DLIR_Camera_init.lua",
  devices.DISPLAYS,
     {
-        {"MFD-PLASHKA-CENTER", "MFD-PLASHKA-DOWN", "MFD-PLASHKA-RIGHT"},
+        {"SD-CENTER", "SD-DOWN", "SD-RIGHT"},
         {sx_l =  0,
          sy_l =  0,
          sz_l =  0,
@@ -40,7 +40,7 @@ indicators[#indicators + 1] = {"ccIndicator", LockOn_Options.script_path.."MFD/I
 indicators[#indicators + 1] = {"ccIndicator", LockOn_Options.script_path.."MFD/Indicator/MFD_indication_init.lua",
  devices.DISPLAYS,
     {
-        {"MFD-PLASHKA-CENTER", "MFD-PLASHKA-DOWN", "MFD-PLASHKA-RIGHT"},
+        {"SD-CENTER", "SD-DOWN", "SD-RIGHT"},
         {sx_l =  0,
          sy_l =  0,
          sz_l =  0,
@@ -55,9 +55,7 @@ indicators[#indicators + 1] = {"ccIndicator", LockOn_Options.script_path.."MFD/I
 indicators[#indicators + 1] = {"ccIndicator", LockOn_Options.script_path.."HUD/Indicator/HUD_init.lua", --init script
  nil,
     {
-        -- Using ILS-PLASHKA connectors as a stand-in until dedicated HUD connectors are added to the EDM.
-        -- Fine-tune position with the sx_l/sy_l/sz_l offsets below once the HUD is visible.
-        {"ILS-PLASHKA-CENTER", "ILS-PLASHKA-DOWN", "ILS-PLASHKA-RIGHT"},  -- initial geometry anchor , triple of connector names.
+        {"HUD-CENTER", "HUD-DOWN", "HUD-RIGHT"},  -- initial geometry anchor , triple of connector names.
         {sx_l =  0,  -- center position correction in meters (+forward , -backward)
          sy_l =  0.03,  -- was 0.05 center position correction in meters (+up , -down)
          sz_l =  0,  -- center position correction in meters (-left , +right)
