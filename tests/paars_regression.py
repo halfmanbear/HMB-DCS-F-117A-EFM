@@ -11,6 +11,8 @@ code = r'''
 #include <algorithm>
 double limit(double v, double lo, double hi) { return v < lo ? lo : (v > hi ? hi : v); }
 ''' + engine + r'''
+// Both engines alike, sharing one state across simulations as the EFM's engines persist across ticks.
+F117::ENGINE::EngineState g_engine;
 #include "AT_HEADER"
 #include "PAARS_HEADER"
 using namespace Paars;
@@ -52,7 +54,7 @@ struct Jet {
         const double cl = n * weight / (q * area);
         const double drag = q * area * (0.020 + 0.194 * cl * cl);
         throttle = at.update(dt, cas(), throttle, true, true);
-        const double thrust = F117::ENGINE::engine_dynamics(throttle, v / std::sqrt(1.4 * 287.058 * temperature()), alt, dt, true, false);
+        const double thrust = 2.0 * F117::ENGINE::engine_dynamics(g_engine, throttle, v / std::sqrt(1.4 * 287.058 * temperature()), alt, dt, true, false);
         const double qBody = 9.81 * (n - (-dot(kUp, z))) / v, rBody = -9.81 * dot(kUp, y) / v, pBody = p * kDegToRad;
         V3 w = pBody * x + qBody * y + rBody * z;
         x = unit(x + dt * cross(w, x)); y = unit(y + dt * cross(w, y)); y = unit(y + (-dot(x, y)) * x); z = cross(x, y);

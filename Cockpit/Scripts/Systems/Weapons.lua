@@ -7,6 +7,13 @@ local valid_param = get_param_handle("F117_STORE_VALID")
 local station_param = get_param_handle("F117_RELEASE_STATION")
 local selected_param = get_param_handle("PLAYER_SELECTED_STATION")
 local release_sequence_param = get_param_handle("F117_RELEASE_SEQUENCE")
+local cue_valid_param = get_param_handle("F117_RELEASE_CUE_VALID")
+-- VSD store legend: the fired store stays listed, crossed out, until the pilot
+-- steps station or a new release cue starts (fresh designation).
+local vsd_store_param = get_param_handle("F117_VSD_STORE")
+local vsd_fired_param = get_param_handle("F117_VSD_STORE_FIRED")
+local fired_profile = nil
+local last_cue_valid = 0
 local last_release_sequence = 0
 local station = 0
 local last_signature = nil
@@ -21,14 +28,34 @@ local function tokens(value, result, seen)
     end
 end
 
+-- Store profiles. The index is F117_CCRP_PROFILE and must match the order of
+-- kCcrpStoreModels in the EFM. Profiles 0-4 never move.
+--  0 GBU-31(V)1/B  1 GBU-31(V)3/B  2 GBU-32(V)2/B  3 GBU-12  4 GBU-27
+--  5 GBU-10  6 Mk-82  7 Mk-84  8 CBU-105  9 AGM-154A  10 AGM-154B  11 AGM-154C
+--  12 AGM-65D  13 AGM-65E (laser)
+local function any(s,...)
+    for _,needle in ipairs({...}) do if s:find(needle,1,true) then return true end end
+    return false
+end
+
 local function classify(info)
     local t={}; tokens(info,t,{})
     local s=string.lower(table.concat(t," | "))
-    if s:find("gbu31_v3b",1,true) or s:find("gbu_31_v_3b",1,true) or s:find("gbu-31-v3b",1,true) or s:find("gbu-31v3",1,true) then return 1 end
-    if s:find("gbu32",1,true) or s:find("gbu_32",1,true) or s:find("gbu-32",1,true) then return 2 end
-    if s:find("gbu_27",1,true) or s:find("gbu-27",1,true) or s:find("ef0a9419",1,true) then return 4 end
-    if s:find("gbu_12",1,true) or s:find("gbu-12",1,true) or s:find("db769d48",1,true) then return 3 end
-    if s:find("gbu31",1,true) or s:find("gbu_31",1,true) or s:find("gbu-31",1,true) then return 0 end
+    -- Most specific first: the GBU-31 and GBU-10 are built on the Mk-84 body.
+    if any(s,"gbu31_v3b","gbu_31_v_3b","gbu-31-v3b","gbu-31v3") then return 1 end
+    if any(s,"gbu32","gbu_32","gbu-32") then return 2 end
+    if any(s,"gbu_27","gbu-27","ef0a9419") then return 4 end
+    if any(s,"gbu_12","gbu-12","db769d48") then return 3 end
+    if any(s,"gbu31","gbu_31","gbu-31") then return 0 end
+    if any(s,"gbu_10","gbu-10","51f9aae5") then return 5 end
+    if any(s,"agm_154c","agm-154c","9bcc2a2b") then return 11 end
+    if any(s,"agm_154b","agm-154b") then return 10 end
+    if any(s,"agm_154a","agm-154a","agm_154","agm-154") then return 9 end
+    if any(s,"agm_65e","agm-65e","agm_65l","agm-65l","f16a4de0") then return 13 end
+    if any(s,"agm_65d","agm-65d","444ba8ae") then return 12 end
+    if any(s,"cbu_105","cbu-105") then return 8 end
+    if any(s,"mk_84","mk-84","ab8b8299") then return 7 end
+    if any(s,"mk_82","mk-82","bce4e030") then return 6 end
     local weapon=info.weapon
     if type(weapon)=="table" then
         local stock = {[38]=3,[43]=4,[85]=0,[92]=1}
@@ -56,6 +83,8 @@ local function sync()
     station_param:set(valid and station or -1)
     selected_param:set(station)
     get_param_handle("F117_WEAPON_STATION"):set(station+1)
+    vsd_store_param:set(fired_profile or (valid and profile or -1))
+    vsd_fired_param:set(fired_profile and 1 or 0)
     local signature=tostring(station)..":"..tostring(profile)..":"..tostring(info and info.count)
     if signature~=last_signature then
         last_signature=signature
@@ -73,8 +102,8 @@ local function next_station(direction)
 end
 
 function SetCommand(command,value)
-    if command==f117_commands.WEAPON_STATION_NEXT then next_station(1)
-    elseif command==f117_commands.WEAPON_STATION_PREV then next_station(-1) end
+    if command==f117_commands.WEAPON_STATION_NEXT then fired_profile=nil; next_station(1)
+    elseif command==f117_commands.WEAPON_STATION_PREV then fired_profile=nil; next_station(-1) end
 end
 function post_initialize()
     last_release_sequence=release_sequence_param:get()
@@ -86,7 +115,14 @@ function update()
     -- Gate-firing remains latched until pickle is released, so selecting the next
     -- store cannot release it on the same held press.
     local sequence=release_sequence_param:get()
-    if sequence>last_release_sequence then next_station(1) else sync() end
+    local cue_valid=cue_valid_param:get()
+    if cue_valid>.5 and last_cue_valid<=.5 then fired_profile=nil end
+    last_cue_valid=cue_valid
+    if sequence>last_release_sequence then
+        local fired=profile_param:get()
+        if fired>=0 then fired_profile=fired end
+        next_station(1)
+    else sync() end
     last_release_sequence=sequence
 end
 need_to_be_closed = false

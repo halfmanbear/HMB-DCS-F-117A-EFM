@@ -2,10 +2,20 @@ dofile(LockOn_Options.script_path.."command_defs.lua")
 local update_time_step = 0.05 
 make_default_activity(update_time_step)
 local dev = GetSelf()
+local irads_image = dofile(LockOn_Options.script_path.."Systems/IRADS_ImageControls.lua")
+local irads_readouts = dofile(LockOn_Options.script_path.."Systems/IRADS_Readouts.lua")
 local irads_terrain = dofile(LockOn_Options.script_path.."Systems/IRADS_Terrain.lua")
 local check_irads_terrain = dofile(LockOn_Options.script_path.."Systems/IRADS_Diagnostics.lua")
+local native_brightness = dofile(LockOn_Options.script_path.."Systems/NativeBrightness.lua").new()
+local display_compositor = dofile(LockOn_Options.script_path.."Systems/DisplayCompositor.lua").new()
 -- Local variables ==================
+-- Map and HSD heading align after power-up with the HUD (Systems/AlignedSensor.lua).
+local aligned_sensor = dofile(LockOn_Options.script_path.."Systems/AlignedSensor.lua")(get_base_data())
+local navigation = dofile(LockOn_Options.script_path.."Systems/Navigation.lua").new(aligned_sensor)
+local map_outline = dofile(LockOn_Options.script_path.."Systems/MovingMap.lua").new(aligned_sensor,nil,navigation)
 local Page_changed = 0
+local left_eo = get_param_handle("F117_LEFT_EO")
+local fov_axis=-1
 
 -- params =====================================================
 -- LEFT DISPLAY ===================
@@ -33,7 +43,7 @@ local SRCH_TRCK_MODE = get_param_handle("SRCH_TRCK_MODE")
 local BOST_TOGGLE = get_param_handle("BOST_TOGGLE")
 local WHOT_TOGGLE = get_param_handle("WHOT_TOGGLE")
 local IFB_TOGGLE = get_param_handle("IFB_TOGGLE")
-local IRADS_ZOOM = get_param_handle("IRADS_ZOOM")  -- 1=WIDE(1.4x), 2=MED(10x), 3=NAR(80x)
+local IRADS_ZOOM = get_param_handle("IRADS_ZOOM")  -- 1=WIDE, 3=NARROW (installed EFM endpoint IDs)
 local MFD_OVERLAY = get_param_handle("MFD_OVERLAY") -- 1 = overlay on, 0 = off
 -- EMGY specific
 local LD_TEMP_TOGGLE = get_param_handle("LD_TEMP_TOGGLE")
@@ -46,8 +56,10 @@ local RWR_BACKGROUND = get_param_handle("RWR_BACKGROUND")
 local RDR_BACKGROUND = get_param_handle("RDR_BACKGROUND")
 
 local PLAYER_SELECTED_STATION = get_param_handle("PLAYER_SELECTED_STATION")
-local F117_CCRP_PROFILE = get_param_handle("F117_CCRP_PROFILE") -- auto-detected: 0=GBU-31(V)1/B, 1=GBU-31(V)3/B, 2=GBU-32(V)2/B, 3=GBU-12, 4=GBU-27
+local F117_CCRP_PROFILE = get_param_handle("F117_CCRP_PROFILE") -- auto-detected by Weapons.lua classify(): 0-13, see the list there
 local LDBrightness  = get_param_handle("LDBrightness")
+local left_dim=get_param_handle("F117_LEFT_DIM_OPACITY")
+local right_dim=get_param_handle("F117_RIGHT_DIM_OPACITY")
 local CDBrightness = get_param_handle("CDBrightness")
 local RDBrightness = get_param_handle("RDBrightness")
 get_param_handle("ONE"):set(1)
@@ -238,6 +250,12 @@ dev:listen_command(87)	-- TGP on
 
 
 function post_initialize()	-- modes / toggle default settings
+    left_eo:set(0) -- OCIP III default: primary flight data on the left
+    get_param_handle("F117_RIGHT_FORMAT"):set(2) -- digital moving map
+    navigation.initialize()
+    map_outline.initialize()
+    display_compositor.initialize()
+    irads_image.initialize()
 -- LEFT DISPLAY ===================	
 
 	LD_UPPER:set(1)		-- 1 = GEN, 2 = def, 3 = AAR, 4 = LDP
@@ -263,7 +281,7 @@ function post_initialize()	-- modes / toggle default settings
 	BOST_TOGGLE:set(0) 			-- 1 = on , 0 = off
 	WHOT_TOGGLE:set(0)			-- 1 = on , 0 = off
 	IFB_TOGGLE:set(0) 			-- 1 = on , 0 = off
-	IRADS_ZOOM:set(1)			-- 1=WIDE(1.4x), 2=MED(10x), 3=NAR(80x)
+	IRADS_ZOOM:set(1)			-- 1=WIDE, 3=NARROW (installed EFM endpoint IDs)
 	MFD_OVERLAY:set(1)			-- 1 = on, 0 = off
 -- EMGY specific
 	LD_TEMP_TOGGLE:set(0)			-- 1 = on , 0 = off
@@ -293,6 +311,7 @@ function post_initialize()	-- modes / toggle default settings
 	RD_VSI_TOGGLE:set(1)			-- 1 = on , 0 = off	
 
 	BrightnessAtSpawn()
+    native_brightness.initialize()
 	HideFc3Hud()
 	ChangeHudColor()
 	
@@ -316,12 +335,47 @@ dev:listen_command(irads_axis_commands.HORIZONTAL)
 dev:listen_command(irads_axis_commands.VERTICAL)
 dev:listen_command(irads_axis_commands.ZOOM)
 
-function SetCommand(command,value) 
+for _,command in pairs(irads_image_commands) do dev:listen_command(command) end
+
+for _,command in pairs(left_cmdi_commands) do dev:listen_command(command) end
+for _,command in pairs(map_commands) do dev:listen_command(command) end
+for _,command in pairs(right_cmdi_commands) do dev:listen_command(command) end
+for _,command in pairs(irads_fov_commands) do dev:listen_command(command) end
+for _,command in pairs(nav_commands) do dev:listen_command(command) end
+
+function SetCommand(command,value)
+    if command==right_cmdi_commands.MAP_SELECT or command==right_cmdi_commands.HSD_SELECT or command==right_cmdi_commands.VSD_SELECT then
+        if value and value>0 then get_param_handle("F117_RIGHT_FORMAT"):set(command==right_cmdi_commands.MAP_SELECT and 2 or command==right_cmdi_commands.HSD_SELECT and 3 or 0) end
+        return
+    end
+    if command==left_cmdi_commands.EO_TOGGLE or command==left_cmdi_commands.EO_SELECT or command==left_cmdi_commands.VSD_SELECT or command==left_cmdi_commands.MAP_SELECT or command==left_cmdi_commands.HSD_SELECT then
+        if value and value>0 then
+            if command==left_cmdi_commands.EO_TOGGLE then left_eo:set(left_eo:get()==1 and 0 or 1)
+            else left_eo:set(command==left_cmdi_commands.EO_SELECT and 1 or command==left_cmdi_commands.MAP_SELECT and 2 or command==left_cmdi_commands.HSD_SELECT and 3 or 0) end
+        end
+        return -- display selection must not clear designation or dispatch sensor commands
+    end
+    if command==irads_fov_commands.WIDE or command==irads_fov_commands.NARROW then
+        if value and value>0 then
+            fov_axis=command==irads_fov_commands.NARROW and 1 or -1
+            dispatch_action(nil,f117_commands.IRADS_ZOOM_AXIS,fov_axis)
+        end
+        return
+    end
+    if navigation.set_command(command,value) then return end
+    if map_outline.set_command(command,value) then return end
+    if irads_image.set_command(command,value) then return end
     -- Forward exactly once. The EFM owns deadzone, rate, power and motion.
     local efm_axis = nil
     if command == irads_axis_commands.HORIZONTAL then efm_axis = f117_commands.IRADS_SLEW_HORIZONTAL
     elseif command == irads_axis_commands.VERTICAL then efm_axis = f117_commands.IRADS_SLEW_VERTICAL
-    elseif command == irads_axis_commands.ZOOM then efm_axis = f117_commands.IRADS_ZOOM_AXIS end
+    elseif command == irads_axis_commands.ZOOM then
+        if type(value)~="number" or value~=value or math.abs(value)==math.huge then return end
+        -- Two detents with hysteresis; send only endpoints to the installed EFM.
+        if value<-.1 then fov_axis=-1 elseif value>.1 then fov_axis=1 end
+        dispatch_action(nil,f117_commands.IRADS_ZOOM_AXIS,fov_axis)
+        return
+    end
     if efm_axis then
         dispatch_action(nil, efm_axis, value)
         return
@@ -653,13 +707,13 @@ if get_param_handle("mainpower"):get() == 1 then
 				if SRCH_TRCK_MODE:get() == 2 then
 					SRCH_TRCK_MODE:set(1)  
 					dispatch_action(nil,10117) 	-- clear lock when exiting track
-					dispatch_action(nil,104) -- zoom out ldp
+					dispatch_action(nil,f117_commands.IRADS_ZOOM_AXIS,-1) -- wide FOV
 				end
 				
 			elseif (command == keys.LDSK_5) or (command == deviceCommands.LDSK_5) then	-- toggle TRACK
 				if SRCH_TRCK_MODE:get() == 1 then
 					SRCH_TRCK_MODE:set(2) 
-					dispatch_action(nil,103) -- zoom in ldp
+					dispatch_action(nil,f117_commands.IRADS_ZOOM_AXIS,1) -- narrow FOV
 				end	
 				
 			elseif (command == keys.LDSK_18) or (command == deviceCommands.LDSK_18) then	-- toggle boost (brightness)
@@ -1084,19 +1138,26 @@ function BrightnessAtSpawn()
 
 	CDBrightness:set(LDBrightness:get())
 	RDBrightness:set(LDBrightness:get())
+    -- Side pages now have real image dimmers; 0 means full luminance.
+    local side=irads_image.default_side_brightness(get_absolute_model_time())
+    LDBrightness:set(1-side);RDBrightness:set(1-side);CDBrightness:set(1-side)
+    left_dim:set(1-side);right_dim:set(1-side)
 
-	local birth = LockOn_Options.init_conditions.birth_place
-	if birth == "GROUND_HOT" or birth == "AIR_HOT" then
-		dev:performClickableAction(deviceCommands.HUD_Brightness, 1, true)
-		HUDBrightness:set(1)
-	elseif birth == "GROUND_COLD" then
-		dev:performClickableAction(deviceCommands.HUD_Brightness, 0, true)
-		HUDBrightness:set(0)
-	end
+	-- Cold starts are dark through display power (Systems/Electrical.lua), not
+	-- the HUD brightness control: there is no HUD brightness bind yet.
+	dev:performClickableAction(deviceCommands.HUD_Brightness, 1, true)
+	HUDBrightness:set(1)
 end
 
 function update()
+    left_dim:set(LDBrightness:get())
+    right_dim:set(RDBrightness:get())
+    display_compositor.update()
+    native_brightness.update()
     irads_terrain.update()
+    irads_readouts.update()
+    navigation.update()
+    map_outline.update()
     check_irads_terrain()
 
 	DigitalClock()

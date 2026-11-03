@@ -161,6 +161,7 @@
     <ClInclude Include="Avionics\CockpitBase_Interop.h" />
     <ClInclude Include="Avionics\Weapons_Interop.h" />
     <ClInclude Include="Engine\Engine.h" />
+    <ClInclude Include="Engine\EngineStart.h" />
     <ClInclude Include="FlightControls\FlightControls.h" />
     <ClInclude Include="F_117_NightHawk.h" />
     <ClInclude Include="ED_API.h" />

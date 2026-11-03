@@ -20,6 +20,7 @@
 #include "Aerodynamics/Aero.h"				//Aerodynamic model functions
 #include "FlightControls/FlightControls.h"	//Flight Controls model functions
 #include "Engine/Engine.h"					//Engine model functions
+#include "Engine/EngineStart.h"				//Main engine start sequence
 #include "param_functions.h"
 #include "Avionics/CockpitBase_Interop.h"
 #include "Avionics/JdamEnvelope.h"
@@ -81,7 +82,13 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	double		rollRate_RPS			= 0.0;			// Body roll rate (rad/sec)
 	double		pitchRate_RPS			= 0.0;			// Body pitch rate (rad/sec)
 	double		yawRate_RPS				= 0.0;			// Body yaw rate (rad/sec)
-	double		thrust_N				= 80415;		// Engine thrust (Newtons)
+	double		thrust_N				= 80415;		// Engine thrust, both engines (Newtons)
+	// Per engine, indexed by ENGINE_START::LEFT and RIGHT.
+	ENGINE::EngineState engines[2];
+	double		engine_thrust_N[2]		= { 0.0, 0.0 };	// Newtons
+	double		engine_fuel_flow_kg_s[2] = { 0.0, 0.0 };
+	double		engine_egt_C[2]			= { NAN, NAN };	// NAN until the first update sets it
+	double		engine_oil_psi[2]		= { 0.0, 0.0 };
 
 	double		elevator_DEG			= 0.0;			// Elevator deflection (deg)
 	double		aileron_DEG				= 0.0;			// Aileron deflection (deg)
@@ -200,7 +207,7 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	int			horiz_hold = 0;			// Horizon hold
 	
 	double		DeltaTime				= 0.0;			// Delta time of the simulation, in seconds.
-	bool		engineswitch			= true;			// Is the engine(s) on? If there are two engines they are treated as one.
+	bool		engineswitch			= true;			// Is either engine running? The throttle is ignored otherwise.
 	double		fuel_mass_in_dcs = 0;					// Fuel mass DCS has been told about through ed_fm_change_mass (kg)
 	double		internal_fuel;
 	double		external_fuel;
@@ -222,6 +229,7 @@ static F117::DamageState g_damage;
 static std::queue<ed_fm_simulation_event> g_simEvents;
 static Autothrottle::Controller g_autothrottle;
 static Paars::Controller g_paars;
+static F117::ENGINE_START::Starts g_engineStarts;
 static bool g_paarsEngagedAutothrottle = false; // PAARS moved the power levers by engaging A/T
 static double g_paarsRollRateDegS = 0.0;
 static constexpr double kAileronFullScale_DEG = 25.5; // Surface deflection that gives the full Cl_delta_a20 from the aero tables.
@@ -398,10 +406,22 @@ namespace
     constexpr double kAirStartThrottle = 77.5;
     constexpr double kAirStartN2 = 92.0;
     constexpr double kMaxThrustNewtons = 92000.0;
-    constexpr double kIdleEgtCelsius = 450.0;
+    // Engine indications. Start and idle values are from TO 1F-117A-1 page 2-7: EGT peaks at 550-630 C during
+    // the start and settles at 350-460 C at idle; fuel flow stays at about 600 lb/hr during the start; oil
+    // pressure peaks at 80-100 psi and settles at 60-80 psi. The maximum values are not from the manual.
+    constexpr double kIdleEgtCelsius = 420.0;
     constexpr double kMaxEgtCelsius = 850.0;
-    constexpr double kIdleFuelFlowPph = 1500.0;
-    constexpr double kMaxFuelFlowPph = 6000.0;
+    constexpr double kStartEgtCelsius = 600.0;
+    constexpr double kEgtHeatTau = 2.5;   // s
+    constexpr double kEgtCoolTau = 15.0;  // s
+    constexpr double kIdleOilPsi = 70.0;
+    constexpr double kMaxOilPsi = 90.0;
+    constexpr double kStartOilPsi = 90.0;
+    constexpr double kOilTau = 1.5;       // s
+    constexpr double kPaPerPsi = 6894.757;
+    constexpr double kKgPerLb = 0.45359237;
+    constexpr double kStartFuelFlowKgS = 600.0 * kKgPerLb / 3600.0; // per engine
+    constexpr double kIdleFuelFlowKgS = 0.2;  // both engines, TO 1F-117A-1 page A9-3 (1580 lb/hr)
     constexpr double kAirframeOxygenSupply = 1000.0;
     constexpr double kDefaultFlowVelocity = 100.0;
 
@@ -458,15 +478,13 @@ namespace
         F117::GearCommand = clamp_gear_command_for_weight_on_wheels(requestedCommand);
     }
 
-    void update_weight_on_wheels(double normalForceY)
+    // Weight on wheels is wheel contact only: a compressed strut reported by DCS, or the strut draw args. Lift below
+    // weight is not a test for it, because that is also true in the air with the gear down, through the whole climb
+    // after takeoff, and it held the gear handle down there.
+    void update_weight_on_wheels()
     {
-        const bool physicsWeightOnWheels =
-            (F117::ACTUATORS::gear_state >= 0.99) &&
-            (F117::weight_N > normalForceY) &&
-            (fabs(F117::ay_world) <= 0.5);
-
         const bool suspensionWeightOnWheels = F117::suspension_wow[0] || F117::suspension_wow[1] || F117::suspension_wow[2];
-        F117::weight_on_wheels = F117::wow_from_draw_args || physicsWeightOnWheels || suspensionWeightOnWheels;
+        F117::weight_on_wheels = F117::wow_from_draw_args || suspensionWeightOnWheels;
         if (F117::weight_on_wheels)
         {
             F117::GearCommand = kGearCommandDown;
@@ -701,6 +719,41 @@ namespace
         {
             F117::cockpitAPI.setParamNumber(handle, value);
         }
+    }
+
+    // Lazily resolve and read a cockpit param that the mod's Lua devices publish. False without the cockpit API.
+    bool read_named_param(void*& handle, const char* name, double& value)
+    {
+        if (handle == nullptr)
+        {
+            F117::cockpitAPI.ed_param_api = ed_get_cockpit_param_api();
+            if (F117::cockpitAPI.ed_param_api.pfn_ed_cockpit_get_parameter_handle == nullptr ||
+                F117::cockpitAPI.ed_param_api.pfn_ed_cockpit_parameter_value_to_number == nullptr)
+            {
+                return false;
+            }
+            handle = F117::cockpitAPI.getParamHandle(name);
+        }
+        if (handle == nullptr)
+        {
+            return false;
+        }
+        value = F117::cockpitAPI.getParamNumber(handle);
+        return true;
+    }
+
+    // Start air for the air turbine starters from the APU or an external air cart. Crossbleed from a running
+    // engine is handled by ENGINE_START::Starts. The mod's Systems/Electrical.lua owns both: F117_APU_STATE 2 is
+    // the APU running at normal output pressure, and F117_GROUND_AIR 1 is an air cart connected.
+    bool external_start_air()
+    {
+        static void* s_apuStateParam = nullptr;
+        static void* s_groundAirParam = nullptr;
+        double apu = 0.0;
+        double cart = 0.0;
+        const bool apuAir = read_named_param(s_apuStateParam, "F117_APU_STATE", apu) && apu > 1.5;
+        const bool cartAir = read_named_param(s_groundAirParam, "F117_GROUND_AIR", cart) && cart > 0.5;
+        return apuAir || cartAir;
     }
 
     void initialize_weapon_release_gate_param()
@@ -1364,12 +1417,30 @@ namespace
         switch (command)
         {
         case EnginesOff:
+            g_engineStarts.request_stop(F117::ENGINE_START::LEFT);
+            g_engineStarts.request_stop(F117::ENGINE_START::RIGHT);
             F117::engineswitch = 0;
             F117::throttleInput = 0.0;
             return true;
-        case EnginesOn:
-            F117::engineswitch = 1;
+        case LeftEngineOff:
+        case RightEngineOff:
+            g_engineStarts.request_stop(command == LeftEngineOff ? F117::ENGINE_START::LEFT : F117::ENGINE_START::RIGHT);
+            F117::engineswitch = g_engineStarts.any_running();
+            if (!F117::engineswitch) F117::throttleInput = 0.0;
             return true;
+        case EnginesOn:
+        {
+            const double n2[2] = { F117::engines[0].N2, F117::engines[1].N2 };
+            g_engineStarts.request_both(n2, external_start_air());
+            return true;
+        }
+        case LeftEngineOn:
+        case RightEngineOn:
+        {
+            const int side = command == LeftEngineOn ? F117::ENGINE_START::LEFT : F117::ENGINE_START::RIGHT;
+            g_engineStarts.request_start(side, F117::engines[side].N2, external_start_air());
+            return true;
+        }
         case JoystickThrottle:
             if (F117::engineswitch == true)
             {
@@ -1525,10 +1596,10 @@ namespace
         return false;
     }
 
+    // Either engine running.
     bool engines_running()
     {
-        const double avgEngineIntegrity = (g_damage.leftEngine + g_damage.rightEngine) / 2.0;
-        return F117::engineswitch && (F117::internal_fuel >= 5.0) && (avgEngineIntegrity > 0.05);
+        return F117::engineswitch && (F117::internal_fuel >= 5.0);
     }
 
     bool handle_autothrottle_command(int command)
@@ -1729,16 +1800,27 @@ void update_autopilot_hold_state()
 
 void update_fuel_system(double dt)
 {
-    // Unlimited fuel burns nothing, so the quantity and DCS's mass both stay put.
-    if (!F117::param_class.fuelvalue || !std::isfinite(dt) || dt <= 0.0 || !engines_running() ||
-        !std::isfinite(F117::thrust_N) ||
-        !std::isfinite(F117::internal_fuel) || F117::internal_fuel <= 0.0) return;
     // Fitted to the fuel used in TO 1F-117A-1's acceleration, climb and endurance tables, with the idle flow from
     // page A9-3 (1580 lb/hr). Net thrust at idle is small, so the flow can't simply follow thrust there.
-    const double specific_fuel = 0.8511 + 0.1741 * F117::ENGINE::thrustFractionOfMax - 0.1852 * F117::altitude_m / 10000.0; // kg / kgf / hour
-    const double idle_flow_kg_s = 0.2;
-    const double flow_kg_s = (std::max)(idle_flow_kg_s, (std::max)(F117::thrust_N, 0.0) / 9.81 * specific_fuel / 3600.0);
-    const double requested = flow_kg_s * dt;
+    for (int side = 0; side < 2; ++side)
+    {
+        const F117::ENGINE_START::Sequencer& start = g_engineStarts.engine[side];
+        double flow_kg_s = 0.0;
+        if (start.running())
+        {
+            const double specific_fuel = 0.8511 + 0.1741 * F117::engines[side].thrustFractionOfMax - 0.1852 * F117::altitude_m / 10000.0; // kg / kgf / hour
+            flow_kg_s = (std::max)(kIdleFuelFlowKgS / 2.0, (std::max)(F117::engine_thrust_N[side], 0.0) / 9.81 * specific_fuel / 3600.0);
+        }
+        else if (start.lit())
+        {
+            flow_kg_s = kStartFuelFlowKgS;
+        }
+        F117::engine_fuel_flow_kg_s[side] = std::isfinite(flow_kg_s) ? flow_kg_s : 0.0;
+    }
+    // Unlimited fuel burns nothing, so the quantity and DCS's mass both stay put.
+    if (!F117::param_class.fuelvalue || !std::isfinite(dt) || dt <= 0.0 ||
+        !std::isfinite(F117::internal_fuel) || F117::internal_fuel <= 0.0) return;
+    const double requested = (F117::engine_fuel_flow_kg_s[0] + F117::engine_fuel_flow_kg_s[1]) * dt;
     const double consumed = (std::min)(F117::internal_fuel, requested);
     F117::internal_fuel -= consumed;
 }
@@ -1760,7 +1842,7 @@ void update_flight_control_commands(double dt, double controlDegradation)
     aoa_filter = 1;
 
     F117::FLIGHTCONTROLS::update_pitch_mode_auto_inputs(F117::gearDown, F117::airRefuelDoorOpen);
-    // Wheel contact only. weight_on_wheels can't be used here, because it's also true in the air with the gear down when lift is below weight.
+    // Suspension contact only, with the gear down. The strut draw args in weight_on_wheels aren't used here.
     F117::FLIGHTCONTROLS::update_ground_contact(
         F117::gearDown > 0.5 && (F117::suspension_wow[0] || F117::suspension_wow[1] || F117::suspension_wow[2]), dt);
 
@@ -1866,14 +1948,92 @@ double update_airframe_actuators(double dt)
     return tailIntegrity;
 }
 
+// EGT and oil pressure follow each engine's state with a lag, so the start peak and the settle to idle show.
+void update_engine_indications(double dt)
+{
+    const double ambient = F117::ambientTemperature_DegK > 150.0 ? F117::ambientTemperature_DegK - 273.15 : 15.0;
+    const double idleN2 = F117::weight_on_wheels ? F117::ENGINE::GROUND_IDLE_N2 : F117::ENGINE::FLIGHT_IDLE_N2;
+    for (int side = 0; side < 2; ++side)
+    {
+        const F117::ENGINE_START::Sequencer& start = g_engineStarts.engine[side];
+        const double n2 = F117::engines[side].N2;
+        double egt = ambient;
+        double oil = kIdleOilPsi * limit(n2 / idleN2, 0.0, 1.0); // driven by core rotation
+        if (start.running())
+        {
+            const double aboveIdle = limit((n2 - idleN2) / (F117::ENGINE::MAX_N2 - idleN2), 0.0, 1.0);
+            egt = kIdleEgtCelsius + aboveIdle * (kMaxEgtCelsius - kIdleEgtCelsius);
+            oil = kIdleOilPsi + aboveIdle * (kMaxOilPsi - kIdleOilPsi);
+        }
+        else if (start.lit())
+        {
+            egt = kStartEgtCelsius;
+            oil = kStartOilPsi * limit(n2 / F117::ENGINE_START::STARTER_CUTOUT_N2, 0.0, 1.0);
+        }
+        double& shownEgt = F117::engine_egt_C[side];
+        if (!std::isfinite(shownEgt) || !(dt > 0.0))
+        {
+            shownEgt = egt; // first frame of a session: hot starts begin at idle, cold ones at ambient
+            F117::engine_oil_psi[side] = oil;
+            continue;
+        }
+        const double egtTau = egt > shownEgt ? kEgtHeatTau : kEgtCoolTau;
+        shownEgt += (egt - shownEgt) * (1.0 - std::exp(-dt / egtTau));
+        F117::engine_oil_psi[side] += (oil - F117::engine_oil_psi[side]) * (1.0 - std::exp(-dt / kOilTau));
+    }
+}
+
+// Start phase per engine (0 off, 1 motoring, 2 light-off, 3 accelerating, 4 running), the count of starts
+// refused for want of start air, and weight on wheels, for the cockpit Lua.
+void publish_engine_start_params()
+{
+    static void* s_leftParam = nullptr;
+    static void* s_rightParam = nullptr;
+    static void* s_rejectedParam = nullptr;
+    static void* s_wowParam = nullptr;
+    publish_named_param(s_leftParam, "F117_ENGINE_START_L", g_engineStarts.engine[F117::ENGINE_START::LEFT].phase);
+    publish_named_param(s_rightParam, "F117_ENGINE_START_R", g_engineStarts.engine[F117::ENGINE_START::RIGHT].phase);
+    publish_named_param(s_rejectedParam, "F117_ENGINE_START_REJECTED", g_engineStarts.rejected);
+    publish_named_param(s_wowParam, "F117_WOW", F117::weight_on_wheels ? 1.0 : 0.0);
+}
+
 void update_propulsion_and_control_effectiveness(double dt, double tailIntegrity)
 {
     const double avgEngineIntegrity = (g_damage.leftEngine + g_damage.rightEngine) / 2.0;
     F117::throttle_state = F117::ACTUATORS::throttle_actuator(F117::throttleInput * avgEngineIntegrity, dt);
 
-    const bool engineRunning = engines_running();
-    const double damagedThrottle = F117::throttleInput * avgEngineIntegrity;
-    F117::thrust_N = F117::ENGINE::engine_dynamics(damagedThrottle, F117::mach, F117::altitude_m, dt, engineRunning, F117::weight_on_wheels);
+    // Each start sequence owns its engine's N2 until the starter cuts out; then the engine model takes over.
+    const double integrity[2] = { g_damage.leftEngine, g_damage.rightEngine };
+    bool canRun[2];
+    double n2[2];
+    for (int side = 0; side < 2; ++side)
+    {
+        canRun[side] = (F117::internal_fuel >= 5.0) && (integrity[side] > 0.05);
+        n2[side] = F117::engines[side].N2;
+    }
+    g_engineStarts.update(dt, n2, external_start_air(), canRun);
+    F117::engineswitch = g_engineStarts.any_running();
+
+    F117::thrust_N = 0.0;
+    for (int side = 0; side < 2; ++side)
+    {
+        F117::ENGINE::EngineState& engine = F117::engines[side];
+        const F117::ENGINE_START::Sequencer& start = g_engineStarts.engine[side];
+        engine.N2 = n2[side];
+        if (start.starting())
+        {
+            F117::engine_thrust_N[side] = 0.0;
+            engine.thrustFractionOfMax = 0.0;
+        }
+        else
+        {
+            F117::engine_thrust_N[side] = F117::ENGINE::engine_dynamics(engine, F117::throttleInput * integrity[side],
+                F117::mach, F117::altitude_m, dt, start.running() && canRun[side], F117::weight_on_wheels);
+        }
+        F117::thrust_N += F117::engine_thrust_N[side];
+    }
+    update_engine_indications(dt);
+    publish_engine_start_params();
 
     const double wingIntegrity = 1.0 - g_damage.totalWingLoss;
     const double elevonIntegrity = (g_damage.leftOuterElevon + g_damage.rightOuterElevon
@@ -2030,7 +2190,7 @@ void update_aerodynamic_coefficients(double* temp)
         F117::AERO::Cl_total);
 }
 
-double apply_aerodynamic_forces_and_thrust()
+void apply_aerodynamic_forces_and_thrust()
 {
     const double qS = F117::wingArea_M2 * F117::dynamicPressure_PA; // N
 
@@ -2070,9 +2230,8 @@ double apply_aerodynamic_forces_and_thrust()
     const double cant_up_rad = thrust_cant_up_deg * F117::pi / 180.0;
     const double toe_out_rad = thrust_toe_out_deg * F117::pi / 180.0;
 
-    const double thrust_per_engine = F117::thrust_N * 0.5;
-    const double leftThrust = thrust_per_engine * g_damage.leftEngine;
-    const double rightThrust = thrust_per_engine * g_damage.rightEngine;
+    const double leftThrust = F117::engine_thrust_N[F117::ENGINE_START::LEFT] * g_damage.leftEngine;
+    const double rightThrust = F117::engine_thrust_N[F117::ENGINE_START::RIGHT] * g_damage.rightEngine;
 
     const double thrust_x_L = leftThrust * cos(cant_up_rad) * cos(toe_out_rad);
     const double thrust_y_L = leftThrust * sin(cant_up_rad);
@@ -2089,8 +2248,6 @@ double apply_aerodynamic_forces_and_thrust()
     Vec3 thrust_force_R(thrust_x_R, thrust_y_R, -thrust_z_R);
     Vec3 thrust_force_pos_R(-4.604, 0.000, 1.427);
     add_local_force(thrust_force_R, thrust_force_pos_R);
-
-    return cz_force.y;
 }
 
 }
@@ -2188,12 +2345,11 @@ update_propulsion_and_control_effectiveness(dt, tailIntegrity);
 			engineLogCounter++;
 			if (engineDebugLog.is_open() && (engineLogCounter % 100 == 0))
 			{
-				double perEngineThrust = F117::thrust_N * 0.5;
-				engineDebugLog << perEngineThrust << ","
-				               << perEngineThrust << ","
+				engineDebugLog << F117::engine_thrust_N[0] << ","
+				               << F117::engine_thrust_N[1] << ","
 				               << F117::thrust_N << ","
 				               << F117::throttleInput << ","
-				               << F117::ENGINE::N2 << ","
+				               << 0.5 * (F117::engines[0].N2 + F117::engines[1].N2) << ","
 				               << F117::mach << ","
 				               << F117::totalVelocity_MPS << ","
 				               << F117::altitude_m << ","
@@ -2214,13 +2370,13 @@ update_propulsion_and_control_effectiveness(dt, tailIntegrity);
 
 // Aerodynamic coefficient update and force accumulation
 update_aerodynamic_coefficients(temp);
-double weightOnWheelsReferenceForce = apply_aerodynamic_forces_and_thrust();
+apply_aerodynamic_forces_and_thrust();
 		// Mark subsystem initialization complete after the first successful simulation frame.
 		F117::simInitialized = true;
 		F117::ACTUATORS::simInitialized = true;
 		F117::FLIGHTCONTROLS::simInitialized = true;
 
-		update_weight_on_wheels(weightOnWheelsReferenceForce);
+		update_weight_on_wheels();
 
 }
 
@@ -2650,53 +2806,62 @@ namespace
         {
             return false;
         }
-
-        const bool engineOn = (F117::engineswitch == true) && (F117::internal_fuel > 5.0);
-        double normN2 = engineOn ? F117::ENGINE::N2 / 100.0 : 0.0;
-        normN2 = limit(normN2, 0.0, 1.0);
-
-        double normThrust = engineOn ? (F117::thrust_N / kMaxThrustNewtons) : 0.0;
-        normThrust = limit(normThrust, 0.0, 1.0);
-
         switch (index)
         {
-        case ED_FM_ENGINE_0_RPM:
-        case ED_FM_ENGINE_0_RELATED_RPM:
-        case ED_FM_ENGINE_0_THRUST:
-        case ED_FM_ENGINE_0_RELATED_THRUST:
-            value = 0.0;
-            return true;
-        case ED_FM_ENGINE_1_RPM:
-        case ED_FM_ENGINE_1_RELATED_RPM:
-        case ED_FM_ENGINE_1_CORE_RELATED_RPM:
-        case ED_FM_ENGINE_2_RPM:
-        case ED_FM_ENGINE_2_RELATED_RPM:
-        case ED_FM_ENGINE_2_CORE_RELATED_RPM:
-            value = normN2;
-            return true;
-        case ED_FM_ENGINE_1_THRUST:
-        case ED_FM_ENGINE_2_THRUST:
-            value = engineOn ? F117::thrust_N * 0.5 : 0.0;
-            return true;
-        case ED_FM_ENGINE_1_RELATED_THRUST:
-        case ED_FM_ENGINE_2_RELATED_THRUST:
-            value = normThrust;
-            return true;
-        case ED_FM_ENGINE_1_TEMPERATURE:
-        case ED_FM_ENGINE_2_TEMPERATURE:
-            value = kIdleEgtCelsius + normN2 * (kMaxEgtCelsius - kIdleEgtCelsius);
-            return true;
-        case ED_FM_ENGINE_1_OIL_PRESSURE:
-        case ED_FM_ENGINE_2_OIL_PRESSURE:
-            value = engineOn ? (20.0 + normN2 * 40.0) : 0.0;
-            return true;
-        case ED_FM_ENGINE_1_FUEL_FLOW:
-        case ED_FM_ENGINE_2_FUEL_FLOW:
-            value = engineOn ? (kIdleFuelFlowPph + normN2 * (kMaxFuelFlowPph - kIdleFuelFlowPph)) : 0.0;
-            return true;
         case ED_FM_FC3_THROTTLE_LEFT:
         case ED_FM_FC3_THROTTLE_RIGHT:
             value = limit(F117::throttleInput / 100.0, 0.0, 1.0);
+            return true;
+        }
+
+        // Each engine has a block of parameters. Block 0 is the APU, which isn't reported; 1 is left, 2 is right.
+        const unsigned blockSize = ED_FM_ENGINE_1_RPM - ED_FM_ENGINE_0_RPM;
+        const unsigned block = index / blockSize;
+        const unsigned field = index - block * blockSize;
+        if (block == 0)
+        {
+            switch (field)
+            {
+            case ED_FM_ENGINE_0_RPM:
+            case ED_FM_ENGINE_0_RELATED_RPM:
+            case ED_FM_ENGINE_0_THRUST:
+            case ED_FM_ENGINE_0_RELATED_THRUST:
+                value = 0.0;
+                return true;
+            }
+            return false;
+        }
+        if (block > 2)
+        {
+            return false;
+        }
+        const int side = block == 1 ? F117::ENGINE_START::LEFT : F117::ENGINE_START::RIGHT;
+        // N2 is reported whenever the core turns: on the starter, while lit, and spooling down after shutdown.
+        const double normN2 = limit(F117::engines[side].N2 / 100.0, 0.0, 1.0);
+        switch (field)
+        {
+        case ED_FM_ENGINE_0_RPM:
+        case ED_FM_ENGINE_0_RELATED_RPM:
+        case ED_FM_ENGINE_0_CORE_RELATED_RPM:
+            value = normN2;
+            return true;
+        case ED_FM_ENGINE_0_THRUST:
+            value = F117::engine_thrust_N[side];
+            return true;
+        case ED_FM_ENGINE_0_RELATED_THRUST:
+            value = limit(F117::engine_thrust_N[side] / (kMaxThrustNewtons / 2.0), 0.0, 1.0);
+            return true;
+        case ED_FM_ENGINE_0_TEMPERATURE:
+            value = std::isfinite(F117::engine_egt_C[side]) ? F117::engine_egt_C[side] : 0.0;
+            return true;
+        case ED_FM_ENGINE_0_OIL_PRESSURE:
+            value = F117::engine_oil_psi[side] * kPaPerPsi;
+            return true;
+        case ED_FM_ENGINE_0_FUEL_FLOW:
+            value = F117::engine_fuel_flow_kg_s[side];
+            return true;
+        case ED_FM_ENGINE_0_COMBUSTION:
+            value = g_engineStarts.engine[side].lit() ? 1.0 : 0.0;
             return true;
         }
 
@@ -2813,7 +2978,13 @@ namespace
         F117::FLIGHTCONTROLS::longStickForce = 0.0;
         F117::throttleInput = F117::throttle_state = F117::thrust_N = 0.0;
         F117::engineswitch = false;
-        F117::ENGINE::N2 = 0.0;
+        g_engineStarts.reset(false);
+        for (int side = 0; side < 2; ++side)
+        {
+            F117::engines[side] = F117::ENGINE::EngineState();
+            F117::engine_thrust_N[side] = F117::engine_fuel_flow_kg_s[side] = F117::engine_oil_psi[side] = 0.0;
+            F117::engine_egt_C[side] = NAN;
+        }
         F117::elev_pos = F117::rudder_pos = 0.0f;
         F117::elevator_DEG = F117::aileron_DEG = F117::rudder_DEG = 0.0;
         F117::elevator_DEG_commanded = F117::aileron_DEG_commanded = F117::rudder_DEG_commanded = 0.0;
@@ -2852,8 +3023,9 @@ namespace
         F117::throttleInput = 0.0;
         F117::WheelBrakeCommand = 0.0;
         F117::engineswitch = enginesRunning;
+        g_engineStarts.reset(enginesRunning);
         F117::rolling_friction = kWheelBrakeOffFriction;
-        F117::ENGINE::N2 = enginesRunning ? kGroundStartIdleN2 : 0.0;
+        F117::engines[0].N2 = F117::engines[1].N2 = enginesRunning ? kGroundStartIdleN2 : 0.0;
         reset_damage_and_events();
         reset_weapon_release_sequence();
         reset_laser();
@@ -2870,8 +3042,9 @@ namespace
         F117::throttle_state = kAirStartThrottle;
         F117::WheelBrakeCommand = 0.0;
         F117::engineswitch = true;
+        g_engineStarts.reset(true);
         F117::rolling_friction = kWheelBrakeOffFriction;
-        F117::ENGINE::N2 = kAirStartN2;
+        F117::engines[0].N2 = F117::engines[1].N2 = kAirStartN2;
         reset_damage_and_events();
         reset_weapon_release_sequence();
         reset_laser();
@@ -2886,7 +3059,6 @@ void ed_fm_release()
     // The next aircraft starts at M_empty again. Only here: DCS collects the loaded fuel before the start calls.
     F117::fuel_mass_in_dcs = 0.0;
     F117::DeltaTime = 0.0;
-    F117::ENGINE::N2 = 0.0;
     F117::gearDown = F117::GearCommand = 0.0;
     F117::weight_on_wheels = F117::wow_from_draw_args = false;
     reset_damage_and_events();

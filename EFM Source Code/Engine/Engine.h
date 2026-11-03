@@ -5,9 +5,14 @@ namespace F117
 {
     namespace ENGINE
     {
-        // Engine state persists across FM ticks and is reset by the startup hooks.
-        static double N2 = 0.0;
-        static double thrustFractionOfMax = 0.0;
+        // One engine's state. It persists across FM ticks and is reset by the startup hooks.
+        struct EngineState
+        {
+            double N2 = 0.0;                  // core rpm, %
+            double thrustFractionOfMax = 0.0;
+        };
+        // The thrust constants and table below are for both engines together.
+        constexpr double ENGINE_COUNT = 2.0;
 
         constexpr double THROTTLE_MIN = 0.0;
         constexpr double THROTTLE_MAX = 100.0;
@@ -62,7 +67,9 @@ namespace F117
                  + a * ((1.0 - b) * THRUST_TABLE_N[i + 1][j] + b * THRUST_TABLE_N[i + 1][j + 1]);
         }
 
-        double engine_dynamics(double throttleInput,
+        // Advances one engine and returns its thrust (N).
+        double engine_dynamics(EngineState& engine,
+            double throttleInput,
             double mach,
             double alt,
             double frameTime,
@@ -83,25 +90,25 @@ namespace F117
                 double targetN2 =
                     idleN2 + (throttle / THROTTLE_MAX) * (MAX_N2 - idleN2);
 
-                double rate = (targetN2 > N2) ? SPOOL_UP_RATE : SPOOL_DOWN_RATE;
+                double rate = (targetN2 > engine.N2) ? SPOOL_UP_RATE : SPOOL_DOWN_RATE;
 
-                N2 += (targetN2 - N2) * rate * frameTime;
-                N2 = limit(N2, 0.0, MAX_N2);
+                engine.N2 += (targetN2 - engine.N2) * rate * frameTime;
+                engine.N2 = limit(engine.N2, 0.0, MAX_N2);
             }
             else
             {
                 // Shutdown or flameout: allow a gradual windmill decay.
-                N2 += (0.0 - N2) * WINDMILL_DECAY * frameTime;
-                if (N2 < SHUTDOWN_N2_THRESHOLD)
+                engine.N2 += (0.0 - engine.N2) * WINDMILL_DECAY * frameTime;
+                if (engine.N2 < SHUTDOWN_N2_THRESHOLD)
                 {
-                    N2 = 0.0;
+                    engine.N2 = 0.0;
                 }
             }
 
             // Below this threshold the engine is treated as producing no useful thrust.
-            if (N2 < idleN2 * IDLE_THRUST_CUTOFF_FACTOR)
+            if (engine.N2 < idleN2 * IDLE_THRUST_CUTOFF_FACTOR)
             {
-                thrustFractionOfMax = 0.0;
+                engine.thrustFractionOfMax = 0.0;
                 return 0.0;
             }
 
@@ -123,7 +130,7 @@ namespace F117
 
             // Normalize N2 above idle before shaping the thrust response.
             double normN2 =
-                (N2 - idleN2) / (MAX_N2 - idleN2);
+                (engine.N2 - idleN2) / (MAX_N2 - idleN2);
 
             normN2 = limit(normN2, 0.0, 1.0);
 
@@ -134,9 +141,9 @@ namespace F117
                 Tidle + thrustFraction * (Tmax - Tidle);
 
             thrust = limit(thrust, 0.0, MAX_THRUST_LIMIT_N);
-            thrustFractionOfMax = Tmax > 0.0 ? limit(thrust / Tmax, 0.0, 1.0) : 0.0;
+            engine.thrustFractionOfMax = Tmax > 0.0 ? limit(thrust / Tmax, 0.0, 1.0) : 0.0;
 
-            return thrust;
+            return thrust / ENGINE_COUNT;
         }
     }
 }

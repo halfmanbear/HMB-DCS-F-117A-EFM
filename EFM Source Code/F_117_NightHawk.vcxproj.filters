@@ -23,6 +23,9 @@
     <ClInclude Include="Engine\Engine.h">
       <Filter>Engine</Filter>
     </ClInclude>
+    <ClInclude Include="Engine\EngineStart.h">
+      <Filter>Engine</Filter>
+    </ClInclude>
     <ClInclude Include="Atmosphere\Atmosphere.h">
       <Filter>Atmosphere</Filter>
     </ClInclude>
