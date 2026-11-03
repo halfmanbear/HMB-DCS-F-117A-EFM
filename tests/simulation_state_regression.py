@@ -117,7 +117,7 @@ void check_clean_session() {
 int main() {
     // Fuel is accumulated across multiple ticks, clamped to available quantity,
     // and collected once even when DCS's inertia does not match an FM constant.
-    thrust_N=9.81*3600/0.762;internal_fuel=100;
+    thrust_N=9.81*3600/0.8511;internal_fuel=100;
     check_mass(100);check_mass(0); // Loaded fuel is added to the DCS mass once.
     assert(param_class.fuelvalue);
     update_fuel_system(.25);update_fuel_system(.75);

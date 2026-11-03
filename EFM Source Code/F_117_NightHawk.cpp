@@ -1656,9 +1656,9 @@ void update_fuel_system(double dt)
     if (!F117::param_class.fuelvalue || !std::isfinite(dt) || dt <= 0.0 || !engines_running() ||
         !std::isfinite(F117::thrust_N) ||
         !std::isfinite(F117::internal_fuel) || F117::internal_fuel <= 0.0) return;
-    // Fitted to the fuel used in TO 1F-117A-1's acceleration and endurance tables, with the idle flow from
+    // Fitted to the fuel used in TO 1F-117A-1's acceleration, climb and endurance tables, with the idle flow from
     // page A9-3 (1580 lb/hr). Net thrust at idle is small, so the flow can't simply follow thrust there.
-    const double specific_fuel = 0.762 + 0.146 * F117::ENGINE::thrustFractionOfMax; // kg / kgf / hour
+    const double specific_fuel = 0.8511 + 0.1741 * F117::ENGINE::thrustFractionOfMax - 0.1852 * F117::altitude_m / 10000.0; // kg / kgf / hour
     const double idle_flow_kg_s = 0.2;
     const double flow_kg_s = (std::max)(idle_flow_kg_s, (std::max)(F117::thrust_N, 0.0) / 9.81 * specific_fuel / 3600.0);
     const double requested = flow_kg_s * dt;
@@ -1796,7 +1796,7 @@ void update_propulsion_and_control_effectiveness(double dt, double tailIntegrity
 
     const bool engineRunning = engines_running();
     const double damagedThrottle = F117::throttleInput * avgEngineIntegrity;
-    F117::thrust_N = F117::ENGINE::engine_dynamics(damagedThrottle, F117::mach, F117::altitude_m, F117::dynamicPressure_PA, dt, engineRunning, F117::weight_on_wheels);
+    F117::thrust_N = F117::ENGINE::engine_dynamics(damagedThrottle, F117::mach, F117::altitude_m, dt, engineRunning, F117::weight_on_wheels);
 
     const double wingIntegrity = 1.0 - g_damage.totalWingLoss;
     const double elevonIntegrity = (g_damage.leftOuterElevon + g_damage.rightOuterElevon
@@ -1844,14 +1844,16 @@ void update_aerodynamic_coefficients(double* temp)
 
     // The tables' lift slope is an F-16's. This scales it to CN = 0.056 per degree x (indicated AOA - 1.02),
     // the line through the AOA and speed tables in TO 1F-117A-1 (Figures A6-1 and 2-2).
-    const double Cz = 0.7754 * temp[1] + 0.0684;
+    // Gear down, TO 1F-117A-1 Figure 2-2 needs more AOA at high lift than that line gives. Cz is negative for upward lift.
+    const double gearDownLiftLoss = 0.0075 * F117::gearDown * (std::max)(alpha1_DEG_Limited - 6.0, 0.0);
+    const double Cz = 0.7754 * temp[1] + 0.0684 + gearDownLiftLoss;
     F117::AERO::Cz = Cz;
 
     // Cd0 and the wave drag below Mlimit are fitted to TO 1F-117A-1 by tools/fm_bench/fit_performance.py in the
     // mod repository. Normal force acts along the body axis here, so tilting it with AOA supplies most of the
     // induced drag the data shows, as on a sharp-edged wing. Cz is negative for upward lift, so the lift terms are
     // the remainder: less drag than the tilt alone at low lift and more at high lift.
-    const double Cd0 = 0.017657 + 0.024449 * Cz + 0.065507 * Cz * Cz;
+    const double Cd0 = 0.017643 + 0.036806 * Cz + 0.081910 * Cz * Cz;
 
     // Ground effect relieves part of that tilted normal force.
     const double phi_GE = induced_drag_ground_effect();
@@ -1866,7 +1868,7 @@ void update_aerodynamic_coefficients(double* temp)
         if (F117::mach < 1.05)
         {
             const double div_factor = (F117::mach - Mdiv) / (1.05 - Mdiv);
-            Cd_wave = 0.0029327 * div_factor * div_factor;
+            Cd_wave = 0.015219 * div_factor * div_factor;
 
             if (F117::mach > Mlimit)
             {

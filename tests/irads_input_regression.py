@@ -6,7 +6,7 @@ src=repo/'EFM Source Code'
 mod=Path(sys.argv[1]); out=Path(sys.argv[2]); out.mkdir(exist_ok=True)
 inputs=dict((name,int(value)) for name,value in re.findall(r'^\s*(\w+)\s*=\s*(\d+)\s*,', (src/'Inputs.h').read_text(encoding="utf-8-sig"),re.M))
 lua=LuaRuntime(); lua.execute((mod/'Cockpit/Scripts/command_defs.lua').read_text(encoding="utf-8-sig"))
-k=lua.globals().Keys; f=lua.globals().f117_commands; h=lua.globals().hotas_commands
+k=lua.globals().Keys; f=lua.globals().f117_commands; h=lua.globals().hotas_commands; fov=lua.globals().irads_fov_commands
 for name,want in [('PanelLight',10001),('BcnLgt',10007),('IRADSZoomIn',10008),('IRADSZoomOut',10009),('MFDOverlayToggle',10010)]: assert k[name]==want,(name,k[name])
 for lua_name,cpp_name in [('WEAPON_RELEASE_ON','weaponReleaseHoldOn'),('WEAPON_RELEASE_OFF','weaponReleaseHoldOff'),('IRADS_DESIGNATION_CLEAR','IRADSDesignationClear'),('IRADS_LASER_ARM_TOGGLE','IRADSLaserArmToggle'),('IRADS_SLEW_HORIZONTAL','IRADSSlewHorizontalAxis'),('IRADS_SLEW_VERTICAL','IRADSSlewVerticalAxis'),('IRADS_ZOOM_AXIS','IRADSZoomAxis')]: assert f[lua_name]==inputs[cpp_name]
 for suffix,cpp_name in [('UP','IRADSSlewUp'),('DOWN','IRADSSlewDown'),('LEFT','IRADSSlewLeft'),('RIGHT','IRADSSlewRight'),('DEPRESS','IRADSSlewStop')]: assert h['THROTTLE_DESIGNATOR_CONTROLLER_'+suffix]==inputs[cpp_name]
@@ -29,8 +29,12 @@ for device in ['keyboard','joystick']:
         assert signature not in seen,(device,'duplicate custom binding',signature)
         seen.add(signature)
     def row(command): return next(r for r in rows if r.down==command)
-    profile_signatures[device] = {command:(row(command).down,row(command).up,row(command).value_down,row(command).value_up) for command in [10008,10009,10110,10111,10112,10113,10114,87]}
+    profile_signatures[device] = {command:(row(command).down,row(command).up,row(command).value_down,row(command).value_up) for command in [fov.WIDE,fov.NARROW,10110,10111,10112,10113,10114,87]}
     assert row(87).name=='IRADS On/Off'
+    # The FOV buttons go through the Displays device, which turns them into the EFM's zoom axis endpoints.
+    assert row(fov.WIDE).name=='IRADS FOV - Wide' and row(fov.NARROW).name=='IRADS FOV - Narrow'
+    assert row(fov.WIDE).cockpit_device_id==row(fov.NARROW).cockpit_device_id==7
+    assert not any(r.down in [10008,10009] for r in rows)
     assert row(10010).name=='DLIR MFD Overlay Toggle'
     assert row(350).up==351 and row(350).name=='Weapon Release (Pickle)'
     assert not any(r.down==10103 for r in rows)
@@ -68,11 +72,22 @@ param('mainpower').set(1)
 for command in [10008,10009,10110,10111,10112,10113,10114]: vm.globals().SetCommand(command,1)
 assert events==[],events
 # Exercise each profile action through the actual deployed SetCommand to the EFM.
-for action,efm in [(3001,10119),(3002,10120),(3003,10121)]:
+for action,efm in [(3001,10119),(3002,10120)]:
     for value in [-1,-.3,0,.3,1]:
         events.clear(); vm.globals().SetCommand(action,value)
         assert events==[(None,efm,value)], (action,value,events)
+# The FOV axis has two detents with a dead band between them, and sends only the wide and narrow ends to the EFM.
+for value,sent in [(-1,-1),(-.3,-1),(0,-1),(.3,1),(0,1),(1,1),(-.3,-1)]:
+    events.clear(); vm.globals().SetCommand(3003,value)
+    assert events==[(None,10121,sent)], (value,events)
 print('PASS: all device-targeted axis actions forward signed/center values exactly once to custom EFM commands')
+events.clear()
+for command,axis in [(fov.WIDE,-1),(fov.NARROW,1)]:
+    events.clear(); vm.globals().SetCommand(command,1)
+    assert events==[(None,f['IRADS_ZOOM_AXIS'],axis)],(command,events)
+    events.clear(); vm.globals().SetCommand(command,0)
+    assert events==[],(command,events)
+print('PASS: FOV buttons select the wide and narrow ends of the EFM zoom axis once, on press only')
 events.clear()
 
 param('MFD_OVERLAY').set(1); vm.globals().SetCommand(10010,0); assert param('MFD_OVERLAY').get()==0

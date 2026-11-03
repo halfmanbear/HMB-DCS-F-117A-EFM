@@ -24,32 +24,47 @@ namespace F117
         constexpr double SHUTDOWN_N2_THRESHOLD = 0.5;
         constexpr double GROUND_IDLE_THRUST_N = 3000.0;
         // Net thrust at flight idle, fitted to the idle deceleration in TO 1F-117A-1 Figure A9-11. That data stops at 30,000 ft.
-        constexpr double FLIGHT_IDLE_THRUST_SEA_LEVEL_N = 5172.0;
-        constexpr double FLIGHT_IDLE_THRUST_PER_10KM_N = 6066.0;
+        constexpr double FLIGHT_IDLE_THRUST_SEA_LEVEL_N = 4008.4;
+        constexpr double FLIGHT_IDLE_THRUST_PER_10KM_N = 5369.5;
         constexpr double FLIGHT_IDLE_THRUST_ALTITUDE_CAP_M = 9144.0;
-        // Installed maximum thrust, fitted by tools/fm_bench/fit_performance.py in the mod repository to the
-        // acceleration, climb, ceiling and sustained turn data in TO 1F-117A-1.
-        constexpr double MAX_THRUST_SEA_LEVEL_N = 78374.0; // Before the Mach terms below, so not a static thrust figure.
         constexpr double MAX_THRUST_LIMIT_N = 94000.0; // Two F404s at about 47 kN each.
-        constexpr double DPDH_M_SCALE_HEIGHT = 13951.0;
-        constexpr double DPDH_CURVE_PER_10KM_SQ = 0.3;
-        constexpr double MACH_THRUST_FIT_FLOOR = 0.30; // The manual's in-flight data doesn't constrain thrust below about here.
-        // Below that Mach, thrust rises towards this much extra at a standstill. The takeoff example on TO 1F-117A-1
-        // page A3-4 (4,700 ft ground run at 46,000 lb) needs about 92 kN at low speed.
-        constexpr double STATIC_THRUST_RISE = 0.135;
-        constexpr double MACH_THRUST = 0.0094636;
-        constexpr double MACH_THRUST_SQ = 0.34578;
-        constexpr double MACH_THRUST_SQ_PER_10KM = -0.30334;
-        constexpr double HIGH_Q_THRUST_LIMIT_PA = 18383.0;
-        constexpr double HIGH_Q_THRUST_LOSS = 0.07614;
-        constexpr double HIGH_Q_THRUST_MIN_FRACTION = 0.3;
+        // Installed maximum thrust of both engines, fitted by tools/fm_bench/fit_performance.py in the mod repository
+        // to the acceleration, climb, ceiling, top speed and sustained turn data in TO 1F-117A-1.
+        constexpr int THRUST_TABLE_ALTITUDES = 5;
+        constexpr int THRUST_TABLE_MACHS = 5;
+        constexpr double THRUST_TABLE_ALTITUDE_M[THRUST_TABLE_ALTITUDES] = { 0.0, 3048.0, 6096.0, 9144.0, 12192.0 };
+        constexpr double THRUST_TABLE_MACH[THRUST_TABLE_MACHS] = { 0.30, 0.50, 0.70, 0.80, 0.90 };
+        constexpr double THRUST_TABLE_N[THRUST_TABLE_ALTITUDES][THRUST_TABLE_MACHS] = {
+            { 79559.0, 80476.0, 83670.0, 84521.0, 84736.0 },
+            { 62262.0, 63631.0, 65313.0, 65328.0, 65472.0 },
+            { 45132.0, 45181.0, 46839.0, 48095.0, 49141.0 },
+            { 30068.0, 29405.0, 30417.0, 31485.0, 32098.0 },
+            { 19766.0, 19336.0, 19196.0, 19278.0, 19520.0 }
+        };
+        // Below the table's lowest Mach, thrust rises towards this much extra at a standstill, up to the engines' rating.
+        // The manual's in-flight data doesn't reach those speeds, so this comes from the takeoff example on TO 1F-117A-1
+        // page A3-4 (4,700 ft ground run at 46,000 lb).
+        constexpr double STATIC_THRUST_RISE = 0.18;
         constexpr double MIN_THRUST_IDLE_MARGIN = 1.1;
         constexpr double IDLE_THRUST_CUTOFF_FACTOR = 0.9;
+
+        // Bilinear in altitude and Mach. Above the top row it carries on along the same slope, up to ALTITUDE_MAX_M.
+        inline double max_thrust_from_table(double altitude, double mach)
+        {
+            int i = 0;
+            while (i < THRUST_TABLE_ALTITUDES - 2 && altitude >= THRUST_TABLE_ALTITUDE_M[i + 1]) ++i;
+            int j = 0;
+            while (j < THRUST_TABLE_MACHS - 2 && mach >= THRUST_TABLE_MACH[j + 1]) ++j;
+            const double a = (altitude - THRUST_TABLE_ALTITUDE_M[i]) / (THRUST_TABLE_ALTITUDE_M[i + 1] - THRUST_TABLE_ALTITUDE_M[i]);
+            const double m = limit(mach, THRUST_TABLE_MACH[0], THRUST_TABLE_MACH[THRUST_TABLE_MACHS - 1]);
+            const double b = (m - THRUST_TABLE_MACH[j]) / (THRUST_TABLE_MACH[j + 1] - THRUST_TABLE_MACH[j]);
+            return (1.0 - a) * ((1.0 - b) * THRUST_TABLE_N[i][j] + b * THRUST_TABLE_N[i][j + 1])
+                 + a * ((1.0 - b) * THRUST_TABLE_N[i + 1][j] + b * THRUST_TABLE_N[i + 1][j + 1]);
+        }
 
         double engine_dynamics(double throttleInput,
             double mach,
             double alt,
-            double dynamicPressure_PA,
             double frameTime,
             bool engineRunning = true,
             bool weightOnWheels = false)
@@ -90,25 +105,16 @@ namespace F117
                 return 0.0;
             }
 
-            const double altitude_10km = altitude / 10000.0;
-            double altitude_factor = exp(-altitude / DPDH_M_SCALE_HEIGHT - DPDH_CURVE_PER_10KM_SQ * altitude_10km * altitude_10km);
-
             // Ground idle thrust is held lower than airborne idle so the aircraft
             // does not start creeping on the runway at zero throttle.
             double Tidle = weightOnWheels
-                ? GROUND_IDLE_THRUST_N * altitude_factor
+                ? GROUND_IDLE_THRUST_N * max_thrust_from_table(altitude, THRUST_TABLE_MACH[0]) / THRUST_TABLE_N[0][0]
                 : FLIGHT_IDLE_THRUST_SEA_LEVEL_N + FLIGHT_IDLE_THRUST_PER_10KM_N * (std::min)(altitude, FLIGHT_IDLE_THRUST_ALTITUDE_CAP_M) / 10000.0;
-            double M = limit(machLimited, MACH_THRUST_FIT_FLOOR, MACH_MAX);
-            double mach_factor = 1.0 + MACH_THRUST * M + (MACH_THRUST_SQ + MACH_THRUST_SQ_PER_10KM * altitude_10km) * M * M;
-            if (machLimited < MACH_THRUST_FIT_FLOOR)
+            double Tmax = max_thrust_from_table(altitude, machLimited);
+            if (machLimited < THRUST_TABLE_MACH[0])
             {
-                mach_factor *= 1.0 + STATIC_THRUST_RISE * (1.0 - machLimited / MACH_THRUST_FIT_FLOOR);
+                Tmax *= 1.0 + STATIC_THRUST_RISE * (1.0 - machLimited / THRUST_TABLE_MACH[0]);
             }
-            // Thrust falls away at high dynamic pressure, seen at low altitude near the Mach limit.
-            double q_factor = limit(1.0 - HIGH_Q_THRUST_LOSS * (dynamicPressure_PA - HIGH_Q_THRUST_LIMIT_PA) / HIGH_Q_THRUST_LIMIT_PA,
-                HIGH_Q_THRUST_MIN_FRACTION, 1.0);
-
-            double Tmax = MAX_THRUST_SEA_LEVEL_N * altitude_factor * mach_factor * q_factor;
 
             if (Tmax < Tidle)
             {

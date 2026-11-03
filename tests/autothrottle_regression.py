@@ -26,7 +26,7 @@ struct Sim {
         const double q = 0.5 * density() * tasMps * tasMps, area = 84.8;
         const double cl = massKg * 9.81 * std::cos(gammaDeg * 3.14159265 / 180) / (q * area);
         const double drag = q * area * (0.020 + 0.194 * cl * cl);
-        const double thrust = F117::ENGINE::engine_dynamics(throttle, mach(), altM, q, dt, true, false);
+        const double thrust = F117::ENGINE::engine_dynamics(throttle, mach(), altM, dt, true, false);
         tasMps += ((thrust - drag) / massKg - 9.81 * std::sin(gammaDeg * 3.14159265 / 180)) * dt;
     }
 };
