@@ -90,6 +90,8 @@ namespace CockpitInterop
     bool CompleteIRADSTerrainRequest(unsigned sequence, bool hit, const double point[3]);
     bool HasIRADSLock();
     bool GetIRADSLockWorldPoint(double out_point[3]);
+    // Unit world direction of the rendered IRADS view; false when off or stale.
+    bool GetIRADSLineOfSight(double out_direction[3]);
     bool GetIRADSLockPolar(double out_polar[3]);
     void ResetIRADSSession();          // ed_fm_release: drop pointers into the torn-down cockpit context
 

@@ -69,6 +69,10 @@ namespace CockpitInterop
     static bool  s_irads_lock_valid      = false;
     static bool s_irads_ray_valid=false, s_irads_terrain_pending=false;
     static double s_irads_render_ray[6]={}, s_irads_request_ray[6]={};
+    // Seconds since the IRADS camera last rendered; its ray is stale when the
+    // display is not drawing the sensor image.
+    static double s_irads_ray_age=1e9;
+    constexpr double kIRADSRayMaxAge=0.5;
     static unsigned s_irads_terrain_sequence=0;
     static double s_irads_terrain_wait=0;
 
@@ -1108,6 +1112,7 @@ namespace CockpitInterop
         double aircraft_x, double aircraft_y, double aircraft_z,
         double quat_x, double quat_y, double quat_z, double quat_w)
     {
+        if (std::isfinite(dt) && dt>0) s_irads_ray_age+=dt;
         if (!g_avTVSensor_instance || !g_avTVSensor_update) return;
         if (AsSensor(g_avTVSensor_instance)->activeFlag == 0 || !s_irads_power) return;
 
@@ -1234,6 +1239,18 @@ namespace CockpitInterop
         return true;
     }
 
+    bool GetIRADSLineOfSight(double out_direction[3])
+    {
+        if (!out_direction || !s_irads_power || !s_irads_ray_valid || s_irads_ray_age>kIRADSRayMaxAge)
+            return false;
+        double norm=0;
+        for (int i=0;i<3;++i) norm+=s_irads_render_ray[i+3]*s_irads_render_ray[i+3];
+        if (!std::isfinite(norm) || norm<0.5) return false;
+        norm=std::sqrt(norm);
+        for (int i=0;i<3;++i) out_direction[i]=s_irads_render_ray[i+3]/norm;
+        return true;
+    }
+
     bool GetIRADSLockPolar(double out_polar[3])
     {
         if (!s_irads_lock_valid || !out_polar)
@@ -1288,6 +1305,7 @@ namespace CockpitInterop
                 s_irads_render_ray[i]=eye[i];s_irads_render_ray[i+3]=forward[i];
                 if(!std::isfinite(eye[i]) || !std::isfinite(forward[i])) s_irads_ray_valid=false;
             }
+            if(s_irads_ray_valid) s_irads_ray_age=0;
         }
         static unsigned renderSamples=0, renderFrames=0;
         if (locked && renderSamples<120 && (++renderFrames==1 || renderFrames%120==0))
@@ -1398,6 +1416,7 @@ namespace CockpitInterop
     {
         ClearIRADSLock();
         s_irads_ray_valid=false;
+        s_irads_ray_age=1e9;
         s_irads_analog_horizontal = s_irads_analog_vertical = 0.0f;
         s_irads_keyboard_horizontal = s_irads_keyboard_vertical = 0.0f;
         s_irads_horizontal_axis = 0.0f;

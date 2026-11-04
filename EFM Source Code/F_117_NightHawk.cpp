@@ -1301,6 +1301,16 @@ namespace
         publish_named_param(s_iradsPowerParam, "F117_IRADS_POWER", CockpitInterop::IsIRADSPowered() ? 1.0 : 0.0);
         static void* s_iradsZoomParam = nullptr;
         publish_named_param(s_iradsZoomParam, "IRADS_ZOOM", CockpitInterop::GetIRADSZoomLevel());
+        // World unit vector (x north, y up, z east) of where the IRADS is looking.
+        // The HUD/IRADS cursor projects it into the HUD field of view.
+        static void* s_iradsLosValidParam = nullptr;
+        static void* s_iradsLosParams[3] = {nullptr, nullptr, nullptr};
+        static const char* const kIRADSLosNames[3] = {"F117_IRADS_LOS_X", "F117_IRADS_LOS_Y", "F117_IRADS_LOS_Z"};
+        double los[3] = {0.0, 0.0, 0.0};
+        const bool losValid = CockpitInterop::GetIRADSLineOfSight(los);
+        publish_named_param(s_iradsLosValidParam, "F117_IRADS_LOS_VALID", losValid ? 1.0 : 0.0);
+        if (losValid)
+            for (int i = 0; i < 3; ++i) publish_named_param(s_iradsLosParams[i], kIRADSLosNames[i], los[i]);
         static void* s_laserArmedParam = nullptr;
         static void* s_laserFiringParam = nullptr;
         publish_named_param(s_laserArmedParam, kLaserArmedParamName, F117::laser_armed ? 1.0 : 0.0);
@@ -3489,19 +3499,57 @@ void ed_fm_suspension_feedback(int idx, const ed_fm_suspension_info * info)
     F117::suspension_wow[idx] = (info->struct_compression > 0.001);
 }
 
+// Leading-edge vortex and wing vapour. Shaped from two sources:
+//
+// The aircraft model. The planform is one straight 67.3 deg leading edge from
+// the nose apex to the wingtip, at y = -0.28 m, so the local semispan is
+// s(x) = 0.418 * (9.95 - x). The edge reaches the tip at x = -6.3 m (6.57 m
+// out) and the tip trailing edge ends near x = -7.0 m. Upper-surface heights
+// under the vortex (kSurf80 / kSurf90, at 80% and 90% of s) were sampled from
+// the model.
+//
+// Vermeersch, "Investigation of the F117A Vortical Flow Characteristics"
+// (MIT, 1993; docs/reference in the mod repo):
+//   - the vortex starts at the nose apex and runs just inboard of the leading
+//     edge all the way to the tip (Fig. 6.24);
+//   - wind-tunnel smoke shows it clearly at 7 and 10 deg AoA, lying close to
+//     the surface; it grows stronger and lifts away from 15 deg;
+//   - breakdown sits just aft of the trailing edge at 15 deg and moves forward
+//     with AoA: X/L = 0.775 at 20, 0.68 at 25, 0.555 at 30 deg (Fig. 6.25,
+//     X measured from the nose, L the aircraft length);
+//   - the breakdown point is unsteady; it is a bubble at 20 deg and a spiral
+//     at 25 and 30 deg.
+//
+// Visible vapour also needs the pressure drop in the core to reach
+// condensation, so opacity scales with dynamic pressure times AoA and fades
+// with altitude.
 bool ed_fm_LERX_vortex_update(unsigned idx, LERX_vortex& out)
 {
     if (idx > 1)
         return false;
 
-    out.version = 0;
+    out.version = 1; // per-point opacity, scaled by out.opacity
+    out.spline_point_size_in_bytes = sizeof(LERX_vortex_spline_point);
 
-    if (F117::weight_on_wheels || F117::totalVelocity_MPS < 35.0)
-    {
+    auto detach = [&out]() {
         out.spline = nullptr;
         out.spline_points_count = 0;
         return true;
-    }
+    };
+    auto clampf = [](float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); };
+    auto smoothstep = [&clampf](float e0, float e1, float v) {
+        const float t = clampf((v - e0) / (e1 - e0), 0.0f, 1.0f);
+        return t * t * (3.0f - 2.0f * t);
+    };
+
+    // DCS calls this once per side each frame; advance the shared clock once.
+    static float vortex_time = 0.0f;
+    if (idx == 0)
+        vortex_time += (float)F117::DeltaTime;
+    const float time = vortex_time;
+
+    if (F117::weight_on_wheels || F117::totalVelocity_MPS < 35.0)
+        return detach();
 
     const float aoa = (float)F117::alpha_DEG;
     const float beta = (float)F117::beta_DEG;
@@ -3509,334 +3557,223 @@ bool ed_fm_LERX_vortex_update(unsigned idx, LERX_vortex& out)
     float rho = (float)F117::ambientDensity_KgPerM3;
     if (rho < 0.1f) rho = 1.225f;
 
-    // Only advance time on the first vortex call per frame (idx==0).
-    // Both vortices share the same animation clock; advancing on every call
-    // would double the rate since DCS calls this once for each idx per frame.
-    static float vortex_time = 0.0f;
-    if (idx == 0)
-        vortex_time += (float)F117::DeltaTime;
-    float time = vortex_time;
-
-    // =========================================================================
-    // AoA onset — sigmoid centred at (aoa_onset) deg with sharpness 1.4.  
-    // =========================================================================
-    const float aoa_onset = 5.0f;
-    const float sharpness = 1.4f;
-    float vortex_strength = 1.0f / (1.0f + expf(-(aoa - aoa_onset) * sharpness));
-    vortex_strength = (std::max)(0.0f, (std::min)(1.0f, vortex_strength));
-
+    // Vortex forms from about 5 deg and is well established by 8-10 deg.
+    const float vortex_strength = 1.0f / (1.0f + expf(-(aoa - 6.0f) * 0.9f));
     if (vortex_strength < 0.02f)
-    {
-        out.spline = nullptr;
-        out.spline_points_count = 0;
-        return true;
-    }
+        return detach();
 
     // =========================================================================
     // ALTITUDE-DEPENDENT CONDENSATION FADE
     //
-    // Visible wing vapor requires ambient moisture to nucleate in the vortex
-    // core's low-pressure region.  Temperature lapse ~2 deg C / 1000 ft,
-    // dew-point lapse ~0.5 deg C / 1000 ft — the spread widens with altitude
-    // making condensation progressively harder.  Ambient density captures both
-    // pressure and temperature effects via the standard atmosphere.
-    //
-    //   Sea level  (rho ~1.225):  humidity_factor ~ 1.0
-    //   10,000 ft  (rho ~0.90):   humidity_factor ~ 0.85
-    //   20,000 ft  (rho ~0.65):   humidity_factor ~ 0.40
-    //   30,000 ft  (rho ~0.46):   humidity_factor ~ 0.10
-    //   40,000 ft  (rho ~0.30):   humidity_factor ~ 0.02
-    //
-    // Additionally use altitude_m directly for a hard ceiling to handle any
-    // non-standard atmosphere edge cases (hot day at altitude, etc).
+    // The temperature/dew-point spread widens with altitude, so condensation
+    // gets harder. Ambient density stands in for both pressure and
+    // temperature; altitude gives a hard ceiling for non-standard days.
+    //   Sea level ~1.0, 10,000 ft ~0.85, 20,000 ft ~0.40, 30,000 ft ~0.10
     // =========================================================================
-    const float rho_sea_level = 1.225f;
-    float rho_ratio = rho / rho_sea_level;
+    const float rho_ratio = rho / 1.225f;
     float humidity_factor = powf(rho_ratio, 3.5f);
-
-    // Low-altitude moisture boost (below ~500 m / ~1500 ft)
-    if (rho_ratio > 0.95f)
-    {
-        float low_alt_boost = (rho_ratio - 0.95f) / 0.05f;
-        humidity_factor += low_alt_boost * 0.08f;
-    }
-
-    // Hard ceiling via actual altitude — zero above ~10,000 m (~33,000 ft)
-    float alt_m = (float)F117::altitude_m;
+    if (rho_ratio > 0.95f) // low-altitude moisture boost, below ~500 m
+        humidity_factor += (rho_ratio - 0.95f) / 0.05f * 0.08f;
+    const float alt_m = (float)F117::altitude_m;
     if (alt_m > 8000.0f)
-    {
-        float alt_fade = 1.0f - (alt_m - 8000.0f) / 2000.0f;
-        humidity_factor *= (std::max)(0.0f, alt_fade);
-    }
+        humidity_factor *= (std::max)(0.0f, 1.0f - (alt_m - 8000.0f) / 2000.0f);
+    humidity_factor = clampf(humidity_factor, 0.0f, 1.0f);
 
-    humidity_factor = (std::max)(0.0f, (std::min)(1.0f, humidity_factor));
+    // Core suction scales with q * CL, and CL with AoA. A slow approach at
+    // 10 deg shows little vapour; a fast, loaded turn shows a lot.
+    const float q = 0.5f * rho * vel * vel;
+    const float suction = q * clampf(aoa, 0.0f, 25.0f) / 12.0f;
+    const float condensation = 0.25f + 0.75f * smoothstep(3000.0f, 12000.0f, suction);
 
-    if (humidity_factor < 0.01f || vortex_strength * humidity_factor < 0.02f)
-    {
-        out.spline = nullptr;
-        out.spline_points_count = 0;
-        return true;
-    }
+    // Sideslip: the windward vortex is stronger and breaks down earlier.
+    const float side_bias = (idx == 1) ? beta : -beta;
+    const float asym = clampf(1.0f + side_bias * 0.12f, 0.15f, 1.85f);
 
-    // =========================================================================
-    // Sideslip asymmetry — F-117 faceted geometry amplifies windward/leeward
-    // vortex strength difference more than a smooth-skinned delta.
-    // =========================================================================
-    float side_bias = (idx == 1) ? beta : -beta;
-    float asym = 1.0f + side_bias * 0.12f;
-    asym = (std::max)(0.15f, (std::min)(1.85f, asym));
-
-    // --- Density / speed scaling ---
-    float reynolds = rho * vel;
-    float density_scale = (std::min)(1.2f, (std::max)(0.6f, reynolds / 50000.0f));
-    float speed_factor = (std::min)(1.3f, (std::max)(0.7f, vel / 120.0f));
-
-    out.opacity = vortex_strength * 0.10f * asym * density_scale * humidity_factor;
+    const float kOpacityMax = 0.20f;
+    out.opacity = kOpacityMax * vortex_strength * condensation * humidity_factor * asym;
+    if (out.opacity < 0.004f)
+        return detach();
 
     // =========================================================================
-    // VORTEX BURST POSITION
-    //
-    // On a 67.5 deg sweep delta, burst sits well aft of trailing edge at low
-    // alpha and migrates forward with increasing AoA.
-    //
-    // Experimental data for 70 deg delta (closest published sweep to 67.5):
-    //   ~10 deg AoA: burst at ~120% root chord (downstream of TE)
-    //   ~20 deg AoA: burst at ~70% root chord
-    //   ~30 deg AoA: burst at ~30% root chord
-    //   ~40 deg AoA: burst at ~4% (near apex)
+    // GEOMETRY (body frame: x forward, y up, z right; metres)
     // =========================================================================
-    const float spline_length = 8.7f;
-    float burst_frac;
-    if (aoa < 5.0f)
-        burst_frac = 1.5f;
-    else if (aoa < 30.0f)
-        burst_frac = 1.5f - (aoa - 5.0f) * (1.2f / 25.0f);
+    const float kNoseX = 10.02f;        // nose tip
+    const float kLength = 19.43f;       // reference length for breakdown X/L
+    const float kApexX = 9.95f;         // leading edge line meets the centreline
+    const float kSemispanPerM = 0.418f; // tan(90 - 67.3 deg)
+    const float kLeY = -0.28f;          // leading edge height
+    const float kTipX = -6.30f;         // leading edge reaches the tip
+    const float kTeX = -7.00f;          // tip trailing edge
+
+    static const int kSurfN = 17;
+    static const float kSurfX[kSurfN] = {
+        8.5f, 8.0f, 7.0f, 6.0f, 5.0f, 4.0f, 3.0f, 2.0f, 1.0f,
+        0.0f, -1.0f, -2.0f, -3.0f, -4.0f, -5.0f, -6.0f, -6.3f };
+    static const float kSurf90[kSurfN] = {
+        -0.22f, -0.18f, -0.16f, -0.10f, -0.04f, -0.02f, -0.17f, -0.15f, -0.14f,
+        -0.12f, -0.11f, -0.09f, -0.10f, -0.12f, -0.15f, -0.17f, -0.18f };
+    static const float kSurf80[kSurfN] = {
+        -0.22f, -0.09f, 0.01f, 0.09f, 0.17f, 0.22f, 0.11f, -0.03f, 0.00f,
+        0.03f, 0.03f, -0.01f, -0.05f, -0.09f, -0.15f, -0.23f, -0.27f };
+
+    // Upper-surface height at station x and fraction f of the local semispan.
+    auto surface_y = [&](float x, float f) -> float {
+        if (x < kTeX)
+            return -1000.0f; // behind the wing: nothing to clear
+        x = clampf(x, kSurfX[kSurfN - 1], kSurfX[0]);
+        int k = 0;
+        while (k < kSurfN - 2 && x < kSurfX[k + 1])
+            ++k;
+        const float u = (kSurfX[k] - x) / (kSurfX[k] - kSurfX[k + 1]);
+        const float y90 = kSurf90[k] + (kSurf90[k + 1] - kSurf90[k]) * u;
+        const float y80 = kSurf80[k] + (kSurf80[k + 1] - kSurf80[k]) * u;
+        if (f >= 0.9f)
+            return y90 + (kLeY - y90) * clampf((f - 0.9f) / 0.1f, 0.0f, 1.0f);
+        return y80 + (y90 - y80) * clampf((f - 0.8f) / 0.1f, 0.0f, 1.0f);
+    };
+
+    // Conical scaling with local semispan. At low AoA the core hugs the
+    // surface close to the edge; with AoA it moves inboard, grows and lifts.
+    const float a = clampf(aoa, 0.0f, 35.0f);
+    const float f_core = 0.90f - 0.003f * a;      // 0.87 s at 10 deg, 0.81 s at 30
+    const float radius_k = 0.045f + 0.0025f * a;  // vapour radius / s
+    const float gap_k = 0.0025f * a;              // core clearance / s
+    const float trail_slope = 0.5f * tanf(a * 0.0174533f); // wake rises toward the freestream
+
+    // =========================================================================
+    // BREAKDOWN: X/L through Vermeersch Fig. 6.25 (20, 25, 30 deg) and the
+    // text's "just aft of the trailing edge" at 15 deg, extended linearly.
+    // =========================================================================
+    float burst_xl;
+    if (aoa < 20.0f)
+        burst_xl = 0.775f - 0.022f * (aoa - 20.0f);
+    else if (aoa < 25.0f)
+        burst_xl = 0.775f - 0.019f * (aoa - 20.0f);
     else
-        burst_frac = 0.3f - (aoa - 30.0f) * 0.02f;
-    burst_frac = (std::max)(0.05f, (std::min)(1.5f, burst_frac));
-
-    out.explosion_start = burst_frac * spline_length * speed_factor;
-    out.explosion_start = (std::max)(0.5f, out.explosion_start);
+        burst_xl = 0.680f - 0.025f * (aoa - 25.0f);
+    burst_xl -= 0.006f * side_bias;
+    burst_xl += 0.012f * sinf(time * 1.7f + idx * 2.1f) + 0.006f * sinf(time * 4.3f + idx * 0.7f);
+    burst_xl = clampf(burst_xl, 0.40f, 1.40f);
+    const float burst_x = kNoseX - burst_xl * kLength;
+    const bool spiral = aoa > 22.5f; // bubble at 20 deg, spiral at 25 and 30
 
     // =========================================================================
-    // PARAMETRIC PATH — F-117 specific geometry
-    //
-    // Vortex originates at the wing / inlet junction and tracks inboard of
-    // the leading edge at ~15-20% local semi-span.
+    // PATH: apex region to a short wake behind the tip
     // =========================================================================
-    const float x_start = 4.20f, y_start = -0.08f, z_start = 2.10f;
-    const float x_end = -4.50f, y_end = 0.50f, z_end = 5.20f;
+    static constexpr int N = 12;
+    const float x_first = 8.5f, x_last = -9.0f;
+    float bx[N], by[N], bz[N], br[N], dist[N];
+    for (int i = 0; i < N; ++i)
+    {
+        const float x = x_first + (x_last - x_first) * (float)i / (float)(N - 1);
+        const float xs = (std::max)(x, kTipX);
+        const float s = kSemispanPerM * (kApexX - xs);
+        const float r = radius_k * s;
+        const float surf = (std::max)(surface_y(x, f_core), surface_y(x, f_core - radius_k));
+        float y = surf + r + gap_k * s;
+        if (x < kTipX)
+        {
+            const float y_tip = (std::max)(surface_y(kTipX, f_core), surface_y(kTipX, f_core - radius_k))
+                + r + gap_k * s;
+            y = y_tip + (kTipX - x) * trail_slope;
+        }
+        bx[i] = x; by[i] = y; bz[i] = f_core * s; br[i] = r;
+        dist[i] = (i == 0) ? 0.0f : dist[i - 1] + sqrtf(
+            (bx[i] - bx[i - 1]) * (bx[i] - bx[i - 1]) +
+            (by[i] - by[i - 1]) * (by[i] - by[i - 1]) +
+            (bz[i] - bz[i - 1]) * (bz[i] - bz[i - 1]));
+    }
 
-    float curvature_y = aoa * 0.012f;
-    float curvature_z = aoa * 0.004f;
-    float r_scale = 0.95f + aoa * 0.025f;
+    // Distance along the spline to the breakdown point.
+    float burst_d;
+    float burst_r;
+    if (burst_x >= bx[0])
+    {
+        burst_d = 0.0f;
+        burst_r = br[0];
+    }
+    else if (burst_x <= bx[N - 1])
+    {
+        burst_d = dist[N - 1] + (bx[N - 1] - burst_x);
+        burst_r = br[N - 1];
+    }
+    else
+    {
+        int k = 0;
+        while (bx[k + 1] > burst_x)
+            ++k;
+        const float u = (bx[k] - burst_x) / (bx[k] - bx[k + 1]);
+        burst_d = dist[k] + (dist[k + 1] - dist[k]) * u;
+        burst_r = br[k] + (br[k + 1] - br[k]) * u;
+    }
+    out.explosion_start = (std::max)(0.5f, burst_d);
 
-    // Tangents: LE sweep = 67.5 deg, core tracks slightly inboard
-    const float sweep_ratio = 1.8f;
-    const float tx0 = -1.0f, ty0 = 0.04f + curvature_y * 0.25f;
-    const float tz0 = sweep_ratio * 0.35f;
-    const float tx1 = -1.0f, ty1 = 0.01f + curvature_y * 0.10f;
-    const float tz1 = sweep_ratio * 0.15f;
-
-    static constexpr int N = 8;
     static LERX_vortex_spline_point vortex_buffers[2][N];
     LERX_vortex_spline_point* sp = vortex_buffers[idx];
-
     const float zs = (idx == 0) ? -1.0f : 1.0f;
-
-    // =========================================================================
-    // Wing upper-surface clearance envelope
-    // =========================================================================
-    // Piecewise-linear upper surface height in body-axis Y (up = positive) along
-    // the vortex path parameter t=[0,1].  Three stations:
-    //   t=0 (apex/inlet junction): y = -0.20 m  (surface sits below body datum)
-    //   t=0.5 (mid-chord):         y = -0.06 m
-    //   t=1 (trailing edge):       y = +0.12 m  (aft body rises toward elevons)
-    auto wing_surface_y = [](float t) -> float
-        {
-            float y_apex = -0.20f;
-            float y_mid = -0.06f;
-            float y_aft = 0.12f;
-            if (t < 0.5f)
-                return y_apex + (y_mid - y_apex) * (t / 0.5f);
-            else
-                return y_mid + (y_aft - y_mid) * ((t - 0.5f) / 0.5f);
-        };
-
-    const float clearance_margin = 0.03f;
-
-    float burst_t = burst_frac;
-    if (burst_t > 1.0f) burst_t = 1.0f;
 
     for (int i = 0; i < N; ++i)
     {
-        float t = (float)i / (float)(N - 1);
-        float t2 = t * t;
-        float t3 = t2 * t;
+        const float t = (float)i / (float)(N - 1);
+        const float excess = (std::max)(0.0f, dist[i] - burst_d);
+        const float post = clampf(excess / 0.8f, 0.0f, 1.0f); // blend over 0.8 m
 
-        // --- Hermite basis ---
-        float h00 = 2.0f * t3 - 3.0f * t2 + 1.0f;
-        float h10 = t3 - 2.0f * t2 + t;
-        float h01 = -2.0f * t3 + 3.0f * t2;
-        float h11 = t3 - t2;
-
-        // --- Hermite basis derivatives (analytical tangent) ---
-        float dh00 = 6.0f * t2 - 6.0f * t;
-        float dh10 = 3.0f * t2 - 4.0f * t + 1.0f;
-        float dh01 = -6.0f * t2 + 6.0f * t;
-        float dh11 = 3.0f * t2 - 2.0f * t;
-
-        // --- Position via cubic Hermite ---
-        float px = h00 * x_start + h10 * tx0 + h01 * x_end + h11 * tx1;
-        float py = h00 * y_start + h10 * ty0 + h01 * y_end + h11 * ty1;
-        float pz = h00 * z_start + h10 * tz0 + h01 * z_end + h11 * tz1;
-
-        // AoA-dependent curvature: vertical bow + lateral spread
-        py += curvature_y * 4.0f * t * (1.0f - t);
-        pz += curvature_z * 4.0f * t * (1.0f - t);
-
-        // --- Analytical tangent (derivative of position w.r.t. t) ---
-        float dpx = dh00 * x_start + dh10 * tx0 + dh01 * x_end + dh11 * tx1;
-        float dpy = dh00 * y_start + dh10 * ty0 + dh01 * y_end + dh11 * ty1;
-        float dpz = dh00 * z_start + dh10 * tz0 + dh01 * z_end + dh11 * tz1;
-        dpy += curvature_y * 4.0f * (1.0f - 2.0f * t);
-        dpz += curvature_z * 4.0f * (1.0f - 2.0f * t);
-
-        // =================================================================
-        // JITTER — two regimes:
-        //   Pre-burst:  tight helical precession (coherent core)
-        //   Post-burst: chaotic multi-frequency turbulence
-        // =================================================================
-        // Smooth transition across a ±0.05 window centred on the burst point.
-        float blend = (t - (burst_t - 0.05f)) / 0.10f;
-        blend = (std::max)(0.0f, (std::min)(1.0f, blend));
-        float post_burst = blend;
-        float pre_burst  = 1.0f - blend;
-
-        float j_coherent = sinf(time * 6.0f + i * 1.9f) * 0.008f
-            + sinf(time * 11.0f + i * 3.1f) * 0.004f;
-
-        float downstream = (std::max)(0.0f, t - burst_t);
-        float turb_amp = 0.04f * (1.0f + downstream * 3.0f);
-        float j_turbulent = sinf(time * 17.0f + i * 2.3f) * turb_amp
-            + sinf(time * 31.0f + i * 5.7f) * turb_amp * 0.5f
-            + cosf(time * 23.0f + i * 4.1f) * turb_amp * 0.3f;
-
-        float jitter_y = pre_burst * j_coherent + post_burst * j_turbulent;
-        float jitter_z = pre_burst * j_coherent * 0.5f
-            + post_burst * j_turbulent * 0.7f;
-
-        // =================================================================
-        // RADIUS — two regimes:
-        //   Pre-burst:  linear growth (circulation scales with local semispan)
-        //   Post-burst: rapid conical expansion (wake-type flow)
-        // =================================================================
-        float radius_pre = t * 0.80f * r_scale;
-        float excess = (std::max)(0.0f, t - burst_t);
-        float radius_post = (burst_t * 0.80f * r_scale) + excess * 3.2f * r_scale;
-
-        float desired_radius = pre_burst * radius_pre + post_burst * radius_post;
-
-        // Taper to zero at apex (adjusted for N=8 spacing)
-        float apex_taper = (std::min)(1.0f, t * 5.0f);
-        desired_radius *= apex_taper;
-
-        // --- Wing surface clearance clamp ---
-        float wing_y = wing_surface_y(t);
-        float min_core_height = desired_radius + clearance_margin;
-        if ((py - wing_y) < min_core_height)
-            py = wing_y + min_core_height;
-
-        float clearance = py - wing_y - clearance_margin;
-        float max_radius = (std::max)(0.0f, clearance);
-
-        float final_radius = desired_radius;
-        if (desired_radius > 0.0f && max_radius < desired_radius)
+        // Radius: conical before breakdown, rapid wake-type growth after.
+        float radius = br[i];
+        float y = by[i];
+        if (excess > 0.0f)
         {
-            float ratio = max_radius / desired_radius;
-            final_radius = desired_radius * ratio * (2.0f - ratio);
+            radius = (std::min)(1.8f, burst_r + 0.35f * excess);
+            y += 0.12f * excess;
         }
 
-        // =================================================================
-        // OPACITY:
-        //   Pre-burst:  builds from zero, peaks at ~65% of burst distance
-        //   Post-burst: exponential fade with residual turbulent haze
-        // =================================================================
-        float opacity;
-        if (t < burst_t)
+        // Motion: slight core precession before breakdown; after it, a
+        // swirling spiral or a pulsing bubble.
+        const float pre_amp = 0.04f * br[i];
+        float jy = (1.0f - post) * pre_amp * (sinf(time * 6.0f + i * 1.9f) + 0.5f * sinf(time * 11.0f + i * 3.1f));
+        float jz = (1.0f - post) * pre_amp * 0.5f * sinf(time * 7.0f + i * 2.3f);
+        if (post > 0.0f)
         {
-            float peak_t = burst_t * 0.65f;
-            float rise, fall;
-            if (t < peak_t)
-            {
-                float s = t / peak_t;
-                rise = s * s;
-                fall = 1.0f;
-            }
-            else
-            {
-                rise = 1.0f;
-                float s = (t - peak_t) / (burst_t - peak_t);
-                fall = 1.0f - 0.3f * s;
-            }
-            opacity = 0.09f * rise * fall * vortex_strength * asym;
-        }
-        else
-        {
-            float decay = expf(-(t - burst_t) * 6.0f);
-            float haze = 0.15f;
-            opacity = (0.09f * decay + 0.09f * haze * (1.0f - decay))
-                * vortex_strength * asym * 0.5f;
+            const float amp = post * radius * (spiral ? 0.30f : 0.12f);
+            const float phase = time * (spiral ? 9.0f : 5.0f) - excess * 2.5f + i * 0.9f;
+            jy += amp * sinf(phase) + 0.3f * amp * sinf(time * 23.0f + i * 4.1f);
+            jz += amp * cosf(phase) + 0.3f * amp * cosf(time * 17.0f + i * 5.7f);
         }
 
-        // =================================================================
-        // DENSITY BREAKUP — three noise layers for streaky, wispy, non-uniform vapour 
-        //   1. Large-scale patchiness  (whole sections thin/thick)
-        //   2. Medium axial streaks
-        //   3. Fine-grain shimmer
-        // =================================================================
-        float noise1 = sinf(t * 4.5f + time * 1.3f)
-            * sinf(t * 7.2f - time * 0.9f);
-        float noise2 = sinf(t * 13.0f + time * 3.7f + i * 0.8f)
-            * cosf(t * 9.1f + time * 2.1f);
-        float noise3 = sinf(t * 29.0f + time * 11.0f + i * 2.4f);
+        // Opacity shape, 0..1, scaled by out.opacity.
+        //   - fades in aft of the nose as suction builds (photos show vapour
+        //     from about the inlet back);
+        //   - off the wing the pressure recovers and unburst vapour clears;
+        //   - burst vapour turns to a thin haze.
+        float shape = smoothstep(8.0f, 4.5f, bx[i]);
+        if (bx[i] < kTeX && excess <= 0.0f)
+            shape *= expf(-(kTeX - bx[i]) / 1.5f);
+        shape *= 1.0f - post * 0.75f * (1.0f - expf(-excess / 2.0f));
 
-        float density_mod = 1.0f
-            + 0.35f * noise1
-            + 0.20f * noise2
-            + 0.10f * noise3;
+        const float noise1 = sinf(t * 4.5f + time * 1.3f) * sinf(t * 7.2f - time * 0.9f);
+        const float noise2 = sinf(t * 13.0f + time * 3.7f + i * 0.8f) * cosf(t * 9.1f + time * 2.1f);
+        const float noise3 = sinf(t * 29.0f + time * 11.0f + i * 2.4f);
+        const float density = clampf(0.80f + 0.12f * noise1 + 0.06f * noise2 + 0.02f * noise3
+            + post * 0.15f * sinf(time * 19.0f + i * 3.3f), 0.35f, 1.0f);
 
-        // Extra breakup in the turbulent post-burst wake
-        density_mod += post_burst * 0.25f * sinf(time * 19.0f + i * 3.3f);
+        sp[i].radius = radius * (1.0f + 0.10f * noise1 + 0.05f * noise2);
+        sp[i].opacity = clampf(shape * density, 0.0f, 1.0f);
+        sp[i].pos[0] = bx[i];
+        sp[i].pos[1] = y + jy;
+        sp[i].pos[2] = (bz[i] + jz) * zs;
 
-        density_mod = (std::max)(0.05f, (std::min)(1.6f, density_mod));
-
-        // Modulate radius slightly — wisps aren't constant width
-        float radius_mod = 1.0f + 0.12f * noise1 + 0.06f * noise2;
-        sp[i].radius = final_radius * radius_mod;
-
-        // --- Final position ---
-        sp[i].pos[0] = px;
-        sp[i].pos[1] = py + jitter_y;
-        sp[i].pos[2] = pz * zs + jitter_z * zs;
-
-        // --- Normalised tangent from analytical derivative ---
-        float mag = sqrtf(dpx * dpx + dpy * dpy + dpz * dpz);
+        // Unit tangent along the undisturbed path.
+        const int i0 = (i == 0) ? 0 : i - 1;
+        const int i1 = (i == N - 1) ? N - 1 : i + 1;
+        float dx = bx[i1] - bx[i0], dy = by[i1] - by[i0], dz = bz[i1] - bz[i0];
+        float mag = sqrtf(dx * dx + dy * dy + dz * dz);
         if (mag < 1e-6f) mag = 1.0f;
-        float inv_mag = 1.0f / mag;
-
-        sp[i].vel[0] = dpx * inv_mag;
-        sp[i].vel[1] = dpy * inv_mag;
-        sp[i].vel[2] = dpz * inv_mag * zs;
-
-        // --- Composite opacity: base * clamp fade * density breakup * humidity ---
-        float clamp_fade = (desired_radius > 0.01f)
-            ? (final_radius / desired_radius) : 1.0f;
-        sp[i].opacity = opacity * clamp_fade * density_mod * humidity_factor;
+        sp[i].vel[0] = dx / mag;
+        sp[i].vel[1] = dy / mag;
+        sp[i].vel[2] = dz / mag * zs;
     }
 
     out.spline = sp;
     out.spline_points_count = N;
-    out.spline_point_size_in_bytes = sizeof(LERX_vortex_spline_point);
     return true;
 }
