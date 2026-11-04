@@ -3589,8 +3589,16 @@ bool ed_fm_LERX_vortex_update(unsigned idx, LERX_vortex& out)
     const float side_bias = (idx == 1) ? beta : -beta;
     const float asym = clampf(1.0f + side_bias * 0.12f, 0.15f, 1.85f);
 
+    // Photographs of high-g passes show one condensation cloud over the aft
+    // body and no separate vortex tubes. The mod's overwing vapour effect
+    // draws that cloud from about 8 deg AoA and at full strength from 11.5 deg
+    // (OpacityOverPower in Effects/f-117-nighthawk_overwingVapor.lua), so the
+    // vortices fade out over the same range.
+    const float cloud_takeover = smoothstep(8.0f, 11.5f, aoa);
+
     const float kOpacityMax = 0.20f;
-    out.opacity = kOpacityMax * vortex_strength * condensation * humidity_factor * asym;
+    out.opacity = kOpacityMax * vortex_strength * condensation * humidity_factor * asym
+                * (1.0f - cloud_takeover);
     if (out.opacity < 0.004f)
         return detach();
 
