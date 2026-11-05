@@ -1,260 +1,110 @@
-#ifndef __ACTUATORS__
-#define __ACTUATORS__
+#pragma once
 
-#include "../stdafx.h"
-#include <stdio.h>
-#include <string>
-#include <math.h>
-#include "../UtilityFunctions.h"
+#include <initializer_list>
+#include "../EfmMath.h"
 
 namespace F117
 {
-	namespace ACTUATORS
-	{
-		double	elevatorPosition_DEG = 0.0;
-		double	elevatorRate_DEGPERSEC = 0.0;
-		double	aileronPosition_DEG = 0.0;
-		double	aileronRate_DEGPERSEC = 0.0;
-		double	throttle_state = 0.0;
-		double	throttle_rate = 0.0;
-		double	gear_state = 0.0;
-		double	gear_rate = 0.0;
-		double	tailhook_state = 0.0;
-		double	tailhook_rate = 0.0;
-		double	dragchute_state = 0.0;
-		double	dragchute_rate = 0.0;
-		double  internal_fuel;
+    namespace ACTUATORS
+    {
+        // A surface or mechanism that moves toward its command at a speed proportional to the
+        // remaining travel (gain, 1/s), capped by a speed limit and held inside its travel stops.
+        struct Servo
+        {
+            Servo(double gainIn, double minRateIn, double maxRateIn, double minPositionIn, double maxPositionIn)
+                : gain(gainIn), minRate(minRateIn), maxRate(maxRateIn),
+                  minPosition(minPositionIn), maxPosition(maxPositionIn) {}
 
-		bool	simInitialized = false;
+            double gain;
+            double minRate;
+            double maxRate;
+            double minPosition;
+            double maxPosition;
+            double position = 0.0;
+            double rate = 0.0;
 
-		inline bool actuators_need_init()
-		{
-			return !simInitialized;
-		}
+            double move(double command, double dt)
+            {
+                rate = limit(gain * (command - position), minRate, maxRate);
+                position = limit(position + rate * dt, minPosition, maxPosition);
+                return position;
+            }
 
-		double  elevator_actuator(double elevator_DEG_commanded, double frameTime)
-		{
-			if (actuators_need_init())
-			{
-				elevatorPosition_DEG = elevator_DEG_commanded;
-				return elevatorPosition_DEG;
-			}
+            void set(double value)
+            {
+                position = value;
+                rate = 0.0;
+            }
+        };
 
-			elevatorRate_DEGPERSEC = 20.2 * (elevator_DEG_commanded - elevatorPosition_DEG);
+        // Cleared at the start of a session. Until the first frame has run, every actuator
+        // takes its command directly, so the aircraft starts in its mission configuration.
+        bool initialized = false;
 
-			elevatorRate_DEGPERSEC = limit(elevatorRate_DEGPERSEC, -0.5, 0.5);
+        //                 gain   rate limits    travel
+        Servo elevator   { 20.2,  -4.0,  4.0,   -1.0,   1.0 };   // stick-to-elevon path, normalised
+        Servo rudder     { 20.2,  -3.0,  3.0,   -1.0,   1.0 };   // pedal-to-fin path, normalised
+        Servo throttle   { 20.2, -25.0, 20.0,    0.0, 100.0 };
+        Servo gear       { 20.2,  -0.5,  0.5,    0.0,   1.0 };   // 0 up, 1 down
+        Servo tailhook   { 20.2, -0.75, 0.75,    0.0,   1.0 };
+        Servo weaponBay  { 20.2,  -0.5,  0.5,    0.0,   1.0 };   // 0 closed, 1 open
+        Servo dragChute  { 20.2,   0.0, 0.75,    0.0,   1.0 };   // deploys only; stowing is immediate
 
-			elevatorPosition_DEG += (elevatorRate_DEGPERSEC * frameTime);
+        inline double drive(Servo& servo, double command, double dt)
+        {
+            if (!initialized)
+            {
+                servo.position = command;
+                return command;
+            }
+            return servo.move(command, dt);
+        }
 
-			elevatorPosition_DEG = limit(elevatorPosition_DEG, -20.0, 20.0);
+        // While the gear can't retract (weight on the wheels), any up command is treated as down.
+        inline double drive_gear(double command, double dt, bool retractionBlocked)
+        {
+            if (retractionBlocked && command < 1.0)
+                command = 1.0;
+            return drive(gear, command, dt);
+        }
 
-			return elevatorPosition_DEG;
-		}
+        // The chute can be streamed only on the ground, from about 60 to 160 kt. Once out it stays
+        // out until it is released, the jet slows below about 18 kt, or it fails above about 160 kt.
+        inline double drive_drag_chute(double command, double dt, double groundSpeed_MPS, bool weightOnWheels)
+        {
+            if (!initialized)
+            {
+                dragChute.position = command;
+                return command;
+            }
 
-		double  aileron_actuator(double roll_cmd, double frameTime)
-		{
-			if (actuators_need_init())
-			{
-				aileronPosition_DEG = roll_cmd;
-				return aileronPosition_DEG;
-			}
+            constexpr double kStreamMin_MPS = 30.87;
+            constexpr double kFailSpeed_MPS = 82.31;
+            constexpr double kCollapse_MPS = 9.14;
+            constexpr double kOutThreshold = 0.1;
 
-			aileronRate_DEGPERSEC = 15.0 * (roll_cmd - aileronPosition_DEG);
+            const bool alreadyOut = dragChute.position >= kOutThreshold;
+            const bool inStreamWindow = groundSpeed_MPS >= kStreamMin_MPS && groundSpeed_MPS <= kFailSpeed_MPS;
+            const bool speedKillsChute = groundSpeed_MPS < kCollapse_MPS || groundSpeed_MPS > kFailSpeed_MPS;
 
-			aileronRate_DEGPERSEC = limit(aileronRate_DEGPERSEC, -20.0, 20.0);
+            double target = command;
+            if (command > kOutThreshold && (!weightOnWheels || (!alreadyOut && !inStreamWindow)))
+                target = 0.0;
+            if (speedKillsChute)
+                target = 0.0;
 
-			aileronPosition_DEG += (aileronRate_DEGPERSEC * frameTime);
+            if (target < kOutThreshold)
+            {
+                dragChute.set(0.0);
+                return 0.0;
+            }
+            return dragChute.move(target, dt);
+        }
 
-			aileronPosition_DEG = limit(aileronPosition_DEG, -20.0, 20.0);
-
-			return aileronPosition_DEG;
-		}
-
-		float	rudderPosition_DEG = 0.0;
-		float	rudderRate_DEGPERSEC = 0.0;
-
-		float  rudder_actuator(float rudderCommanded_DEG, double frameTime)
-		{
-			if (actuators_need_init())
-			{
-				rudderPosition_DEG = rudderCommanded_DEG;
-				return rudderPosition_DEG;
-			}
-
-			rudderRate_DEGPERSEC = (float)(20.2 * (rudderCommanded_DEG - rudderPosition_DEG));
-
-			rudderRate_DEGPERSEC = (float)limit(rudderRate_DEGPERSEC, -3.0, 3.0);
-
-			rudderPosition_DEG += (float)(rudderRate_DEGPERSEC * frameTime);
-
-			rudderPosition_DEG = (float)limit(rudderPosition_DEG, -1.0, 1.0);
-
-			return rudderPosition_DEG;
-		}
-
-		double  throttle_actuator(double throttleInput, double frameTime)
-		{
-			if (actuators_need_init())
-			{
-				throttle_state = throttleInput;
-				return throttle_state;
-			}
-
-			throttle_rate = 20.2 * (throttleInput - throttle_state);
-			throttle_rate = limit(throttle_rate, -25.0, 20.0);
-			throttle_state += (throttle_rate * frameTime);
-			throttle_state = limit(throttle_state, 0.0, 100.0);
-
-			return throttle_state;
-		}
-		double  gear_actuator(double GearCommand, double frameTime, bool weight_on_wheels)
-		{
-			if (weight_on_wheels && GearCommand < 1.0)
-			{
-				GearCommand = 1.0;
-			}
-
-			if (actuators_need_init())
-			{
-				gear_state = GearCommand;
-				return gear_state;
-			}
-			gear_rate = 20.2 * (GearCommand - gear_state);
-			gear_rate = limit(gear_rate, -0.5, 0.5);
-			gear_state += (gear_rate * frameTime);
-			gear_state = limit(gear_state, 0.0, 100.0);
-
-			return gear_state;
-		}
-		float elev_pos = 0.0;
-		float elev_rate = 0.0;
-
-		float  elev_actuator(float longStickInput, double frameTime)
-		{
-			if (actuators_need_init())
-			{
-				elev_pos = longStickInput;
-				return elev_pos;
-			}
-
-			elev_rate = (float)(20.2 * (longStickInput - elev_pos));
-			elev_rate = (float)limit(elev_rate, -4.0, 4.0);
-			elev_pos += (float)(elev_rate * frameTime);
-			elev_pos = (float)limit(elev_pos, -1.0, 1.0);
-
-			return elev_pos;
-		}
-
-		double tailhook_actuator(double tailhook_command, double frameTime)
-		{
-			if (actuators_need_init())
-			{
-				tailhook_state = tailhook_command;
-				return tailhook_state;
-			}
-			tailhook_rate = 20.2 * (tailhook_command - tailhook_state);
-			tailhook_rate = limit(tailhook_rate, -0.75, 0.75);
-			tailhook_state += (tailhook_rate * frameTime);
-			tailhook_state = limit(tailhook_state, 0.0, 1.0);
-	
-			return tailhook_state;
-		}
-
-		double dragchute_actuator(double dragchute_command, double frameTime, double velocity_mps, double gear_down,
-			bool weight_on_wheels)
-		{
-			if (actuators_need_init())
-			{
-				dragchute_state = dragchute_command;
-				return dragchute_state;
-			}
-
-			// Drag chute deployment safety checks
-			// Only allow deployment if:
-			// 1. On the ground (weight on wheels)
-			// 2. Speed between ~60-140 knots (30-72 m/s)
-			// 3. Once deployed, can stay deployed until retracted or speed drops too low
-
-			constexpr double minDeploySpeed_MPS  = 30.87; // ~60 knots
-			constexpr double maxDeploySpeed_MPS  = 82.31; // ~160 knots (chute will tear off above this)
-			constexpr double minSustainSpeed_MPS =  9.14; // ~18 knots - auto-retract below this
-
-			bool speedOkForDeploy = (velocity_mps >= minDeploySpeed_MPS &&
-				velocity_mps <= maxDeploySpeed_MPS);
-			bool speedTooSlow = (velocity_mps < minSustainSpeed_MPS);
-			bool speedTooFast = (velocity_mps > maxDeploySpeed_MPS);
-
-			// Override the command when deployment conditions are not met.
-			double safeCommand = dragchute_command;
-
-			if (dragchute_command > 0.1) {
-				// User wants to deploy
-				if (!weight_on_wheels) {
-					safeCommand = 0.0;  // Block deployment in air
-				}
-				else if (!speedOkForDeploy && dragchute_state < 0.1) {
-					safeCommand = 0.0;  // Block initial deployment if speed not in range
-				}
-			}
-
-			// Auto-retract if speed is too slow or too fast.
-			if (speedTooSlow || speedTooFast) {
-				safeCommand = 0.0;  // Force retraction
-			}
-
-			// Actuator dynamics
-			if (safeCommand < 0.1) {
-				// Instant retraction (jettison/stow)
-				dragchute_state = 0.0;
-			}
-			else {
-				// Gradual deployment
-				dragchute_rate = 20.2 * (safeCommand - dragchute_state);
-				dragchute_rate = limit(dragchute_rate, 0.0, 0.75);  // Only positive rate (deploy only)
-				dragchute_state += (dragchute_rate * frameTime);
-				dragchute_state = limit(dragchute_state, 0.0, 1.0);
-			}
-
-			return dragchute_state;
-		}
-
-		float misc_pos = 0.0;
-		float misc_rate = 0.0;
-
-		float  misc_actuator(float misc_cmd, double frameTime)
-		{
-			if (actuators_need_init())
-			{
-				misc_pos = misc_cmd;
-				return misc_pos;
-			}
-			misc_rate = (float)(20.2 * (misc_cmd - misc_pos));
-			misc_rate = (float)limit(misc_rate, -0.5, 0.5);
-			misc_pos += (float)(misc_rate * frameTime);
-			misc_pos = (float)limit(misc_pos, 0.0, 1.0);
-
-			return misc_pos;
-		}
-
-		float misc_posH = 0.0;
-		float misc_rateH = 0.0;
-
-		float  misc_actuatorH(float misc_cmdH, double frameTime)
-		{
-			if (actuators_need_init())
-			{
-				misc_posH = misc_cmdH;
-				return misc_posH;
-			}
-			misc_rateH = (float)(20.2 * (misc_cmdH - misc_posH));
-			misc_rateH = (float)limit(misc_rateH, -0.5, 0.5);
-			misc_posH += (float)(misc_rateH * frameTime);
-			misc_posH = (float)limit(misc_posH, 0.0, 1.0);
-
-			return misc_posH;
-		}
-	};
-
+        inline void reset_all()
+        {
+            for (Servo* servo : { &elevator, &rudder, &throttle, &gear, &tailhook, &weaponBay, &dragChute })
+                servo->set(0.0);
+        }
+    }
 }
-
-#endif

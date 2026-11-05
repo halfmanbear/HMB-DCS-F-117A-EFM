@@ -1,6 +1,6 @@
 ﻿#include "stdafx.h"
 #include "F_117_NightHawk.h"
-#include "ED_FM_Utility.h"		// Provided utility functions that were in the initial EFM example
+#include "EfmMath.h"			// Vec3, cross, limit
 #include <Math.h>
 #include <stdio.h>
 #include <string>
@@ -8,7 +8,6 @@
 #include <queue>
 #include <cmath>
 #include <fstream>
-#include "UtilityFunctions.h"	// Utility help functions
 #include "Inputs.h"
 
 #include "include/Cockpit/CockpitAPI_Declare.h" // Provides param handle interfacing for use in lua
@@ -152,8 +151,6 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	float		rudder_pos				= 0.0;			//Rudder(s) deflection
 	float		misc_cmd				= 0.0;			// Generic misc actuator command used for the weapon bay animation.
 	float		misc_state				= 0.0;
-	float		misc_cmdH				= 0.0;			// Secondary misc actuator command used for the hook-related animation path.
-	float		misc_stateH				= 0.0;
     bool        weapon_release_pickle_held = false;
     bool        weapon_release_gate = false;
     bool        weapon_release_gate_fired = false;
@@ -1506,21 +1503,21 @@ namespace
         switch (command)
         {
         case tailhook:
-            if (F117::ACTUATORS::tailhook_state < kToggleLowThreshold)
+            if (F117::ACTUATORS::tailhook.position < kToggleLowThreshold)
             {
                 F117::tailhook_command = 1.0;
             }
-            else if (F117::ACTUATORS::tailhook_state > kToggleHighThreshold)
+            else if (F117::ACTUATORS::tailhook.position > kToggleHighThreshold)
             {
                 F117::tailhook_command = 0.0;
             }
             return true;
         case dragChute:
-            if (F117::ACTUATORS::dragchute_state < kToggleLowThreshold)
+            if (F117::ACTUATORS::dragChute.position < kToggleLowThreshold)
             {
                 F117::dragchute_command = 1.0;
             }
-            else if (F117::ACTUATORS::dragchute_state > kToggleHighThreshold)
+            else if (F117::ACTUATORS::dragChute.position > kToggleHighThreshold)
             {
                 F117::dragchute_command = 0.0;
             }
@@ -1533,11 +1530,11 @@ namespace
             set_gear_command(kGearCommandUp);
             return true;
         case geartoggle:
-            if (F117::ACTUATORS::gear_state > kGearToggleThreshold)
+            if (F117::ACTUATORS::gear.position > kGearToggleThreshold)
             {
                 set_gear_command(kGearCommandUp);
             }
-            else if (F117::ACTUATORS::gear_state < kGearToggleThreshold)
+            else if (F117::ACTUATORS::gear.position < kGearToggleThreshold)
             {
                 set_gear_command(kGearCommandDown);
             }
@@ -1949,11 +1946,10 @@ void update_flight_control_commands(double dt, double controlDegradation)
     const double maxRollDEG = (std::max)(0.0, 45.0 - std::abs(F117::elevator_DEG));
     F117::aileron_DEG = limit(F117::aileron_DEG_commanded + F117::rollTrim, -maxRollDEG, maxRollDEG);
 
-    F117::dragchute = F117::ACTUATORS::dragchute_actuator(
+    F117::dragchute = F117::ACTUATORS::drive_drag_chute(
         F117::dragchute_command,
         dt,
         F117::totalVelocity_MPS,
-        F117::gearDown,
         F117::weight_on_wheels);
 
     // Keep the high-beta/high-yaw-rate rudder limiter symmetric left vs right.
@@ -1982,23 +1978,22 @@ void update_flight_control_commands(double dt, double controlDegradation)
 
 double update_airframe_actuators(double dt)
 {
-    F117::elev_pos = F117::ACTUATORS::elev_actuator(
-        static_cast<float>(F117::FLIGHTCONTROLS::longStickInput / aoa_filter + (F117::pitchTrim / 15)),
-        dt);
+    F117::elev_pos = static_cast<float>(F117::ACTUATORS::drive(F117::ACTUATORS::elevator,
+        F117::FLIGHTCONTROLS::longStickInput / aoa_filter + (F117::pitchTrim / 15),
+        dt));
 
     const double tailIntegrity = (g_damage.leftTail + g_damage.rightTail) / 2.0;
-    F117::rudder_pos = static_cast<float>(F117::ACTUATORS::rudder_actuator(static_cast<float>(F117::pedInput), dt) * tailIntegrity);
+    F117::rudder_pos = static_cast<float>(F117::ACTUATORS::drive(F117::ACTUATORS::rudder, F117::pedInput, dt) * tailIntegrity);
 
     const double noseWheelRangeTarget = F117::nwsAuthorityHeld ? F117::kNoseWheelYawHigh_RAD : F117::kNoseWheelYawLow_RAD;
     const double noseWheelRangeStep = F117::kNoseWheelYawRangeRate_RADPS * dt;
     F117::noseWheelYawRange_RAD += limit(noseWheelRangeTarget - F117::noseWheelYawRange_RAD, -noseWheelRangeStep, noseWheelRangeStep);
 
     F117::GearCommand = clamp_gear_command_for_weight_on_wheels(F117::GearCommand);
-    F117::gearDown = F117::ACTUATORS::gear_actuator(F117::GearCommand, dt, gear_retraction_blocked());
+    F117::gearDown = F117::ACTUATORS::drive_gear(F117::GearCommand, dt, gear_retraction_blocked());
 
-    F117::tailhook_pos = F117::ACTUATORS::tailhook_actuator(F117::tailhook_command, dt);
-    F117::misc_state = F117::ACTUATORS::misc_actuator(F117::misc_cmd, dt);
-    F117::misc_stateH = F117::ACTUATORS::misc_actuatorH(F117::misc_cmdH, dt);
+    F117::tailhook_pos = F117::ACTUATORS::drive(F117::ACTUATORS::tailhook, F117::tailhook_command, dt);
+    F117::misc_state = static_cast<float>(F117::ACTUATORS::drive(F117::ACTUATORS::weaponBay, F117::misc_cmd, dt));
 
     return tailIntegrity;
 }
@@ -2055,7 +2050,7 @@ void publish_engine_start_params()
 void update_propulsion_and_control_effectiveness(double dt, double tailIntegrity)
 {
     const double avgEngineIntegrity = (g_damage.leftEngine + g_damage.rightEngine) / 2.0;
-    F117::throttle_state = F117::ACTUATORS::throttle_actuator(F117::throttleInput * avgEngineIntegrity, dt);
+    F117::throttle_state = F117::ACTUATORS::drive(F117::ACTUATORS::throttle, F117::throttleInput * avgEngineIntegrity, dt);
 
     // Each start sequence owns its engine's N2 until the starter cuts out; then the engine model takes over.
     const double integrity[2] = { g_damage.leftEngine, g_damage.rightEngine };
@@ -2134,10 +2129,10 @@ double lift_ground_effect_gain()
 void update_aerodynamic_coefficients()
 {
     // On wing area. Set with the brakes by the landing distances in TO 1F-117A-1 (Figure A8-2).
-    const double CDchute = 0.20 * F117::ACTUATORS::dragchute_state;
+    const double CDchute = 0.20 * F117::ACTUATORS::dragChute.position;
     const double Cxchute = CDchute * cos(F117::pi / 180.0);
 
-    const double CDbay = 0.015 * F117::ACTUATORS::misc_pos;
+    const double CDbay = 0.015 * F117::ACTUATORS::weaponBay.position;
     const double Czbay = -(CDbay * sin(F117::pi / 180.0));
     const double Cxbay = CDbay * cos(F117::pi / 180.0);
 
@@ -2412,7 +2407,7 @@ update_aerodynamic_coefficients();
 apply_aerodynamic_forces_and_thrust();
 		// Mark subsystem initialization complete after the first successful simulation frame.
 		F117::simInitialized = true;
-		F117::ACTUATORS::simInitialized = true;
+		F117::ACTUATORS::initialized = true;
 		F117::FLIGHTCONTROLS::simInitialized = true;
 
 		update_weight_on_wheels();
@@ -2716,15 +2711,13 @@ namespace
     {
         if (F117::simInitialized)
         {
-            F117::ACTUATORS::gear_state = drawargs[kGearArgNose];
-            F117::ACTUATORS::gear_state = drawargs[kGearArgLeft];
-            F117::ACTUATORS::gear_state = drawargs[kGearArgRight];
+            F117::ACTUATORS::gear.position = drawargs[kGearArgRight];
         }
         else
         {
-            drawargs[kGearArgNose] = static_cast<float>(F117::ACTUATORS::gear_state);
-            drawargs[kGearArgLeft] = static_cast<float>(F117::ACTUATORS::gear_state);
-            drawargs[kGearArgRight] = static_cast<float>(F117::ACTUATORS::gear_state);
+            drawargs[kGearArgNose] = static_cast<float>(F117::ACTUATORS::gear.position);
+            drawargs[kGearArgLeft] = static_cast<float>(F117::ACTUATORS::gear.position);
+            drawargs[kGearArgRight] = static_cast<float>(F117::ACTUATORS::gear.position);
         }
     }
 
@@ -2750,8 +2743,8 @@ namespace
 
     void update_misc_draw_args(float* drawargs, size_t size)
     {
-        drawargs[kDragChuteArg] = static_cast<float>(ACTUATORS::dragchute_state);
-        drawargs[kTailhookArg] = static_cast<float>(ACTUATORS::tailhook_state);
+        drawargs[kDragChuteArg] = static_cast<float>(ACTUATORS::dragChute.position);
+        drawargs[kTailhookArg] = static_cast<float>(ACTUATORS::tailhook.position);
         drawargs[kWeaponBayArg] = static_cast<float>(limit(F117::misc_state, 0.0, 1.0));
 
         if (size > kMirroredGearDrawArgRequiredSize)
@@ -2828,7 +2821,7 @@ namespace
         case ED_FM_SUSPENSION_1_GEAR_POST_STATE:
         case ED_FM_SUSPENSION_2_GEAR_POST_STATE:
         case ED_FM_SUSPENSION_0_DOWN_LOCK:
-            value = F117::ACTUATORS::gear_state;
+            value = F117::ACTUATORS::gear.position;
             return true;
         case ED_FM_FC3_GEAR_HANDLE_POS:
             value = F117::GearCommand;
@@ -3004,7 +2997,7 @@ namespace
     void reset_session_controls()
     {
         F117::simInitialized = false;
-        F117::ACTUATORS::simInitialized = false;
+        F117::ACTUATORS::initialized = false;
         F117::FLIGHTCONTROLS::reset_runtime_state();
         F117::alt_hold = F117::altroll_hold = F117::horiz_hold = 0;
         F117::airRefuelDoorOpen = false;
@@ -3031,19 +3024,10 @@ namespace
         F117::rolling_friction = kWheelBrakeOffFriction;
         F117::tailhook_command = F117::tailhook_pos = 0.0;
         F117::dragchute_command = F117::dragchute = 0.0;
-        F117::misc_cmd = F117::misc_state = F117::misc_cmdH = F117::misc_stateH = 0.0;
+        F117::misc_cmd = F117::misc_state = 0.0;
         F117::surface_height_valid = F117::altitude_valid = false;
         for (bool& wow : F117::suspension_wow) wow = false;
-        F117::ACTUATORS::elevatorPosition_DEG = F117::ACTUATORS::elevatorRate_DEGPERSEC = 0.0;
-        F117::ACTUATORS::aileronPosition_DEG = F117::ACTUATORS::aileronRate_DEGPERSEC = 0.0;
-        F117::ACTUATORS::rudderPosition_DEG = F117::ACTUATORS::rudderRate_DEGPERSEC = 0.0f;
-        F117::ACTUATORS::throttle_state = F117::ACTUATORS::throttle_rate = 0.0;
-        F117::ACTUATORS::gear_state = F117::ACTUATORS::gear_rate = 0.0;
-        F117::ACTUATORS::tailhook_state = F117::ACTUATORS::tailhook_rate = 0.0;
-        F117::ACTUATORS::dragchute_state = F117::ACTUATORS::dragchute_rate = 0.0;
-        F117::ACTUATORS::elev_pos = F117::ACTUATORS::elev_rate = 0.0f;
-        F117::ACTUATORS::misc_pos = F117::ACTUATORS::misc_rate = 0.0f;
-        F117::ACTUATORS::misc_posH = F117::ACTUATORS::misc_rateH = 0.0f;
+        F117::ACTUATORS::reset_all();
         g_autothrottle.reset();
         g_paars.reset();
         g_paarsEngagedAutothrottle = false;
@@ -3053,7 +3037,7 @@ namespace
     void apply_ground_start_state(bool enginesRunning)
     {
         reset_session_controls();
-        F117::ACTUATORS::gear_state = kGearCommandDown;
+        F117::ACTUATORS::gear.set(kGearCommandDown);
         F117::gearDown = kGearCommandDown;
         F117::GearCommand = kGearCommandDown;
         F117::weight_on_wheels = true;

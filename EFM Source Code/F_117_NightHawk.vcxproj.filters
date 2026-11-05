@@ -29,16 +29,16 @@
     <ClInclude Include="FlightControls\FlightControls.h">
       <Filter>FlightControls</Filter>
     </ClInclude>
+    <ClInclude Include="FlightControls\TustinFilter.h">
+      <Filter>FlightControls</Filter>
+    </ClInclude>
     <ClInclude Include="Actuators\Actuators.h">
       <Filter>Actuators</Filter>
     </ClInclude>
     <ClInclude Include="ED_API.h">
       <Filter>API</Filter>
     </ClInclude>
-    <ClInclude Include="ED_FM_Utility.h">
-      <Filter>Utilities</Filter>
-    </ClInclude>
-    <ClInclude Include="UtilityFunctions.h">
+    <ClInclude Include="EfmMath.h">
       <Filter>Utilities</Filter>
     </ClInclude>
     <ClInclude Include="include\FM\wHumanCustomPhysicsAPI.h">

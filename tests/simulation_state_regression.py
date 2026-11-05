@@ -54,7 +54,7 @@ double elevator_DEG_commanded=0,aileron_DEG_commanded=0,rudder_DEG_commanded=0;
 float elev_pos=0,rudder_pos=0;
 double elevator_PCT=0,aileron_PCT=0,rudder_PCT=0,throttle_state=0,rolling_friction=0,WheelBrakeCommand=0;
 double pitchTrim=0,rollTrim=0,yawTrim=0,tailhook_command=0,tailhook_pos=0,dragchute_command=0,dragchute=0;
-double misc_cmd=0,misc_state=0,misc_cmdH=0,misc_stateH=0;
+float misc_cmd=0,misc_state=0;
 namespace ENGINE {struct EngineState {double N2=0,thrustFractionOfMax=0;};}
 ENGINE::EngineState engines[2];
 double engine_thrust_N[2]={},engine_fuel_flow_kg_s[2]={},engine_egt_C[2]={},engine_oil_psi[2]={};
@@ -108,7 +108,7 @@ void check_mass(double expected) {
 void dirty_session() {
     alt_hold=altroll_hold=horiz_hold=1;airRefuelDoorOpen=true;
     pitchTrim=rollTrim=yawTrim=3;surface_height_valid=altitude_valid=true;
-    ACTUATORS::dragchute_state=1;ACTUATORS::gear_state=.4;ACTUATORS::misc_posH=1;
+    ACTUATORS::dragChute.position=1;ACTUATORS::gear.position=.4;ACTUATORS::weaponBay.position=1;
     thrust_N=80000;elev_pos=rudder_pos=1;
     FLIGHTCONTROLS::longStickInput=1;fuel_mass_in_dcs=3;
     g_autothrottle.engage(300,50,true,true);g_paars.engage(-30,0,false,false);
@@ -116,8 +116,8 @@ void dirty_session() {
 void check_clean_session() {
     assert(alt_hold==0&&altroll_hold==0&&horiz_hold==0&&!airRefuelDoorOpen);
     assert(pitchTrim==0&&rollTrim==0&&yawTrim==0);
-    assert(ACTUATORS::dragchute_state==0&&ACTUATORS::misc_posH==0);
-    assert(!ACTUATORS::simInitialized&&!simInitialized&&FLIGHTCONTROLS::longStickInput==0);
+    assert(ACTUATORS::dragChute.position==0&&ACTUATORS::weaponBay.position==0);
+    assert(!ACTUATORS::initialized&&!simInitialized&&FLIGHTCONTROLS::longStickInput==0);
     assert(!g_autothrottle.engaged()&&!g_paars.engaged());
     assert(!surface_height_valid&&!altitude_valid);
     assert(thrust_N==0&&elev_pos==0&&rudder_pos==0);
@@ -178,7 +178,7 @@ int main() {
     // Weight on wheels is wheel contact only. Climbing out with the gear down, lift is below weight and the
     // vertical acceleration is small, and the gear must still come up.
     for(bool& wow:suspension_wow)wow=false;wow_from_draw_args=false;
-    ACTUATORS::gear_state=1;gearDown=1;GearCommand=kGearCommandDown;
+    ACTUATORS::gear.position=1;gearDown=1;GearCommand=kGearCommandDown;
     update_weight_on_wheels();assert(!weight_on_wheels&&!gear_retraction_blocked());
     set_gear_command(kGearCommandUp);update_weight_on_wheels();assert(GearCommand==kGearCommandUp);
     // Any wheel on the ground holds the handle down, from the suspension or the strut draw args.
@@ -196,13 +196,13 @@ int main() {
     dirty_session();ed_fm_release();check_clean_session();assert(fuel_mass_in_dcs==0);
     // DCS collects the loaded fuel before it calls the start functions, so they must not forget it.
     dirty_session();apply_ground_start_state(false);check_clean_session();assert(fuel_mass_in_dcs==3);
-    assert(gearDown==1&&ACTUATORS::gear_state==1&&weight_on_wheels&&!engineswitch&&engines[0].N2==0&&engines[1].N2==0);
+    assert(gearDown==1&&ACTUATORS::gear.position==1&&weight_on_wheels&&!engineswitch&&engines[0].N2==0&&engines[1].N2==0);
     assert(g_engineStarts.engine[0].phase==ENGINE_START::OFF&&g_engineStarts.engine[1].phase==ENGINE_START::OFF);
     dirty_session();apply_ground_start_state(true);check_clean_session();
-    assert(gearDown==1&&ACTUATORS::gear_state==1&&engineswitch&&engines[0].N2==kGroundStartIdleN2&&engines[1].N2==kGroundStartIdleN2);
+    assert(gearDown==1&&ACTUATORS::gear.position==1&&engineswitch&&engines[0].N2==kGroundStartIdleN2&&engines[1].N2==kGroundStartIdleN2);
     assert(g_engineStarts.engine[0].running()&&g_engineStarts.engine[1].running());
     dirty_session();apply_air_start_state();check_clean_session();
-    assert(gearDown==0&&ACTUATORS::gear_state==0&&!weight_on_wheels&&engineswitch&&engines[0].N2==kAirStartN2&&engines[1].N2==kAirStartN2);
+    assert(gearDown==0&&ACTUATORS::gear.position==0&&!weight_on_wheels&&engineswitch&&engines[0].N2==kAirStartN2&&engines[1].N2==kAirStartN2);
     assert(g_engineStarts.any_running()&&std::isnan(engine_egt_C[0]));
     assert(FLIGHTCONTROLS::resets==4);
     puts("PASS: production fuel accumulation/mass collection/unlimited/exhaustion, weight on wheels from wheel contact only, surface clearance, PAARS world descent and all session reset paths");

@@ -8,12 +8,11 @@
 #include <vector>
 #include <shlobj.h>
 
-#include "../include/general_filter.h"
+#include "TustinFilter.h"
+#include "../EfmMath.h"
 
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Ole32.lib")
-
-double limit(double input, double lower_limit, double upper_limit);
 
 namespace F117
 {
@@ -30,17 +29,17 @@ namespace F117
             std::ofstream debugLog;
             int logCounter = 0;
 
-            GeneralFilter pitchActuatorDynamicsFilter;
-            GeneralFilter latStickForceFilter;
-            GeneralFilter rollCommandFilter;
-            GeneralFilter rollActuatorDynamicsFilter;
-            GeneralFilter rollRateFilter1;
-            GeneralFilter rollRateFilter2;
-            GeneralFilter rudderCommandFilter;
-            GeneralFilter yawRateFilter;
-            GeneralFilter yawServoFilter;
-            GeneralFilter pitchRateWashoutFilter;        // AOA limiter pitch-rate anticipation
-            GeneralFilter pitchRateFeedbackWashout;      // main-loop pitch-rate blend (P+I feedback)
+            TustinFilter pitchActuatorDynamicsFilter;
+            TustinFilter latStickForceFilter;
+            TustinFilter rollCommandFilter;
+            TustinFilter rollActuatorDynamicsFilter;
+            TustinFilter rollRateFilter1;
+            TustinFilter rollRateFilter2;
+            TustinFilter rudderCommandFilter;
+            TustinFilter yawRateFilter;
+            TustinFilter yawServoFilter;
+            TustinFilter pitchRateWashoutFilter;        // AOA limiter pitch-rate anticipation
+            TustinFilter pitchRateFeedbackWashout;      // main-loop pitch-rate blend (P+I feedback)
 
             double stickCommandPosFiltered = 0.0;
             double azFiltered = 0.0;
@@ -579,18 +578,18 @@ namespace F117
                 // Beta command low-pass filter
                 double numerators[2] = { 0.0, YawControllerConfig::kCommandFilterRate };
                 double denominators[2] = { 1.0, YawControllerConfig::kCommandFilterRate };
-                rudderCommandFilter.InitFilter(numerators, denominators, 1, dt);
+                rudderCommandFilter.configure(numerators, denominators, 1, dt);
 
                 // Yaw rate lead-lag shaping
                 double numerators2[2] = { YawControllerConfig::kYawLeadLagNumerator0, YawControllerConfig::kYawLeadLagPole };
                 double denominators2[2] = { 1.0, YawControllerConfig::kYawLeadLagPole };
-                yawRateFilter.InitFilter(numerators2, denominators2, 1, dt);
+                yawRateFilter.configure(numerators2, denominators2, 1, dt);
 
                 // Fin servo dynamics
                 const double servoOmegaSquared = std::pow(YawControllerConfig::kServoNaturalFrequency, 2.0);
                 double numerators3[3] = { 0.0, 0.0, servoOmegaSquared };
                 double denominators3[3] = { 1.0, 2.0 * YawControllerConfig::kServoDampingRatio * YawControllerConfig::kServoNaturalFrequency, servoOmegaSquared };
-                yawServoFilter.InitFilter(numerators3, denominators3, 2, dt);
+                yawServoFilter.configure(numerators3, denominators3, 2, dt);
 
                 yawControlAccumulator = 0.0;
                 yawHeldOutput = 0.0;
@@ -627,18 +626,18 @@ namespace F117
                 const double servoOmegaSquared = std::pow(PitchControllerConfig::kPitchServoNaturalFrequency, 2.0);
                 double numerators[3] = { 0.0, 0.0, servoOmegaSquared };
                 double denominators[3] = { 1.0, 2.0 * PitchControllerConfig::kPitchServoDampingRatio * PitchControllerConfig::kPitchServoNaturalFrequency, servoOmegaSquared };
-                pitchActuatorDynamicsFilter.InitFilter(numerators, denominators, 2, dt);
+                pitchActuatorDynamicsFilter.configure(numerators, denominators, 2, dt);
 
                 // AOA limiter pitch-rate anticipation washout filter (tau = 0.5 s)
                 double washoutNum[2]  = { 1.0, 0.0 };
                 double washoutDen[2]  = { 1.0, PitchControllerConfig::kAoAAnticipationWashoutTauInverse };
-                pitchRateWashoutFilter.InitFilter(washoutNum, washoutDen, 1, dt);
+                pitchRateWashoutFilter.configure(washoutNum, washoutDen, 1, dt);
 
                 // Main-loop pitch-rate feedback blend washout filter (tau = 1.0 s)
                 // Separate from the AOA anticipation filter — different time constant.
                 double blendWashoutNum[2] = { 1.0, 0.0 };
                 double blendWashoutDen[2] = { 1.0, PitchControllerConfig::kPitchRateBlendWashoutTauInv };
-                pitchRateFeedbackWashout.InitFilter(blendWashoutNum, blendWashoutDen, 1, dt);
+                pitchRateFeedbackWashout.configure(blendWashoutNum, blendWashoutDen, 1, dt);
 
                 stickCommandPosFiltered = 0.0;
                 azFiltered = 0.0;
@@ -658,24 +657,24 @@ namespace F117
             {
                 double numerators[2] = { 0.0, RollControllerConfig::kLatForceFilterPole };
                 double denominators[2] = { 1.0, RollControllerConfig::kLatForceFilterPole };
-                latStickForceFilter.InitFilter(numerators, denominators, 1, dt);
+                latStickForceFilter.configure(numerators, denominators, 1, dt);
 
                 double numerators1[2] = { 0.0, RollControllerConfig::kRollCommandFilterPole };
                 double denominators1[2] = { 1.0, RollControllerConfig::kRollCommandFilterPole };
-                rollCommandFilter.InitFilter(numerators1, denominators1, 1, dt);
+                rollCommandFilter.configure(numerators1, denominators1, 1, dt);
 
                 const double servoOmegaSquared = std::pow(RollControllerConfig::kRollServoNaturalFrequency, 2.0);
                 double numerators2[3] = { 0.0, 0.0, servoOmegaSquared };
                 double denominators2[3] = { 1.0, 2.0 * RollControllerConfig::kRollServoDampingRatio * RollControllerConfig::kRollServoNaturalFrequency, servoOmegaSquared };
-                rollActuatorDynamicsFilter.InitFilter(numerators2, denominators2, 2, dt);
+                rollActuatorDynamicsFilter.configure(numerators2, denominators2, 2, dt);
 
                 double numerators3[2] = { 0.0, RollControllerConfig::kRollRateFilterPole };
                 double denominators3[2] = { 1.0, RollControllerConfig::kRollRateFilterPole };
-                rollRateFilter1.InitFilter(numerators3, denominators3, 1, dt);
+                rollRateFilter1.configure(numerators3, denominators3, 1, dt);
 
                 double numerators4[3] = { RollControllerConfig::kRollRateFilter2Num0, RollControllerConfig::kRollRateFilter2Num1, RollControllerConfig::kRollRateFilter2OmegaSquared };
                 double denominators4[3] = { 1.0, RollControllerConfig::kRollRateFilter2Den1, RollControllerConfig::kRollRateFilter2OmegaSquared };
-                rollRateFilter2.InitFilter(numerators4, denominators4, 2, dt);
+                rollRateFilter2.configure(numerators4, denominators4, 2, dt);
 
                 rollControlAccumulator = 0.0;
                 rollHeldOutput = 0.0;
@@ -827,7 +826,7 @@ namespace F117
             const double betaCmdLimited = limit(rawPedalCmd, -betaCmdLimit, betaCmdLimit);
 
             // Low-pass filter the Beta command to smooth pedal transients
-            const double betaCmdFiltered = rudderCommandFilter.Filter(resetFilters, dt, betaCmdLimited);
+            const double betaCmdFiltered = rudderCommandFilter.step(betaCmdLimited, resetFilters);
 
             // 2. Automatic Beta trim (series trim): active when gear is up and pedal near centre.
             // Slowly trims away residual Beta (e.g. from engine thrust asymmetry).
@@ -856,7 +855,7 @@ namespace F117
             // towards zero, which overshot pedal steps by 20 to 50%.
             const double alphaRad = aoa_filtered * (kPi / 180.0);
             const double yawRateStabilityAxis = yaw_rate - roll_rate * alphaRad - turn_yaw_rate;
-            const double yawRateSmoothed  = yawRateFilter.Filter(resetFilters, dt, yawRateStabilityAxis);
+            const double yawRateSmoothed  = yawRateFilter.step(yawRateStabilityAxis, resetFilters);
             const double yawDampingGain = YawControllerConfig::kYawDampingGainLowSpeed
                 + qbarFraction * (YawControllerConfig::kYawDampingGainHighSpeed - YawControllerConfig::kYawDampingGainLowSpeed);
             const double yawDamping = yawDampingGain * yawRateSmoothed;
@@ -868,7 +867,7 @@ namespace F117
 
             // 6. Combine and pass through fin servo dynamics
             const double combinedCommand    = betaFeedback + yawDamping + inertiaCoupling;
-            const double yawSurfaceCommand  = yawServoFilter.Filter(resetFilters, dt, combinedCommand);
+            const double yawSurfaceCommand  = yawServoFilter.step(combinedCommand, resetFilters);
 
             lastYawPedInput            = pedInput;
             lastYawRateDegS            = yaw_rate;
@@ -1045,7 +1044,7 @@ namespace F117
             // Per Loschke: "a specified blend of washed out pitch rate and the normal acceleration".
             // Washout (tau = 1 s) ensures zero steady-state contribution so the integrator never
             // fights a persistent damping offset in sustained manoeuvres.
-            const double pitchRateWashedBlend = pitchRateFeedbackWashout.Filter(resetFilters, dt, pitchRate_RAD_s);
+            const double pitchRateWashedBlend = pitchRateFeedbackWashout.step(pitchRate_RAD_s, resetFilters);
 
             {
                 // P+I g-command law per Loschke.
@@ -1115,7 +1114,7 @@ namespace F117
                 const double limiterThreshold = aoa_limit_for_mach(mach, gearIsDown);
 
                 // Washed-out pitch rate for anticipation (q-scheduled gain)
-                const double pitchRateForAnticipation = pitchRateWashoutFilter.Filter(resetFilters, dt, pitch_rate_DEG_s);
+                const double pitchRateForAnticipation = pitchRateWashoutFilter.step(pitch_rate_DEG_s, resetFilters);
                 const double qbarForAnticiption = (std::max)(dynPressure_PA, PitchControllerConfig::kQbarMin);
                 const double anticipationGain = PitchControllerConfig::kAoAAnticipationGainRef
                                               * (PitchControllerConfig::kQbarRef / qbarForAnticiption);
@@ -1175,7 +1174,7 @@ namespace F117
 
             // Every path goes through the servo model, the AOA limiter included. Without this the limiter
             // switched the elevons between stops at about 15 Hz at low dynamic pressure.
-            const double finalPitchCommandTotal = pitchActuatorDynamicsFilter.Filter(resetFilters, dt, pitchCommandTotal);
+            const double finalPitchCommandTotal = pitchActuatorDynamicsFilter.step(pitchCommandTotal, resetFilters);
 
             log_pitch_debug_sample(
                 roll_angle_DEG,
@@ -1254,7 +1253,7 @@ namespace F117
                 : latStickInputCommand;
 
             double latStickForceCmd = effectiveLateralStick * RollControllerConfig::kLatStickForceScale;
-            double latStickForce = latStickForceFilter.Filter(resetFilters, dt, latStickForceCmd);
+            double latStickForce = latStickForceFilter.step(latStickForceCmd, resetFilters);
             double ayBiasBlend = limit(std::abs(effectiveLateralStick) / RollControllerConfig::kAyBiasFullStick, 0.0, 1.0);
             double latStickForceBiased = latStickForce - (ay * RollControllerConfig::kAyBiasGain * ayBiasBlend);
 
@@ -1301,9 +1300,9 @@ namespace F117
                 RollControllerConfig::kFlatTurnCommandLimit);
 
             double rollRateCommandTotal = rollRateCommand + flatTurnRollCommand;
-            double rollRateCommandFiltered = rollCommandFilter.Filter(resetFilters, dt, rollRateCommandTotal);
-            double rollRateFiltered1 = rollRateFilter1.Filter(resetFilters, dt, roll_rate);
-            double rollRateFiltered2 = rollRateFilter2.Filter(resetFilters, dt, rollRateFiltered1);
+            double rollRateCommandFiltered = rollCommandFilter.step(rollRateCommandTotal, resetFilters);
+            double rollRateFiltered1 = rollRateFilter1.step(roll_rate, resetFilters);
+            double rollRateFiltered2 = rollRateFilter2.step(rollRateFiltered1, resetFilters);
             const double rollRateCommandWithTrim = rollRateCommandFiltered + roll_rate_trim;
 
             // Positive surface rolls left. Feedback sets how the rate error dies away; the feed-forward holds
@@ -1321,7 +1320,7 @@ namespace F117
             const double rollRateFeedback = rollRateFiltered2 * (1.0 - groundContactFade);
             double rollCommandGained = limit((rollRateFeedback - rollRateCommandWithTrim) * rollLoopGain - rollRateCommandWithTrim * rollFeedForward,
                 -RollControllerConfig::kRollCommandLimit, RollControllerConfig::kRollCommandLimit);
-            double rollSurfaceCommand = rollActuatorDynamicsFilter.Filter(resetFilters, dt, rollCommandGained);
+            double rollSurfaceCommand = rollActuatorDynamicsFilter.step(rollCommandGained, resetFilters);
 
             lastRollStickInput = effectiveLateralStick;
             lastRollStickForce = latStickForceFinal;
