@@ -330,7 +330,9 @@ namespace
     constexpr double kPitchTrimStep = 0.05;
     constexpr double kYawTrimStep = 0.05;
     constexpr double kThrottleStep = 0.5;
-    constexpr double kWheelBrakeOnFriction = 0.50;
+    // Fraction of wheel_brake_moment_max in FM/config.lua. Set by the landing distances in TO 1F-117A-1
+    // (Figure A8-2), checked with tools/fm_bench/dcs_check.py --landing in the mod repo.
+    constexpr double kWheelBrakeOnFriction = 0.32;
     constexpr double kWheelBrakeOffFriction = 0.015;
     constexpr double kToggleLowThreshold = 0.25;
     constexpr double kToggleHighThreshold = 0.75;
@@ -1699,6 +1701,16 @@ namespace
     {
         F117::calibratedAirspeed_KT = Autothrottle::calibrated_airspeed_kt(
             F117::totalVelocity_MPS, F117::ambientTemperature_DegK, F117::ambientPressure_PA);
+
+        // Air data for the cockpit displays. With wind set, DCS's own true airspeed reads ground speed and its
+        // indicated airspeed reads high, so the HUD and gauges use the airspeed this model flies on instead.
+        static void* s_airDataValidParam = nullptr;
+        static void* s_casParam = nullptr;
+        static void* s_tasParam = nullptr;
+        const bool airDataValid = std::isfinite(F117::calibratedAirspeed_KT) && std::isfinite(F117::totalVelocity_MPS);
+        publish_named_param(s_casParam, "F117_CAS_MPS", airDataValid ? F117::calibratedAirspeed_KT / 1.943844 : 0.0);
+        publish_named_param(s_tasParam, "F117_TAS_MPS", airDataValid ? F117::totalVelocity_MPS : 0.0);
+        publish_named_param(s_airDataValidParam, "F117_AIR_DATA_VALID", airDataValid ? 1.0 : 0.0);
         F117::throttleInput = g_autothrottle.update(dt, F117::calibratedAirspeed_KT, F117::throttleInput,
             !F117::weight_on_wheels, engines_running());
 
@@ -2071,19 +2083,37 @@ double induced_drag_ground_effect()
     return ratio * ratio / (1.0 + ratio * ratio);
 }
 
+// Fraction of extra lift near the ground, at the same AOA. TO 1F-117A-1 (Appendix A3 introduction) says ground effect
+// and the second engine's thrust together make liftoff AOA about 2 deg less than the 8.5 deg reference. 20% at the
+// height of the aircraft origin on its wheels (2.12 m) gives that at the 46,000 lb, 194 KCAS takeoff example.
+// The gain halves for every 0.15 span of height. That is a choice: the manual gives one point, and published data
+// for low aspect ratio delta wings varies widely.
+double lift_ground_effect_gain()
+{
+    if (!F117::surface_height_valid || !F117::altitude_valid) return 0.0;
+    const double clearance = (std::max)(0.0, F117::altitude_m - F117::surface_height_m);
+    constexpr double kGainOnWheels = 0.20;
+    constexpr double kHeightOnWheels_M = 2.12;
+    constexpr double kHalvingSpans = 0.15;
+    return kGainOnWheels * exp2(-(clearance - kHeightOnWheels_M) / (kHalvingSpans * F117::wingSpan_M));
+}
+
 void update_aerodynamic_coefficients(double* temp)
 {
     const double alpha1_DEG_Limited = limit(F117::alpha_DEG, -20.0, 90.0);
     const double beta1_DEG_Limited = limit(F117::beta_DEG, -30.0, 30.0);
 
-    const double CDchute = 0.5 * F117::ACTUATORS::dragchute_state;
+    // On wing area. Set with the brakes by the landing distances in TO 1F-117A-1 (Figure A8-2).
+    const double CDchute = 0.20 * F117::ACTUATORS::dragchute_state;
     const double Cxchute = CDchute * cos(F117::pi / 180.0);
 
     const double CDbay = 0.015 * F117::ACTUATORS::misc_pos;
     const double Czbay = -(CDbay * sin(F117::pi / 180.0));
     const double Cxbay = CDbay * cos(F117::pi / 180.0);
 
-    const double CDGear = 0.027 * F117::gearDown * 1.5;
+    // On wing area. TO 1F-117A-1 Figure 3-5 gives best glides of about 8.5 gear up and 5.9 gear down, so lowering
+    // the gear adds about 44% to the drag. On this airframe's drag that is about 0.016.
+    const double CDGear = 0.016 * F117::gearDown;
     const double CzGear = -(CDGear * sin(F117::pi / 180.0));
     const double CxGear = CDGear * cos(F117::pi / 180.0);
 
@@ -2094,7 +2124,9 @@ void update_aerodynamic_coefficients(double* temp)
     // Gear down, TO 1F-117A-1 Figure 2-2 needs more AOA at high lift than that line gives. Cz is negative for upward lift.
     const double gearDownLiftLoss = 0.0075 * F117::gearDown * (std::max)(alpha1_DEG_Limited - 6.0, 0.0);
     const double Cz = 0.7754 * temp[1] + 0.0684 + gearDownLiftLoss;
-    F117::AERO::Cz = Cz;
+    // Ground effect adds lift at right angles to the airflow, so the drag terms below still use the free-air Cz.
+    const double CzGroundEffect = lift_ground_effect_gain() * Cz;
+    F117::AERO::Cz = Cz + CzGroundEffect;
 
     // Cd0 and the wave drag below Mlimit are fitted to TO 1F-117A-1 by tools/fm_bench/fit_performance.py in the
     // mod repository. Normal force acts along the body axis here, so tilting it with AOA supplies most of the
@@ -2104,11 +2136,14 @@ void update_aerodynamic_coefficients(double* temp)
 
     // Ground effect relieves part of that tilted normal force.
     const double phi_GE = induced_drag_ground_effect();
-    const double Cd_induced = (1.0 - phi_GE) * Cz * tan(alpha1_DEG_Limited * F117::pi / 180.0);
+    // The second term cancels the drag the extra ground-effect lift would gain from being tilted with the body axis.
+    const double Cd_induced = ((1.0 - phi_GE) * Cz + CzGroundEffect) * tan(alpha1_DEG_Limited * F117::pi / 180.0);
 
     double Cd_wave = 0.0;
     const double Mdiv = 0.85;
-    const double Mlimit = 0.90; // The manual has no data above this. The barrier keeps the aircraft near it.
+    // TO 1F-117A-1 limits the aircraft to Mach 0.90 and has no data above it. Published figures put the
+    // maximum level speed between Mach 0.92 and 0.95; this barrier sets it near 0.92 at its best altitude.
+    const double Mlimit = 0.91;
 
     if (F117::mach > Mdiv)
     {
