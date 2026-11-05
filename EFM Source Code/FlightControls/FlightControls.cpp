@@ -37,7 +37,6 @@ namespace F117
             GeneralFilter rollRateFilter1;
             GeneralFilter rollRateFilter2;
             GeneralFilter rudderCommandFilter;
-            GeneralFilter yawRateWashout;
             GeneralFilter yawRateFilter;
             GeneralFilter yawServoFilter;
             GeneralFilter pitchRateWashoutFilter;        // AOA limiter pitch-rate anticipation
@@ -95,6 +94,7 @@ namespace F117
             bool pitchModeAirRefuelDoorOpen = false;
 
             double autoBetaTrimState      = 0.0; // automatic Beta trim accumulator (deg)
+            double autoBetaTrimWait_S     = 0.0; // time left before the automatic Beta trim may act
             double aoaLimiterIntegrator   = 0.0; // P+I AOA limiter integrator state
             bool aoaLimiterActive         = false; // Limiter overrode the g command on the last step
 
@@ -125,8 +125,8 @@ namespace F117
                 constexpr double kBetaCmdQbarLow  = 2000.0;   // Pa (~80 kts)
                 constexpr double kBetaCmdQbarHigh = 28000.0;  // Pa (~370 kts)
                 // Set so full pedal gives the steady sideslip on TO 1F-117A-1 page 6-3: 8 deg at 170 KCAS, 4 deg at 500 KCAS.
-                constexpr double kBetaCmdLimitHigh = 14.6;    // deg (low-speed limit)
-                constexpr double kBetaCmdLimitLow  =  7.3;    // deg (high-speed limit)
+                constexpr double kBetaCmdLimitHigh = 9.35;    // deg (low-speed limit)
+                constexpr double kBetaCmdLimitLow  =  4.7;    // deg (high-speed limit)
                 // Small pedal deadband at neutral (normalised units).
                 constexpr double kBetaPedalDeadband = 0.02;
                 // Base Beta feedback gain (deg fin per deg Beta error).
@@ -138,17 +138,22 @@ namespace F117
                 // pedal force is below threshold. Acts through a small deadband.
                 constexpr double kAutoBetaTrimDeadband        = 0.5;  // deg
                 constexpr double kAutoBetaTrimRate            = 0.4;  // (deg trim)/s per deg Beta excess
+                // It waits this long after the pedal is centred, so it trims what is left rather than chasing the
+                // sideslip still dying away, which overshot the release.
+                constexpr double kAutoBetaTrimDelay_S         = 3.0;
                 constexpr double kAutoBetaTrimLimit           = 5.0;  // deg max trim authority
                 constexpr double kAutoBetaTrimPedalThreshold  = 0.05; // normalised pedal (~22 lb)
                 // Inertia-coupling term: product of pitch_rate × roll_rate fed back to yaw
                 // to prevent divergence during high roll-rate manoeuvres (real F-117 feature).
                 constexpr double kInertiaCouplingGain = -0.4;  // deg fin per (rad/s)^2
-                // Yaw-rate damping.
-                constexpr double kYawDampingGain = 1.5;
+                // Yaw-rate damping, deg fin per deg/s, scheduled on dynamic pressure like the Beta command limit:
+                // the low-speed value below kBetaCmdQbarLow, the high-speed one above kBetaCmdQbarHigh. These give
+                // under 10% sideslip overshoot from a pedal step and from its release (TO 1F-117A-1 page 6-1:
+                // "essentially dead-beat damping in all three axes"). More at high speed starts a small oscillation.
+                constexpr double kYawDampingGainLowSpeed  = 2.0;
+                constexpr double kYawDampingGainHighSpeed = 1.5;
                 // Beta command low-pass filter rate (smooths pedal transients).
                 constexpr double kCommandFilterRate = 4.0;
-                // Stability-axis yaw rate washout time-constant inverse.
-                constexpr double kWashoutTauInverse = 1.0;
                 // Yaw rate lead-lag shaping.
                 constexpr double kYawLeadLagNumerator0 = 3.0;
                 constexpr double kYawLeadLagPole = 15.0;
@@ -167,6 +172,7 @@ namespace F117
                 constexpr double kStickForceMax = 80.0;
                 constexpr double kStickCommandDeadband = 8.0;
                 constexpr double kStickCommandBreakpoint = 33.0;
+                constexpr double kStickCommandRateLimit = 8.0; // g per second
                 constexpr double kNzCommandMin = -2.0;
                 constexpr double kNzCommandMax = 7.0;
                 // Integrator strength on Nz error. Higher = more steady-state authority and more stored pull;
@@ -210,7 +216,7 @@ namespace F117
                 // All forward-loop gains are proportional to qbarRef/qbar, clamped to [min, max].
                 constexpr double kQbarRef          = 14000.0; // Pa (~300 kts SL)
                 constexpr double kQbarMin          =  2000.0; // Pa (prevents divide issues)
-                constexpr double kQbarGainScaleMin =  0.5;
+                constexpr double kQbarGainScaleMin =  0.25; // Down to 56 kPa, about 600 KCAS at sea level
                 constexpr double kQbarGainScaleMax =  3.0;
                 // Roll-rate^2 inertia coupling fed back to pitch axis.
                 // Prevents inertia-coupled pitch departures during high-AoA rolling manoeuvres.
@@ -575,11 +581,6 @@ namespace F117
                 double denominators[2] = { 1.0, YawControllerConfig::kCommandFilterRate };
                 rudderCommandFilter.InitFilter(numerators, denominators, 1, dt);
 
-                // Stability-axis yaw rate washout
-                double numerators1[2] = { 1.0, 0.0 };
-                double denominators1[2] = { 1.0, YawControllerConfig::kWashoutTauInverse };
-                yawRateWashout.InitFilter(numerators1, denominators1, 1, dt);
-
                 // Yaw rate lead-lag shaping
                 double numerators2[2] = { YawControllerConfig::kYawLeadLagNumerator0, YawControllerConfig::kYawLeadLagPole };
                 double denominators2[2] = { 1.0, YawControllerConfig::kYawLeadLagPole };
@@ -594,6 +595,7 @@ namespace F117
                 yawControlAccumulator = 0.0;
                 yawHeldOutput = 0.0;
                 autoBetaTrimState = 0.0;
+                autoBetaTrimWait_S = 0.0;
                 lastYawPedInput = 0.0;
                 lastYawRateDegS = 0.0;
                 lastYawRudderCommand = 0.0;
@@ -739,6 +741,7 @@ namespace F117
             pitchModeGearDown = 0.0;
             pitchModeAirRefuelDoorOpen = false;
             autoBetaTrimState = 0.0;
+            autoBetaTrimWait_S = 0.0;
             aoaLimiterIntegrator = 0.0;
             aoaLimiterActive = false;
             lastRollStickInput = 0.0;
@@ -803,7 +806,7 @@ namespace F117
         // (pitch_rate × roll_rate) prevents directional divergence during high-rate manoeuvres.
         // The ARI (aileron-rudder interconnect) present in early design was removed from the
         // real aircraft after evaluation — it is NOT implemented here.
-        double fcs_yaw_controller_step(double pedInput, double pedTrim, double beta_deg, double yaw_rate, double roll_rate, double pitch_rate, double aoa_filtered, double dynPressure_PA, bool gearDown, double dt, bool resetFilters)
+        double fcs_yaw_controller_step(double pedInput, double pedTrim, double beta_deg, double yaw_rate, double turn_yaw_rate, double roll_rate, double pitch_rate, double aoa_filtered, double dynPressure_PA, bool gearDown, double dt, bool resetFilters)
         {
             // 1. Pedal → Beta command (with small deadband)
             double rawPedalCmd = 0.0;
@@ -816,19 +819,11 @@ namespace F117
             }
 
             // Dynamic pressure schedule: limit Beta command at high speed
-            const double qbarClamped = (std::max)(dynPressure_PA, YawControllerConfig::kBetaCmdQbarLow);
-            double betaCmdLimit = YawControllerConfig::kBetaCmdLimitHigh;
-            if (qbarClamped >= YawControllerConfig::kBetaCmdQbarHigh)
-            {
-                betaCmdLimit = YawControllerConfig::kBetaCmdLimitLow;
-            }
-            else if (qbarClamped > YawControllerConfig::kBetaCmdQbarLow)
-            {
-                const double t = (qbarClamped - YawControllerConfig::kBetaCmdQbarLow)
-                               / (YawControllerConfig::kBetaCmdQbarHigh - YawControllerConfig::kBetaCmdQbarLow);
-                betaCmdLimit = YawControllerConfig::kBetaCmdLimitHigh
-                             + t * (YawControllerConfig::kBetaCmdLimitLow - YawControllerConfig::kBetaCmdLimitHigh);
-            }
+            // 0 at and below kBetaCmdQbarLow, 1 at and above kBetaCmdQbarHigh.
+            const double qbarFraction = limit((dynPressure_PA - YawControllerConfig::kBetaCmdQbarLow)
+                / (YawControllerConfig::kBetaCmdQbarHigh - YawControllerConfig::kBetaCmdQbarLow), 0.0, 1.0);
+            const double betaCmdLimit = YawControllerConfig::kBetaCmdLimitHigh
+                + qbarFraction * (YawControllerConfig::kBetaCmdLimitLow - YawControllerConfig::kBetaCmdLimitHigh);
             const double betaCmdLimited = limit(rawPedalCmd, -betaCmdLimit, betaCmdLimit);
 
             // Low-pass filter the Beta command to smooth pedal transients
@@ -836,7 +831,9 @@ namespace F117
 
             // 2. Automatic Beta trim (series trim): active when gear is up and pedal near centre.
             // Slowly trims away residual Beta (e.g. from engine thrust asymmetry).
-            if (!gearDown && std::abs(pedInput) < YawControllerConfig::kAutoBetaTrimPedalThreshold)
+            const bool pedalCentred = std::abs(pedInput) < YawControllerConfig::kAutoBetaTrimPedalThreshold;
+            autoBetaTrimWait_S = pedalCentred ? (std::max)(autoBetaTrimWait_S - dt, 0.0) : YawControllerConfig::kAutoBetaTrimDelay_S;
+            if (!gearDown && pedalCentred && autoBetaTrimWait_S <= 0.0)
             {
                 const double betaExcess = beta_deg - limit(beta_deg, -YawControllerConfig::kAutoBetaTrimDeadband, YawControllerConfig::kAutoBetaTrimDeadband);
                 autoBetaTrimState -= YawControllerConfig::kAutoBetaTrimRate * betaExcess * dt;
@@ -846,18 +843,23 @@ namespace F117
             const double betaCommandTotal = betaCmdFiltered + pedTrim + autoBetaTrimState;
 
             // 3. Beta feedback with AoA-scheduled gain.
-            // Gain doubles linearly from base at 0° AoA to 2× base at kBetaGainAoADoubleAlpha.
-            const double aoaFraction = limit(aoa_filtered / YawControllerConfig::kBetaGainAoADoubleAlpha, 0.0, 1.0);
+            // Gain doubles linearly from base at 0° AoA to 2× base at kBetaGainAoADoubleAlpha. Negative AOA counts too:
+            // the wing's dihedral effect follows its lift, so it reverses there and destabilises as much.
+            const double aoaFraction = limit(std::abs(aoa_filtered) / YawControllerConfig::kBetaGainAoADoubleAlpha, 0.0, 1.0);
             const double betaGain = YawControllerConfig::kBetaFeedbackGainBase * (1.0 + aoaFraction);
             const double betaError = betaCommandTotal - beta_deg;
             const double betaFeedback = betaGain * betaError;
 
-            // 4. Stability-axis yaw rate damping (stability axis correction: subtract roll×alpha coupling)
+            // 4. Stability-axis yaw rate damping (stability axis correction: subtract roll×alpha coupling).
+            // The yaw rate a steady banked turn needs is taken out first, so the damper never opposes a turn and
+            // needs no washout. A washout leaves a tail after every yaw transient that pulls the sideslip back
+            // towards zero, which overshot pedal steps by 20 to 50%.
             const double alphaRad = aoa_filtered * (kPi / 180.0);
-            const double yawRateStabilityAxis = yaw_rate - roll_rate * alphaRad;
-            const double yawRateWashedOut = yawRateWashout.Filter(resetFilters, dt, yawRateStabilityAxis);
-            const double yawRateSmoothed  = yawRateFilter.Filter(resetFilters, dt, yawRateWashedOut);
-            const double yawDamping = YawControllerConfig::kYawDampingGain * yawRateSmoothed;
+            const double yawRateStabilityAxis = yaw_rate - roll_rate * alphaRad - turn_yaw_rate;
+            const double yawRateSmoothed  = yawRateFilter.Filter(resetFilters, dt, yawRateStabilityAxis);
+            const double yawDampingGain = YawControllerConfig::kYawDampingGainLowSpeed
+                + qbarFraction * (YawControllerConfig::kYawDampingGainHighSpeed - YawControllerConfig::kYawDampingGainLowSpeed);
+            const double yawDamping = yawDampingGain * yawRateSmoothed;
 
             // 5. Inertia coupling: pitch_rate × roll_rate to prevent inertia-coupled yaw divergence.
             const double pitch_rate_rad_s = pitch_rate * (kPi / 180.0);
@@ -882,7 +884,7 @@ namespace F117
             return yawSurfaceCommand;
         }
 
-        double fcs_yaw_controller(double pedInput, double pedTrim, double beta_deg, double yaw_rate, double roll_rate, double pitch_rate, double aoa_filtered, double dynPressure_PA, bool gearDown, double dt)
+        double fcs_yaw_controller(double pedInput, double pedTrim, double beta_deg, double yaw_rate, double turn_yaw_rate, double roll_rate, double pitch_rate, double aoa_filtered, double dynPressure_PA, bool gearDown, double dt)
         {
             const bool needsInit = yaw_filters_need_init();
             if (needsInit)
@@ -904,6 +906,7 @@ namespace F117
                     pedTrim,
                     beta_deg,
                     yaw_rate,
+                    turn_yaw_rate,
                     roll_rate,
                     pitch_rate,
                     aoa_filtered,
@@ -956,7 +959,11 @@ namespace F117
 
             double longStickCommandWithTrim_G = pitchTrim - longStickCommand_G;
             double longStickCommandWithTrimLimited_G = limit(longStickCommandWithTrim_G, PitchControllerConfig::kNzCommandMin, PitchControllerConfig::kNzCommandMax);
-            stickCommandPosFiltered = longStickCommandWithTrimLimited_G;
+            // Command rate limit. A step of stick would step the elevons, and on a tailless aircraft a sudden up-elevon
+            // first loses lift before the nose comes up; ramping large commands keeps that dip and the overshoot after
+            // it small. Small corrections pass through almost at once.
+            const double maxStep = PitchControllerConfig::kStickCommandRateLimit * dt;
+            stickCommandPosFiltered += limit(longStickCommandWithTrimLimited_G - stickCommandPosFiltered, -maxStep, maxStep);
 
             return stickCommandPosFiltered;
         }

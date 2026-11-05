@@ -14,10 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="F_117_NightHawk.h" />
-    <ClInclude Include="Aerodynamics\Aero.h">
-      <Filter>Aerodynamics</Filter>
-    </ClInclude>
-    <ClInclude Include="Aerodynamics\AeroData.h">
+    <ClInclude Include="Aerodynamics\AeroModel.h">
       <Filter>Aerodynamics</Filter>
     </ClInclude>
     <ClInclude Include="Engine\Engine.h">

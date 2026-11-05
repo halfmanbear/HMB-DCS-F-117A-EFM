@@ -17,7 +17,7 @@
 // Model headers
 #include "Actuators/Actuators.h"			//Actuators model functions
 #include "Atmosphere/Atmosphere.h"			//Atmosphere model functions
-#include "Aerodynamics/Aero.h"				//Aerodynamic model functions
+#include "Aerodynamics/AeroModel.h"			// F-117A aerodynamic model
 #include "FlightControls/FlightControls.h"	//Flight Controls model functions
 #include "Engine/Engine.h"					//Engine model functions
 #include "Engine/EngineStart.h"				//Main engine start sequence
@@ -29,6 +29,24 @@
 #include "Avionics/Weapons_Interop.h"
 
 using namespace F117;
+
+// Totals from the last aerodynamic update, with gear, chute, bay and ground effect included.
+namespace F117
+{
+	namespace AERO
+	{
+		double Cx_total = 0.0;              // Drag along the body axis, positive aft
+		double Cz_total = 0.0;              // Normal force, negative up
+		double Cm_total = 0.0;
+		double Cy_total = 0.0;
+		double Cn_total = 0.0;
+		double Cl_total = 0.0;
+		double ClPerAileronDeg = 0.0;       // For the roll law
+		double CmPerElevatorDeg = -0.0028;  // For the pitch law
+		double CnPerRudderDeg = -0.002;     // For the yaw damper
+		double Clp = 0.0;
+	}
+}
 
 //-----------------------------------------------------------------
 // Per-frame accumulated body moments. Reset at the start of every simulation tick.
@@ -66,9 +84,6 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 	double		wingSpan_M				= 13.205;		// F-117A wing-span (m)
 	double		wingArea_M2				= 84.77;		// F-117A wing area (m²)
 	double		meanChord_M				= 6.422;		// F-117A mean aerodynamic chord (m)
-	double		referenceCG_PCT			= 0.35;			// Reference center of mass as a % of wing chord
-	double		actualCG_PCT			= 0.32;			// Actual center of mass as a % of wing chord
-	double		Cm0						= 0.04;			// Pitch-up trim bias (positive = nose up) 0.0387 0.0287
 	double		pi						= acos(-1.0);	// Pi (3.14159....)
 	double		radiansToDegrees		= 180.0/pi;		// Conversion factor from radians to degrees
 	double		inertia_Ix_KGM2			= 12874.0;		// Reference moment of inertia (kg/m^2)
@@ -232,7 +247,9 @@ static Paars::Controller g_paars;
 static F117::ENGINE_START::Starts g_engineStarts;
 static bool g_paarsEngagedAutothrottle = false; // PAARS moved the power levers by engaging A/T
 static double g_paarsRollRateDegS = 0.0;
-static constexpr double kAileronFullScale_DEG = 25.5; // Surface deflection that gives the full Cl_delta_a20 from the aero tables.
+static constexpr double kAileronFullScale_DEG = 25.5; // Aileron deflection that aileron_PCT = 1 stands for.
+static constexpr double kPitchLawCmPerDeg = 0.0105;   // Elevon pitch power the pitch law's gains were tuned with.
+static constexpr double kPitchDamperCmq = -5.0;       // Pitch damping the flight controls add, per unit of q c / 2V.
 static void* g_weaponReleaseGateParam = nullptr;
 static bool g_weaponReleaseGateParamInitialized = false;
 static void* g_iradsLockValidParam = nullptr;
@@ -1830,7 +1847,7 @@ void update_fuel_system(double dt)
         double flow_kg_s = 0.0;
         if (start.running())
         {
-            const double specific_fuel = 0.8511 + 0.1741 * F117::engines[side].thrustFractionOfMax - 0.1852 * F117::altitude_m / 10000.0; // kg / kgf / hour
+            const double specific_fuel = 0.9928 + 0.0911 * F117::mach + 0.0025 * F117::engines[side].thrustFractionOfMax - 0.1221 * F117::altitude_m / 10000.0; // kg / kgf / hour
             flow_kg_s = (std::max)(kIdleFuelFlowKgS / 2.0, (std::max)(F117::engine_thrust_N[side], 0.0) / 9.81 * specific_fuel / 3600.0);
         }
         else if (start.lit())
@@ -1868,6 +1885,10 @@ void update_flight_control_commands(double dt, double controlDegradation)
     F117::FLIGHTCONTROLS::update_ground_contact(
         F117::gearDown > 0.5 && (F117::suspension_wow[0] || F117::suspension_wow[1] || F117::suspension_wow[2]), dt);
 
+    // The pitch law's gains are in degrees of an elevon giving kPitchLawCmPerDeg of pitching moment. This turns
+    // its command into the deflection that gives the same moment on this airframe at this AOA, as the roll law
+    // does with its rolling moment.
+    const double pitchLawElevonScale = limit(kPitchLawCmPerDeg / (std::max)(std::abs(F117::AERO::CmPerElevatorDeg), 1e-4), 1.0, 8.0);
     F117::elevator_DEG_commanded = -(F117::FLIGHTCONTROLS::fcs_pitch_controller(
         F117::FLIGHTCONTROLS::longStickInput * controlDegradation,
         0.0,
@@ -1883,14 +1904,23 @@ void update_flight_control_commands(double dt, double controlDegradation)
         F117::totalVelocity_MPS,
         F117::mach,
         F117::thrust_N,
-        F117::AERO::Cx_total));
-    // Pitch axis: Loschke specifies -25° TEU (nose-down) to +37.5° TED (nose-up) for pitch.
+        F117::AERO::Cx_total)) * pitchLawElevonScale;
+    // Pitch damper. The tailless airframe has little natural pitch damping (Cmq about -2.2). The manual describes
+    // the flight controls as giving essentially dead-beat damping, so the elevons add more. Nose-up pitch rate gives trailing edge down.
+    // In a steady pull the pitch law's integrator takes up whatever the damper adds, so the elevon there is set by
+    // the airframe's own moments and the damper costs no lift.
+    {
+        const double speed = (std::max)(F117::totalVelocity_MPS, 30.0);
+        const double addedCm = kPitchDamperCmq * F117::meanChord_M / (2.0 * speed) * F117::pitchRate_RPS;
+        F117::elevator_DEG_commanded += addedCm / (std::min)(F117::AERO::CmPerElevatorDeg, -1e-4);
+    }
+    // Pitch axis: Loschke specifies -25° TEU (nose-up) to +37.5° TED (nose-down) for pitch.
     // Physical actuator stop is ±45° — pitch authority does not reach the stop.
     F117::elevator_DEG = limit(F117::elevator_DEG_commanded + F117::pitchTrim, -25.0, 37.5);
 
     // What the roll law needs to know about the airframe at this flight condition. It uses the inertia DCS is flying,
     // so changing moment_of_inertia in the mod's FM/config.lua doesn't change the loop's bandwidth.
-    const double rollMomentPerSurfaceDeg = (std::max)(std::abs(F117::AERO::Cl_delta_a20), 0.005) / kAileronFullScale_DEG;
+    const double rollMomentPerSurfaceDeg = (std::max)(std::abs(F117::AERO::ClPerAileronDeg), 0.0002);
     const double rollInertia = inertia.x > 1.0 ? inertia.x : 40000.0;
     const double rollAccelPerSurfaceDeg = rollMomentPerSurfaceDeg * F117::dynamicPressure_PA * F117::wingArea_M2 * F117::wingSpan_M / rollInertia * F117::radiansToDegrees;
     const double surfacePerRollRate = std::abs(F117::AERO::Clp) * F117::wingSpan_M / (2.0 * (std::max)(F117::totalVelocity_MPS, 30.0)) / F117::radiansToDegrees / rollMomentPerSurfaceDeg;
@@ -1936,6 +1966,9 @@ void update_flight_control_commands(double dt, double controlDegradation)
         0.0,
         F117::beta_DEG,
         F117::yawRate_RPS * F117::radiansToDegrees,
+        // Body yaw rate of a steady level turn at this bank and pitch: g sin(bank) cos(pitch) / V.
+        9.81 * std::sin(F117::roll_angle / F117::radiansToDegrees) * std::cos(F117::pitch_angle / F117::radiansToDegrees)
+            / (std::max)(F117::totalVelocity_MPS, 30.0) * F117::radiansToDegrees,
         F117::rollRate_RPS * F117::radiansToDegrees,
         F117::pitchRate_RPS * F117::radiansToDegrees,
         F117::FLIGHTCONTROLS::alphaFiltered,
@@ -2098,11 +2131,8 @@ double lift_ground_effect_gain()
     return kGainOnWheels * exp2(-(clearance - kHeightOnWheels_M) / (kHalvingSpans * F117::wingSpan_M));
 }
 
-void update_aerodynamic_coefficients(double* temp)
+void update_aerodynamic_coefficients()
 {
-    const double alpha1_DEG_Limited = limit(F117::alpha_DEG, -20.0, 90.0);
-    const double beta1_DEG_Limited = limit(F117::beta_DEG, -30.0, 30.0);
-
     // On wing area. Set with the brakes by the landing distances in TO 1F-117A-1 (Figure A8-2).
     const double CDchute = 0.20 * F117::ACTUATORS::dragchute_state;
     const double Cxchute = CDchute * cos(F117::pi / 180.0);
@@ -2117,27 +2147,40 @@ void update_aerodynamic_coefficients(double* temp)
     const double CzGear = -(CDGear * sin(F117::pi / 180.0));
     const double CxGear = CDGear * cos(F117::pi / 180.0);
 
-    F117::AERO::hifi_C(alpha1_DEG_Limited, beta1_DEG_Limited, F117::elevator_DEG, temp);
+    // Control surfaces as the damage model leaves them.
+    F117::AERO::Input in;
+    in.alpha_DEG = F117::alpha_DEG;
+    in.beta_DEG = F117::beta_DEG;
+    in.speed_MPS = F117::totalVelocity_MPS;
+    in.rollRate_RPS = F117::rollRate_RPS;
+    in.pitchRate_RPS = F117::pitchRate_RPS;
+    in.yawRate_RPS = F117::yawRate_RPS;
+    in.elevator_DEG = F117::elevator_PCT * 25.0;
+    in.aileron_DEG = F117::aileron_PCT * kAileronFullScale_DEG;
+    in.rudder_DEG = F117::rudder_PCT * 30.0;
+    in.cgX_M = center_of_gravity.x;
+    in.cgY_M = center_of_gravity.y;
+    const F117::AERO::Output aero = F117::AERO::evaluate(in);
 
-    // The tables' lift slope is an F-16's. This scales it to CN = 0.056 per degree x (indicated AOA - 1.02),
-    // the line through the AOA and speed tables in TO 1F-117A-1 (Figures A6-1 and 2-2).
-    // Gear down, TO 1F-117A-1 Figure 2-2 needs more AOA at high lift than that line gives. Cz is negative for upward lift.
+    const double alpha1_DEG_Limited = limit(F117::alpha_DEG, -90.0, 90.0);
+
+    // Gear down, TO 1F-117A-1 Figure 2-2 needs more AOA at high lift than the gear-up line gives.
     const double gearDownLiftLoss = 0.0075 * F117::gearDown * (std::max)(alpha1_DEG_Limited - 6.0, 0.0);
-    const double Cz = 0.7754 * temp[1] + 0.0684 + gearDownLiftLoss;
+    // Cz is negative for upward lift.
+    const double Cz = -aero.CN + gearDownLiftLoss;
     // Ground effect adds lift at right angles to the airflow, so the drag terms below still use the free-air Cz.
     const double CzGroundEffect = lift_ground_effect_gain() * Cz;
-    F117::AERO::Cz = Cz + CzGroundEffect;
 
     // Cd0 and the wave drag below Mlimit are fitted to TO 1F-117A-1 by tools/fm_bench/fit_performance.py in the
     // mod repository. Normal force acts along the body axis here, so tilting it with AOA supplies most of the
     // induced drag the data shows, as on a sharp-edged wing. Cz is negative for upward lift, so the lift terms are
     // the remainder: less drag than the tilt alone at low lift and more at high lift.
-    const double Cd0 = 0.017643 + 0.036806 * Cz + 0.081910 * Cz * Cz;
+    const double Cd0 = 0.017152 + 0.038229 * Cz + 0.012645 * Cz * Cz;
 
     // Ground effect relieves part of that tilted normal force.
     const double phi_GE = induced_drag_ground_effect();
     // The second term cancels the drag the extra ground-effect lift would gain from being tilted with the body axis.
-    const double Cd_induced = ((1.0 - phi_GE) * Cz + CzGroundEffect) * tan(alpha1_DEG_Limited * F117::pi / 180.0);
+    const double Cd_induced = ((1.0 - phi_GE) * Cz + CzGroundEffect) * tan(limit(alpha1_DEG_Limited, -89.0, 89.0) * F117::pi / 180.0);
 
     double Cd_wave = 0.0;
     const double Mdiv = 0.85;
@@ -2150,7 +2193,7 @@ void update_aerodynamic_coefficients(double* temp)
         if (F117::mach < 1.05)
         {
             const double div_factor = (F117::mach - Mdiv) / (1.05 - Mdiv);
-            Cd_wave = 0.015219 * div_factor * div_factor;
+            Cd_wave = 0.007159 * div_factor * div_factor;
 
             if (F117::mach > Mlimit)
             {
@@ -2164,75 +2207,26 @@ void update_aerodynamic_coefficients(double* temp)
         }
     }
 
-    F117::AERO::Cx = Cd0 + Cd_induced + Cd_wave;
-    F117::AERO::Cm = temp[2];
-    F117::AERO::Cy = temp[3];
-    F117::AERO::Cn = temp[4];
-    F117::AERO::Cl = temp[5];
-
-    F117::AERO::hifi_damping(alpha1_DEG_Limited, temp);
-    F117::AERO::Cxq = temp[0];
-    F117::AERO::Cyr = temp[1];
-    F117::AERO::Cyp = temp[2];
-    F117::AERO::Czq = temp[3];
-    F117::AERO::Clr = temp[4];
-    F117::AERO::Clp = temp[5];
-    F117::AERO::Cmq = temp[6];
-    F117::AERO::Cnr = temp[7];
-    F117::AERO::Cnp = temp[8];
-
-    F117::AERO::hifi_rudder(alpha1_DEG_Limited, beta1_DEG_Limited, temp);
-    F117::AERO::Cy_delta_r30 = temp[0];
-    F117::AERO::Cn_delta_r30 = temp[1];
-    F117::AERO::Cl_delta_r30 = temp[2] * 1.2;
-
-    F117::AERO::hifi_ailerons(alpha1_DEG_Limited, beta1_DEG_Limited, temp);
-    F117::AERO::Cy_delta_a20 = temp[0];
-    F117::AERO::Cn_delta_a20 = temp[2];
-    F117::AERO::Cl_delta_a20 = temp[4];
-
-    F117::AERO::hifi_other_coeffs(alpha1_DEG_Limited, F117::elevator_DEG, temp);
-    F117::AERO::Cn_delta_beta = temp[0];
-    F117::AERO::Cl_delta_beta = temp[1];
-    F117::AERO::Cm_delta = temp[2];
-    F117::AERO::eta_el = temp[3];
-    F117::AERO::Cm_delta_ds = 0;
-
-    // No pitch rate term here. The F-16 table's Cxq means forward force, but Cx here means drag, so adding it
-    // charged sustained turns about 12 kN of drag that the turn data in TO 1F-117A-1 doesn't show.
-    F117::AERO::Cx_total = F117::AERO::Cx + CxGear + Cxchute + Cxbay;
-
-    F117::AERO::dZdQ = (F117::meanChord_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Czq;
-    F117::AERO::Cz_total = F117::AERO::Cz + F117::AERO::dZdQ * F117::pitchRate_RPS;
-    F117::AERO::Cz_total += CzGear + Czbay;
-
-    F117::AERO::dMdQ = (F117::meanChord_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Cmq;
-    F117::AERO::Cm_total = F117::AERO::Cm * F117::AERO::eta_el + F117::AERO::Cz_total * (F117::referenceCG_PCT - F117::actualCG_PCT) + F117::AERO::dMdQ * F117::pitchRate_RPS + F117::AERO::Cm_delta + F117::AERO::Cm_delta_ds + F117::Cm0;
-
-    F117::AERO::dYdail = F117::AERO::Cy_delta_a20;
-    F117::AERO::dYdR = (F117::wingSpan_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Cyr;
-    F117::AERO::dYdP = (F117::wingSpan_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Cyp;
-    F117::AERO::Cy_total = F117::AERO::Cy + F117::AERO::dYdail * F117::aileron_PCT + F117::AERO::Cy_delta_r30 * F117::rudder_PCT + F117::AERO::dYdR * F117::yawRate_RPS + F117::AERO::dYdP * F117::rollRate_RPS;
-
-    F117::AERO::dNdail = F117::AERO::Cn_delta_a20;
-    F117::AERO::dNdR = (F117::wingSpan_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Cnr;
-    F117::AERO::dNdP = (F117::wingSpan_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Cnp;
-    F117::AERO::Cn_total = F117::AERO::Cn - F117::AERO::Cy_total * (F117::referenceCG_PCT - F117::actualCG_PCT) * (F117::meanChord_M / F117::wingSpan_M) + F117::AERO::dNdail * F117::aileron_PCT + F117::AERO::Cn_delta_r30 * F117::rudder_PCT + F117::AERO::dNdR * F117::yawRate_RPS + F117::AERO::dNdP * F117::rollRate_RPS + F117::AERO::Cn_delta_beta * F117::beta_DEG;
-
-    F117::AERO::dLdail = F117::AERO::Cl_delta_a20;
-    F117::AERO::dLdR = (F117::wingSpan_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Clr;
-    F117::AERO::dLdP = (F117::wingSpan_M / (2 * F117::totalVelocity_MPS)) * F117::AERO::Clp;
-    F117::AERO::Cl_total = F117::AERO::Cl + F117::AERO::dLdail * F117::aileron_PCT + F117::AERO::Cl_delta_r30 * F117::rudder_PCT + F117::AERO::dLdR * F117::yawRate_RPS + F117::AERO::dLdP * F117::rollRate_RPS + F117::AERO::Cl_delta_beta * F117::beta_DEG;
+    F117::AERO::Cx_total = Cd0 + Cd_induced + Cd_wave + CxGear + Cxchute + Cxbay;
+    F117::AERO::Cz_total = Cz + CzGroundEffect + CzGear + Czbay;
+    F117::AERO::Cm_total = aero.Cm;
+    F117::AERO::Cy_total = aero.CY;
+    F117::AERO::Cn_total = aero.Cn;
+    F117::AERO::Cl_total = aero.Cl;
+    F117::AERO::ClPerAileronDeg = aero.ClPerAileronDeg;
+    F117::AERO::CmPerElevatorDeg = aero.CmPerElevatorDeg;
+    F117::AERO::CnPerRudderDeg = aero.CnPerRudderDeg;
+    F117::AERO::Clp = aero.Clp;
 
     F117::FLIGHTCONTROLS::update_aero_debug_snapshot(
-        F117::AERO::Cy_delta_r30,
-        F117::AERO::Cn_delta_r30,
-        F117::AERO::Cl_delta_r30,
-        F117::AERO::Cn_delta_beta,
-        F117::AERO::Cl_delta_beta,
-        F117::AERO::Cy_total,
-        F117::AERO::Cn_total,
-        F117::AERO::Cl_total);
+        aero.CyPerRudderDeg,
+        aero.CnPerRudderDeg,
+        aero.ClPerRudderDeg,
+        aero.CnPerBetaDeg,
+        aero.ClPerBetaDeg,
+        aero.CY,
+        aero.Cn,
+        aero.Cl);
 }
 
 void apply_aerodynamic_forces_and_thrust()
@@ -2414,7 +2408,7 @@ update_propulsion_and_control_effectiveness(dt, tailIntegrity);
 
 
 // Aerodynamic coefficient update and force accumulation
-update_aerodynamic_coefficients(temp);
+update_aerodynamic_coefficients();
 apply_aerodynamic_forces_and_thrust();
 		// Mark subsystem initialization complete after the first successful simulation frame.
 		F117::simInitialized = true;
@@ -2569,7 +2563,6 @@ void ed_fm_set_current_state_body_axis(
 	F117::yawRate_RPS = -omegay;  // Sign convention matches the existing FM tuning.
 	F117::pitchRate_RPS = omegaz;  // These rates act like dampers/limiters in several control paths.
 	
-	if (alpha_DEG > 20 && pitchRate_RPS > 0) { F117::pitchRate_RPS = omegaz * (((alpha_DEG * alpha_DEG + 10000) / (180.0 + g_damage.totalWingLoss * 20.0)) - 54.5); } // High-AoA pitch-rate shaping retained from the existing tune.
 
 	F117::az = ay;
 	F117::ay = az;

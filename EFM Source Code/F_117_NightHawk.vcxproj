@@ -155,8 +155,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Actuators\Actuators.h" />
-    <ClInclude Include="Aerodynamics\Aero.h" />
-    <ClInclude Include="Aerodynamics\AeroData.h" />
+    <ClInclude Include="Aerodynamics\AeroModel.h" />
     <ClInclude Include="Atmosphere\Atmosphere.h" />
     <ClInclude Include="Avionics\CockpitBase_Interop.h" />
     <ClInclude Include="Avionics\Weapons_Interop.h" />

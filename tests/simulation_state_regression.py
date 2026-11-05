@@ -127,7 +127,7 @@ int main() {
     // and collected once even when DCS's inertia does not match an FM constant.
     // Both engines running, sharing the thrust.
     g_engineStarts.reset(true);
-    engine_thrust_N[0]=engine_thrust_N[1]=9.81*3600/0.8511/2;internal_fuel=100;
+    engine_thrust_N[0]=engine_thrust_N[1]=9.81*3600/0.9928/2;internal_fuel=100;
     check_mass(100);check_mass(0); // Loaded fuel is added to the DCS mass once.
     assert(param_class.fuelvalue);
     update_fuel_system(.25);update_fuel_system(.75);
