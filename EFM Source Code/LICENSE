@@ -6,7 +6,7 @@ Project-authored replacements remain subject to their authors' rights.
 The bundled Eagle Dynamics SDK files and interfaces retain their existing terms.
 Their inclusion does not relicense them as project-authored code.
 
-Earlier revisions contain IGServal's CustomFM contributions and the historical
-F-16Demo-derived implementation. The original IGServal MIT notice is preserved
-verbatim in ../docs/history/IGServal-MIT.txt for that historical material. This
-file does not revoke permissions already granted for earlier revisions.
+Earlier revisions in the repository history contain IGServal's CustomFM
+contributions and the historical F-16Demo-derived implementation. Those
+revisions keep the licence files they were published with. This file does not
+revoke permissions already granted for them.

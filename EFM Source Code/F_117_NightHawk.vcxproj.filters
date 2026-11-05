@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
   <ItemGroup>
     <ClCompile Include="Avionics\CockpitBase_Interop.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
@@ -7,31 +7,31 @@
     <ClCompile Include="F_117_NightHawk.cpp"><Filter>Flight model</Filter></ClCompile>
     <ClCompile Include="FlightControls\FlightControls.cpp"><Filter>Flight model\FlightControls</Filter></ClCompile>
     <ClCompile Include="stdafx.cpp"><Filter>Flight model</Filter></ClCompile>
-    <ClInclude Include="Actuators\Actuators.h"><Filter>Flight model\Actuators</Filter></ClInclude>
-    <ClInclude Include="Aerodynamics\AeroModel.h"><Filter>Flight model\Aerodynamics</Filter></ClInclude>
-    <ClInclude Include="Atmosphere\Atmosphere.h"><Filter>Flight model\Atmosphere</Filter></ClInclude>
-    <ClInclude Include="Avionics\Autothrottle.h"><Filter>Flight model\Avionics</Filter></ClInclude>
-    <ClInclude Include="Avionics\CockpitBase_Interop.h"><Filter>Flight model\Avionics</Filter></ClInclude>
-    <ClInclude Include="Avionics\CockpitBase_Layouts.h"><Filter>Flight model\Avionics</Filter></ClInclude>
-    <ClInclude Include="Avionics\JdamEnvelope.h"><Filter>Flight model\Avionics</Filter></ClInclude>
-    <ClInclude Include="Avionics\Paars.h"><Filter>Flight model\Avionics</Filter></ClInclude>
-    <ClInclude Include="Avionics\Weapons_Interop.h"><Filter>Flight model\Avionics</Filter></ClInclude>
-    <ClInclude Include="ED_API.h"><Filter>Flight model</Filter></ClInclude>
-    <ClInclude Include="EfmMath.h"><Filter>Flight model</Filter></ClInclude>
-    <ClInclude Include="Engine\Engine.h"><Filter>Flight model\Engine</Filter></ClInclude>
-    <ClInclude Include="Engine\EngineStart.h"><Filter>Flight model\Engine</Filter></ClInclude>
-    <ClInclude Include="F_117_NightHawk.h"><Filter>Flight model</Filter></ClInclude>
-    <ClInclude Include="FlightControls\FlightControls.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
-    <ClInclude Include="FlightControls\TustinFilter.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
-    <ClInclude Include="Inputs.h"><Filter>Flight model</Filter></ClInclude>
-    <ClInclude Include="include\Cockpit\CockpitAPI_Declare.h"><Filter>SDK\include\Cockpit</Filter></ClInclude>
-    <ClInclude Include="include\Cockpit\ccParametersAPI.h"><Filter>SDK\include\Cockpit</Filter></ClInclude>
-    <ClInclude Include="include\FM\wHumanCustomPhysicsAPI.h"><Filter>SDK\include\FM</Filter></ClInclude>
-    <ClInclude Include="include\FM\wHumanCustomPhysicsAPI_ImplementationDeclare.h"><Filter>SDK\include\FM</Filter></ClInclude>
-    <ClInclude Include="include\ed_object_access.h"><Filter>SDK\include</Filter></ClInclude>
-    <ClInclude Include="param_functions.h"><Filter>Flight model</Filter></ClInclude>
-    <ClInclude Include="stdafx.h"><Filter>Flight model</Filter></ClInclude>
-    <ClInclude Include="targetver.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="Actuators/Actuators.h"><Filter>Flight model\Actuators</Filter></ClInclude>
+    <ClInclude Include="Aerodynamics/AeroModel.h"><Filter>Flight model\Aerodynamics</Filter></ClInclude>
+    <ClInclude Include="Atmosphere/Atmosphere.h"><Filter>Flight model\Atmosphere</Filter></ClInclude>
+    <ClInclude Include="Avionics/Autothrottle.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="Avionics/CockpitBase_Interop.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="Avionics/CockpitBase_Layouts.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="Avionics/JdamEnvelope.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="Avionics/Paars.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="Avionics/Weapons_Interop.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="./ED_API.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="./EfmMath.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="Engine/Engine.h"><Filter>Flight model\Engine</Filter></ClInclude>
+    <ClInclude Include="Engine/EngineStart.h"><Filter>Flight model\Engine</Filter></ClInclude>
+    <ClInclude Include="./F_117_NightHawk.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="FlightControls/FlightControls.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
+    <ClInclude Include="FlightControls/TustinFilter.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
+    <ClInclude Include="./Inputs.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="include/Cockpit/CockpitAPI_Declare.h"><Filter>SDK\include\Cockpit</Filter></ClInclude>
+    <ClInclude Include="include/Cockpit/ccParametersAPI.h"><Filter>SDK\include\Cockpit</Filter></ClInclude>
+    <ClInclude Include="include/FM/wHumanCustomPhysicsAPI.h"><Filter>SDK\include\FM</Filter></ClInclude>
+    <ClInclude Include="include/FM/wHumanCustomPhysicsAPI_ImplementationDeclare.h"><Filter>SDK\include\FM</Filter></ClInclude>
+    <ClInclude Include="include/ed_object_access.h"><Filter>SDK\include</Filter></ClInclude>
+    <ClInclude Include="./param_functions.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="./stdafx.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="./targetver.h"><Filter>Flight model</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Flight model"><UniqueIdentifier>{D9B8AD70-751F-576C-9EDF-491D8778187B}</UniqueIdentifier></Filter>

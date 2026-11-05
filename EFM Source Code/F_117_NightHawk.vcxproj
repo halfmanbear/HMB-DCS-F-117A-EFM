@@ -1,14 +1,8 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build">
   <ItemGroup Label="ProjectConfigurations">
-    <ProjectConfiguration Include="Debug|Win32">
-      <Configuration>Debug</Configuration><Platform>Win32</Platform>
-    </ProjectConfiguration>
     <ProjectConfiguration Include="Debug|x64">
       <Configuration>Debug</Configuration><Platform>x64</Platform>
-    </ProjectConfiguration>
-    <ProjectConfiguration Include="Release|Win32">
-      <Configuration>Release</Configuration><Platform>Win32</Platform>
     </ProjectConfiguration>
     <ProjectConfiguration Include="Release|x64">
       <Configuration>Release</Configuration><Platform>x64</Platform>
@@ -19,7 +13,7 @@
     <ProjectName>F_117_NightHawk</ProjectName>
     <RootNamespace>F117</RootNamespace>
     <Keyword>Win32Proj</Keyword>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>$([Microsoft.Build.Utilities.ToolLocationHelper]::GetLatestSDKTargetPlatformVersion('Windows', '10.0'))</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration">
@@ -86,31 +80,31 @@
     <ClCompile Include="stdafx.cpp"><PrecompiledHeader>Create</PrecompiledHeader></ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Actuators\Actuators.h" />
-    <ClInclude Include="Aerodynamics\AeroModel.h" />
-    <ClInclude Include="Atmosphere\Atmosphere.h" />
-    <ClInclude Include="Avionics\Autothrottle.h" />
-    <ClInclude Include="Avionics\CockpitBase_Interop.h" />
-    <ClInclude Include="Avionics\CockpitBase_Layouts.h" />
-    <ClInclude Include="Avionics\JdamEnvelope.h" />
-    <ClInclude Include="Avionics\Paars.h" />
-    <ClInclude Include="Avionics\Weapons_Interop.h" />
-    <ClInclude Include="ED_API.h" />
-    <ClInclude Include="EfmMath.h" />
-    <ClInclude Include="Engine\Engine.h" />
-    <ClInclude Include="Engine\EngineStart.h" />
-    <ClInclude Include="F_117_NightHawk.h" />
-    <ClInclude Include="FlightControls\FlightControls.h" />
-    <ClInclude Include="FlightControls\TustinFilter.h" />
-    <ClInclude Include="Inputs.h" />
-    <ClInclude Include="include\Cockpit\CockpitAPI_Declare.h" />
-    <ClInclude Include="include\Cockpit\ccParametersAPI.h" />
-    <ClInclude Include="include\FM\wHumanCustomPhysicsAPI.h" />
-    <ClInclude Include="include\FM\wHumanCustomPhysicsAPI_ImplementationDeclare.h" />
-    <ClInclude Include="include\ed_object_access.h" />
-    <ClInclude Include="param_functions.h" />
-    <ClInclude Include="stdafx.h" />
-    <ClInclude Include="targetver.h" />
+    <ClInclude Include="Actuators/Actuators.h" />
+    <ClInclude Include="Aerodynamics/AeroModel.h" />
+    <ClInclude Include="Atmosphere/Atmosphere.h" />
+    <ClInclude Include="Avionics/Autothrottle.h" />
+    <ClInclude Include="Avionics/CockpitBase_Interop.h" />
+    <ClInclude Include="Avionics/CockpitBase_Layouts.h" />
+    <ClInclude Include="Avionics/JdamEnvelope.h" />
+    <ClInclude Include="Avionics/Paars.h" />
+    <ClInclude Include="Avionics/Weapons_Interop.h" />
+    <ClInclude Include="./ED_API.h" />
+    <ClInclude Include="./EfmMath.h" />
+    <ClInclude Include="Engine/Engine.h" />
+    <ClInclude Include="Engine/EngineStart.h" />
+    <ClInclude Include="./F_117_NightHawk.h" />
+    <ClInclude Include="FlightControls/FlightControls.h" />
+    <ClInclude Include="FlightControls/TustinFilter.h" />
+    <ClInclude Include="./Inputs.h" />
+    <ClInclude Include="include/Cockpit/CockpitAPI_Declare.h" />
+    <ClInclude Include="include/Cockpit/ccParametersAPI.h" />
+    <ClInclude Include="include/FM/wHumanCustomPhysicsAPI.h" />
+    <ClInclude Include="include/FM/wHumanCustomPhysicsAPI_ImplementationDeclare.h" />
+    <ClInclude Include="include/ed_object_access.h" />
+    <ClInclude Include="./param_functions.h" />
+    <ClInclude Include="./stdafx.h" />
+    <ClInclude Include="./targetver.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

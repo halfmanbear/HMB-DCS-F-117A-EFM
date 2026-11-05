@@ -2685,7 +2685,7 @@ namespace
 
 // Reset transient FM state when the aircraft is destroyed, restarted, or unloaded.
 
-void ed_fm_release ()
+void ed_fm_release(void)
 {
     reset_session_controls();
     // DCS will collect the next aircraft's initial fuel mass afresh.
@@ -2700,7 +2700,7 @@ void ed_fm_release ()
 
 
 // Conditions to make the screen shake in first-person view.
-double ed_fm_get_shake_amplitude ()
+double ed_fm_get_shake_amplitude(void)
 {
     const double engineLoss = 1.0 - (g_damage.leftEngine + g_damage.rightEngine) / 2.0;
     // Highest-priority active source wins, matching the aircraft's existing shake schedule.
@@ -2723,9 +2723,9 @@ void ed_fm_set_easy_flight(bool /*enabled*/)
 }
 
 // DCS hook for the unlimited-fuel option.
-void ed_fm_unlimited_fuel(bool value)
+void ed_fm_unlimited_fuel(bool enabled)
 {
-		F117::param_class.set_unlimited_fuel(value);
+    F117::param_class.set_unlimited_fuel(enabled);
 }
 
 // Cold-start initialization.

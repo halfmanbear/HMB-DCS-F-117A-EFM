@@ -6,4 +6,4 @@ The F-117A EFM for DCS World: aircraft aerodynamics, propulsion, flight controls
 
 The companion aircraft mod supplies the Lua cockpit, input profiles, models and flight performance bench. Its `docs/model-efm-compatibility.md` records which exterior models and damage mappings belong together. Push the EFM repository before a mod change that updates damage cells, because the mod's package workflow builds the latest EFM commit on the matching branch.
 
-The repository's history includes the earlier CustomFM/F-16Demo-based implementation. Its historical attribution and MIT notice are retained in [the licence record](docs/history/IGServal-MIT.txt). The current licensing status is described in [EFM Source Code/LICENSE](EFM%20Source%20Code/LICENSE). SDK declarations remain ED material.
+The repository's history includes the earlier CustomFM/F-16Demo-based implementation. Those revisions keep the licence files they were published with. The current licensing status is described in [EFM Source Code/LICENSE](EFM%20Source%20Code/LICENSE). SDK declarations remain ED material.

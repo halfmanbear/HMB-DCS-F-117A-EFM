@@ -8,7 +8,7 @@ Build in Developer PowerShell for Visual Studio 2022, with its C++ desktop workl
 msbuild F117.sln /p:Configuration=Release /p:Platform=x64
 ```
 
-The DLL is written to `bin/F_117_NightHawk.dll`. Intermediate files go to the repository's ignored `build/obj/` directory. Debug x64 is also supported. The Win32 configurations remain available for existing solution consumers; DCS uses x64.
+The DLL is written to `bin/F_117_NightHawk.dll`. Intermediate files go to the repository's ignored `build/obj/` directory. Debug x64 is also supported. The project is x64 only, as DCS is.
 
 `OutDir` and `IntDir` accept explicit MSBuild overrides. Release x64 can instead target a mod directory with `DcsSavedGamesModBinDir`, or derive that directory from an explicitly supplied `DcsSavedGamesRoot`. Normal builds use the local `bin` directory. The mod's package workflow can continue supplying its isolated output paths.
 
