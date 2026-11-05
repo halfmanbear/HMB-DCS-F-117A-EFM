@@ -3,13 +3,13 @@ import subprocess, sys
 repo = Path(__file__).resolve().parents[1]
 out = Path(sys.argv[1]); out.mkdir(parents=True, exist_ok=True)
 src = repo / 'EFM Source Code'
-engine = (src / 'Engine/Engine.h').read_text(encoding='utf-8-sig').replace('#include "../stdafx.h"', '')
+engine = '#include "' + (src / 'Engine/Engine.h').as_posix() + '"\n'
 code = r'''
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 #include <algorithm>
-double limit(double v, double lo, double hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
 ''' + engine + r'''
 // Both engines alike, sharing one state across simulations as the EFM's engines persist across ticks.
 F117::ENGINE::EngineState g_engine;

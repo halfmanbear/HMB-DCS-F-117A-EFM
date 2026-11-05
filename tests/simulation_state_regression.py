@@ -93,7 +93,7 @@ for name in ['void update_fuel_system(double dt)', 'bool ed_fm_change_mass(',
              'void ed_fm_set_surface(', 'void ed_fm_set_atmosphere(',
              '    void update_paars()', '    void reset_session_controls()',
              '    void apply_ground_start_state(bool enginesRunning)',
-             '    void apply_air_start_state()', 'void ed_fm_release()',
+             '    void apply_air_start_state()', 'void ed_fm_release (',
              '    bool gear_retraction_blocked()', '    double clamp_gear_command_for_weight_on_wheels(',
              '    void set_gear_command(', '    void update_weight_on_wheels()']:
     code += '\n'+extract(name)+'\n'

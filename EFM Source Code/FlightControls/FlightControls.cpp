@@ -14,15 +14,12 @@
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Ole32.lib")
 
-namespace F117
-{
-    namespace FLIGHTCONTROLS
-    {
-        bool simInitialized = false;
-        double longStickInput = 0.0;
-        double alphaFiltered = 0.0;
-        double longStickForce = 0.0;
-        double latStickInput = 0.0;
+namespace F117 { namespace FLIGHTCONTROLS {
+        bool simInitialized{};
+        double longStickInput{};
+        double alphaFiltered{};
+        double longStickForce{};
+        double latStickInput{};
 
         namespace
         {
@@ -41,8 +38,8 @@ namespace F117
             TustinFilter pitchRateWashoutFilter;        // AOA limiter pitch-rate anticipation
             TustinFilter pitchRateFeedbackWashout;      // main-loop pitch-rate blend (P+I feedback)
 
-            double stickCommandPosFiltered = 0.0;
-            double azFiltered = 0.0;
+            double stickCommandPosFiltered{};
+            double azFiltered{};
             double nz_reference = 1.0;  // current 1G reference; reset alongside filter state
             bool recoveryNzActive = false;  // PAARS load-factor command replaces the 1G reference
             double recoveryNz = 1.0;
@@ -931,33 +928,24 @@ namespace F117
             {
                 longStickInputForce = longStickInputCommand * PitchControllerConfig::kNegativeStickForceScale;
             }
-            longStickInputForce = limit(longStickInputForce, PitchControllerConfig::kStickForceMin, PitchControllerConfig::kStickForceMax);
-            longStickForce = longStickInputForce;
+            longStickForce = longStickInputForce = limit(longStickInputForce,
+                PitchControllerConfig::kStickForceMin, PitchControllerConfig::kStickForceMax);
 
-            double longStickCommand_G = 0.0;
-            if (std::abs(longStickInputForce) <= PitchControllerConfig::kStickCommandDeadband)
-            {
-                longStickCommand_G = 0.0;
-            }
-            else if ((longStickInputForce < -PitchControllerConfig::kStickCommandDeadband) && (longStickInputForce > -PitchControllerConfig::kStickCommandBreakpoint))
-            {
-                longStickCommand_G = PitchControllerConfig::kNzSlopeNeg1 * longStickInputForce + PitchControllerConfig::kNzInterceptNeg1;
-            }
-            else if (longStickInputForce <= -PitchControllerConfig::kStickCommandBreakpoint)
-            {
-                longStickCommand_G = PitchControllerConfig::kNzSlopeNeg2 * longStickInputForce + PitchControllerConfig::kNzInterceptNeg2;
-            }
-            else if ((longStickInputForce > PitchControllerConfig::kStickCommandDeadband) && (longStickInputForce < PitchControllerConfig::kStickCommandBreakpoint))
-            {
-                longStickCommand_G = PitchControllerConfig::kNzSlopePos1 * longStickInputForce + PitchControllerConfig::kNzInterceptPos1;
-            }
-            else if (longStickInputForce >= PitchControllerConfig::kStickCommandBreakpoint)
-            {
-                longStickCommand_G = PitchControllerConfig::kNzSlopePos2 * longStickInputForce + PitchControllerConfig::kNzInterceptPos2;
-            }
-
-            double longStickCommandWithTrim_G = pitchTrim - longStickCommand_G;
-            double longStickCommandWithTrimLimited_G = limit(longStickCommandWithTrim_G, PitchControllerConfig::kNzCommandMin, PitchControllerConfig::kNzCommandMax);
+            // Convert force to the scheduled load-factor demand. Choose the sign
+            // branch first, then its inner/outer segment; the deadband is inclusive.
+            const auto loadFromForce = [](double force) -> double {
+                using namespace PitchControllerConfig;
+                if (std::abs(force) <= kStickCommandDeadband) return 0.0;
+                if (force < 0.0)
+                    return force <= -kStickCommandBreakpoint
+                        ? kNzSlopeNeg2 * force + kNzInterceptNeg2
+                        : kNzSlopeNeg1 * force + kNzInterceptNeg1;
+                return force >= kStickCommandBreakpoint
+                    ? kNzSlopePos2 * force + kNzInterceptPos2
+                    : kNzSlopePos1 * force + kNzInterceptPos1;
+            };
+            const double longStickCommandWithTrimLimited_G = limit(pitchTrim - loadFromForce(longStickForce),
+                PitchControllerConfig::kNzCommandMin, PitchControllerConfig::kNzCommandMax);
             // Command rate limit. A step of stick would step the elevons, and on a tailless aircraft a sudden up-elevon
             // first loses lift before the nose comes up; ramping large commands keeps that dip and the overshoot after
             // it small. Small corrections pass through almost at once.
@@ -1272,7 +1260,7 @@ namespace F117
                 rollFeelGain = RollControllerConfig::kRollFeelSlope * longStickForceGained + 1.0;
             }
 
-            double latStickForceFinal = latStickForceBiased * rollFeelGain;
+            const double latStickForceFinal{latStickForceBiased * rollFeelGain};
             // Parabolic stick-force-to-roll-rate shaping.
             // rollRateCmd = sign * K * (|force| - deadband)^2, clamped to ±kRollRateMax.
             // This matches the real F-117's non-linear parabolic shaping: gentle onset at centre
@@ -1372,12 +1360,4 @@ namespace F117
 
             return rollHeldOutput;
         }
-    }
-}
-
-
-
-
-
-
-
+}}

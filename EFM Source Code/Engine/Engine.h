@@ -1,10 +1,8 @@
-#include "../stdafx.h"
+#pragma once
+#include "../EfmMath.h"
 #include <cmath>
 
-namespace F117
-{
-    namespace ENGINE
-    {
+namespace F117 { namespace ENGINE {
         // One engine's state. It persists across FM ticks and is reset by the startup hooks.
         struct EngineState
         {
@@ -145,7 +143,4 @@ namespace F117
 
             return thrust / ENGINE_COUNT;
         }
-    }
-}
-
-
+}}

@@ -1,33 +1,30 @@
-﻿#include "stdafx.h"
+#include "stdafx.h"
 #include "F_117_NightHawk.h"
-#include "EfmMath.h"			// Vec3, cross, limit
-#include <Math.h>
-#include <stdio.h>
-#include <string>
-#include <math.h>
-#include <queue>
-#include <cmath>
-#include <fstream>
-#include "Inputs.h"
 
-#include "include/Cockpit/CockpitAPI_Declare.h" // Provides param handle interfacing for use in lua
-#define EXPORT_ED_FM_PHYSICS_IMP extern "C" __declspec(dllexport)
-#include "include/FM/wHumanCustomPhysicsAPI_ImplementationDeclare.h"	// Official DCS EFM API declarations
-// Model headers
-#include "Actuators/Actuators.h"			//Actuators model functions
-#include "Atmosphere/Atmosphere.h"			//Atmosphere model functions
-#include "Aerodynamics/AeroModel.h"			// F-117A aerodynamic model
-#include "FlightControls/FlightControls.h"	//Flight Controls model functions
-#include "Engine/Engine.h"					//Engine model functions
-#include "Engine/EngineStart.h"				//Main engine start sequence
-#include "param_functions.h"
-#include "Avionics/CockpitBase_Interop.h"
-#include "Avionics/JdamEnvelope.h"
+#include <cmath>
+#include <cstdio>
+#include <fstream>
+#include <queue>
+#include <string>
+
+#include "EfmMath.h"
+#include "Inputs.h" // DCS and aircraft command protocol
+#include "param_functions.h" // Mission options
+#include "include/Cockpit/CockpitAPI_Declare.h" // Lua parameter bridge
+#include "Aerodynamics/AeroModel.h"
+#include "Actuators/Actuators.h" // Airframe motion
+#include "Atmosphere/Atmosphere.h" // Air data
+#include "Engine/Engine.h" // Installed propulsion
+#include "Engine/EngineStart.h"
+#include "FlightControls/FlightControls.h" // Control laws
 #include "Avionics/Autothrottle.h"
 #include "Avionics/Paars.h"
+#include "Avionics/JdamEnvelope.h"
+#include "Avionics/CockpitBase_Interop.h"
 #include "Avionics/Weapons_Interop.h"
 
-using namespace F117;
+using namespace F117; // Shared names used by the subsystem adapters below.
+
 
 // Totals from the last aerodynamic update, with gear, chute, bay and ground effect included.
 namespace F117
@@ -47,129 +44,68 @@ namespace F117
 	}
 }
 
-//-----------------------------------------------------------------
-// Per-frame accumulated body moments. Reset at the start of every simulation tick.
-// Units = Newton * meter
-//-----------------------------------------------------------------
-Vec3	common_moment;							
+// Body-frame totals are returned at the DCS centre of mass. Moments are supplied separately.
+Vec3 common_force{}, common_moment{}, center_of_gravity{}, inertia{};
+Vec3 wind{}, wind_world_cs{}, position_world_cs{}, velocity_world_cs{};
 
-Vec3	common_force;
+namespace F117 {
+    // Environment and measured motion (SI unless a suffix states otherwise).
+    double ambientTemperature_DegK{}, ambientDensity_KgPerM3{};
+    double ambientPressure_PA{101325.0}, altitude_m{};
+    double calibratedAirspeed_KT{}, totalVelocity_MPS{}, dynamicPressure_PA{}, mach{};
+    double alpha_DEG{}, beta_DEG{}, rollRate_RPS{}, pitchRate_RPS{}, yawRate_RPS{};
+    double aircraftQuaternionX{}, aircraftQuaternionY{}, aircraftQuaternionZ{}, aircraftQuaternionW{1.0};
+    double pitch_angle{}, roll_angle{}, vspeed{}, az{}, ay{}, ay_world{};
+    double weight_N{131222.538};
+    double surface_height_m{};
+    bool surface_height_valid{}, altitude_valid{}, weight_on_wheels{}, wow_from_draw_args{};
+    bool suspension_wow[3]{};
 
-Vec3    center_of_gravity;
+    // Geometry and unit conversions used by the current aero and controller models.
+    constexpr double pi = 3.14159265358979323846;
+    constexpr double radiansToDegrees = 180.0 / pi;
+    constexpr double wingSpan_M = 13.205, wingArea_M2 = 84.77, meanChord_M = 6.422;
 
-Vec3	inertia;
+    // Pilot requests, commanded surfaces and actual surface feedback.
+    double pitchTrim{}, rollTrim{}, yawTrim{}, roll_cmd{}, pedInput{};
+    double elevator_DEG{}, aileron_DEG{}, rudder_DEG{};
+    double elevator_DEG_commanded{}, aileron_DEG_commanded{}, rudder_DEG_commanded{};
+    double aileron_PCT{}, rudder_PCT{}, elevator_PCT{};
+    float elev_pos{}, rudder_pos{};
+    int alt_hold{}, altroll_hold{}, horiz_hold{};
+    double DeltaTime{};
+    bool simInitialized{};
 
-Vec3	wind;			// Body-axis wind from ed_fm_set_current_state_body_axis
+    // Landing gear, steering and ancillary mechanisms.
+    double gearDown{}, GearCommand{}, WheelBrakeCommand{};
+    double rolling_friction{0.015};
+    // Normal/high-authority steering: TO 1F-117A-1, page 1-29.
+    constexpr double kNoseWheelYawLow_RAD = 0.1745;
+    constexpr double kNoseWheelYawHigh_RAD = 0.7854;
+    constexpr double kNoseWheelYawRangeRate_RADPS = 0.6;
+    double noseWheelYawRange_RAD{kNoseWheelYawLow_RAD};
+    bool nwsAuthorityHeld{}, airRefuelDoorOpen{};
+    double tailhook_command{}, tailhook_pos{}, dragchute_command{}, dragchute{};
+    float misc_cmd{}, misc_state{};
 
-Vec3	wind_world_cs;	// World-axis wind from ed_fm_set_atmosphere (used by CCRP ballistics)
+    // Engine telemetry and the fuel mass already acknowledged by DCS.
+    bool engineswitch{true};
+    double throttle_state{0.1}, throttleInput{0.1}, thrust_N{};
+    ENGINE::EngineState engines[2]{};
+    double engine_thrust_N[2]{}, engine_fuel_flow_kg_s[2]{}, engine_egt_C[2]{}, engine_oil_psi[2]{};
+    double fuel_mass_in_dcs{}, internal_fuel{}, external_fuel{};
+    EDPARAM cockpitAPI{};
+    param_stuff param_class{};
 
-Vec3	position_world_cs;
+    // Weapon delivery state belongs to one aircraft session.
+    bool weapon_release_pickle_held{}, weapon_release_gate{}, weapon_release_gate_fired{};
+    bool weapon_bay_owned_by_release{}, weapon_bay_close_pending{}, master_armed{}, laser_armed{};
+    double weapon_bay_close_delay{}, weapon_release_gate_hold{}, release_retry_delay{};
+    int release_status{};
+    unsigned release_sequence{};
+    double release_target[3]{};
+    double laser_window{}, weapon_flight_time_remaining{}, ccrp_time_of_flight{};
 
-Vec3	velocity_world_cs;
-
-//-------------------------------------------------------
-// Aircraft simulation state
-//-------------------------------------------------------
-namespace F117 // Shared FM state. Many aero/control calculations still use the original imperial-unit tuning.
-{
-	double		ambientTemperature_DegK = 0.0;			// Ambient temperature (kelvin)
-	double		ambientDensity_KgPerM3	= 0.0;			// Ambient density (kg/m^3)
-	double		ambientPressure_PA		= 101325.0;		// Ambient static pressure (Pa)
-	double		calibratedAirspeed_KT	= 0.0;			// Calibrated airspeed (knots)
-	double		aircraftQuaternionX		= 0.0;			// World-frame orientation quaternion
-	double		aircraftQuaternionY		= 0.0;
-	double		aircraftQuaternionZ		= 0.0;
-	double		aircraftQuaternionW		= 1.0;
-	double		wingSpan_M				= 13.205;		// F-117A wing-span (m)
-	double		wingArea_M2				= 84.77;		// F-117A wing area (m²)
-	double		meanChord_M				= 6.422;		// F-117A mean aerodynamic chord (m)
-	double		pi						= acos(-1.0);	// Pi (3.14159....)
-	double		radiansToDegrees		= 180.0/pi;		// Conversion factor from radians to degrees
-	double		inertia_Ix_KGM2			= 12874.0;		// Reference moment of inertia (kg/m^2)
-	double		inertia_Iy_KGM2			= 75673.6;		// Reference moment of inertia (kg/m^2)
-	double		inertia_Iz_KGM2			= 85552.1;		// Reference moment of inertia (kg/m^2)
-	double		temp[9];								// Temporary array for holding look-up table results
-	double		altitude_m				= 0.0;			// Absolute altitude above sea level (metres)
-	double		totalVelocity_MPS		= 0.0;			// Total velocity (always positive) (m/s)
-	double		alpha_DEG				= 0.0;			// Angle of attack (deg)
-	double		beta_DEG				= 0.0;			// Slideslip angle (deg)
-	double		rollRate_RPS			= 0.0;			// Body roll rate (rad/sec)
-	double		pitchRate_RPS			= 0.0;			// Body pitch rate (rad/sec)
-	double		yawRate_RPS				= 0.0;			// Body yaw rate (rad/sec)
-	double		thrust_N				= 80415;		// Engine thrust, both engines (Newtons)
-	// Per engine, indexed by ENGINE_START::LEFT and RIGHT.
-	ENGINE::EngineState engines[2];
-	double		engine_thrust_N[2]		= { 0.0, 0.0 };	// Newtons
-	double		engine_fuel_flow_kg_s[2] = { 0.0, 0.0 };
-	double		engine_egt_C[2]			= { NAN, NAN };	// NAN until the first update sets it
-	double		engine_oil_psi[2]		= { 0.0, 0.0 };
-
-	double		elevator_DEG			= 0.0;			// Elevator deflection (deg)
-	double		aileron_DEG				= 0.0;			// Aileron deflection (deg)
-	double		rudder_DEG				= 0.0;			// Rudder deflection (deg)
-	double		elevator_DEG_commanded	= 0.0;			// Commanded elevator deflection from control system (deg)
-	double		aileron_DEG_commanded	= 0.0;			// Commanded aileron deflection from control system (deg)
-	double		rudder_DEG_commanded	= 0.0;			// Commanded rudder deflection from control system (deg)
-	double		pitchTrim				= 0.0;			// Pitch trim
-	double		rollTrim				= 0.0;			// Roll trim
-	double		yawTrim					= 0.0;			// Yaw trim
-	double		roll_cmd				= 0.0;			// Aileron command
-	double		throttle_state			= 0.1;			// Engine power state
-	double		pedInput				= 0.0;			// Rudder pedal input command normalized (-1 to 1)
-	double		throttleInput			= 0.1;			// Throttle input command normalized (-1 to 1)
-	double		aileron_PCT				= 0.0;			// Aileron deflection as a percent of maximum (-1 to 1)
-	double		rudder_PCT				= 0.0;			// Rudder deflection as a percent of maximum (-1 to 1)
-	double		elevator_PCT			= 0.0;			// Elevator deflection as a percent of maximum (-1 to 1)
-	float		elev_pos				= 0.0;			// Elevator/stabilator deflection
-	double		leadingEdgeFlap_DEG		= 0.0;			// Leading edge slat deflection (deg)
-	double		leadingEdgeFlap_PCT		= 0.0;			// Leading edge slat deflection as a percent of maximum (0 to 1)
-
-	double		dynamicPressure_PA		= 0.0;			// Dynamic pressure (Pa)
-	double		mach					= 0.0;			// Air speed in Mach; 1 is the local speed of sound.
-	bool		simInitialized			= false;		// Has the simulation gone through it's first run frame?
-	double		gearDown				= 0.0;			// Is the gear currently down?
-	bool		airRefuelDoorOpen	= false;		// Hook for AAR receptacle state when cockpit wiring is available.
-	double		az						= 0.0;			// This is the G force felt by the pilot, acting out the bottom of the aircraft (m/s^2), 1 is Earth's gravity.
-	double		ay						= 0.0;			// Ay (per normal direction convention) out the right wing (m/s^2)
-	double		weight_N				= 131222.538;	// Weight force of aircraft (N)
-	double		ay_world				= 0.0;			// World referenced up/down acceleration (m/s^2)
-	bool		weight_on_wheels		= false;		// Weight on wheels flag 
-	bool		wow_from_draw_args		= false;		// Suspension contact state from DCS draw args
-
-	double		rolling_friction		= 0.015;		// Relative wheel braking/rolling resistance reported to DCS.
-	// Nosewheel steering ranges, TO 1F-117A-1 page 1-29. Full pedal gives the current range.
-	// Keep the high range in step with yaw_limit in the mod's FM/config.lua.
-	constexpr double kNoseWheelYawLow_RAD = 0.1745;  // 10 deg: normal range
-	constexpr double kNoseWheelYawHigh_RAD = 0.7854; // 45 deg: while the authority button is held
-	constexpr double kNoseWheelYawRangeRate_RADPS = 0.6; // So pressing the button doesn't jump the wheel
-	bool		nwsAuthorityHeld		= false;			// Stick NWS authority button held
-	double		noseWheelYawRange_RAD	= kNoseWheelYawLow_RAD;
-	double		WheelBrakeCommand		= 0.0;			// Commanded wheel brake
-	double		GearCommand				= 0.0;			// Commanded gear lever
-	double		tailhook_command		= 0.0;			// Tail hook command
-	double		tailhook_pos			= 0.0;			// Tailhook actuator position reported back to DCS.
-	float		rudder_pos				= 0.0;			//Rudder(s) deflection
-	float		misc_cmd				= 0.0;			// Generic misc actuator command used for the weapon bay animation.
-	float		misc_state				= 0.0;
-    bool        weapon_release_pickle_held = false;
-    bool        weapon_release_gate = false;
-    bool        weapon_release_gate_fired = false;
-    bool        weapon_bay_owned_by_release = false;
-    bool        weapon_bay_close_pending = false;
-    double      weapon_bay_close_delay = 0.0;
-    double      weapon_release_gate_hold = 0.0;
-    bool        master_armed = false;
-    double      release_retry_delay = 0.0;
-    int         release_status = 0;
-    unsigned    release_sequence = 0;
-    double      release_target[3] = {};
-    bool        laser_armed = false;            // IRADS laser arm/safe
-    double      laser_window = 0.0;             // seconds of auto-lase remaining after a release
-    double      weapon_flight_time_remaining = 0.0; // countdown from the last accepted release
-    double      ccrp_time_of_flight = 0.0;      // last computed bomb time of flight (s)
-
-	// Integrity-based damage state: 1.0 = perfect, 0.0 = destroyed
-	// Cell numbers follow DCS Damage.lua and the section names in the mod's Damage table.
 	struct DamageState {
 		double leftWing    = 1.0;   // Remaining component integrity; damage is monotonic until repair.
 		double rightWing   = 1.0;   // Remaining component integrity; damage is monotonic until repair.
@@ -209,32 +145,6 @@ namespace F117 // Shared FM state. Many aero/control calculations still use the 
 		double totalTailLoss   = 0.0;  // average damage across both tails
 		double engineAsymmetry = 0.0;  // leftEngine - rightEngine
 	};
-
-	double		pitch_angle = 0.0;		// Pitch angle relateive to the horizon in degrees, -90 to +90.
-	double		roll_angle = 0.0;		// Roll angle relateive to the horizon in degrees, -90 to +90.
-	double		vspeed = 0.0;			// Vertical speed in metres per second.
-
-	int			alt_hold = 0;			// Altitude hold
-	int			altroll_hold = 0;		// Altitude and bank hold
-	int			horiz_hold = 0;			// Horizon hold
-	
-	double		DeltaTime				= 0.0;			// Delta time of the simulation, in seconds.
-	bool		engineswitch			= true;			// Is either engine running? The throttle is ignored otherwise.
-	double		fuel_mass_in_dcs = 0;					// Fuel mass DCS has been told about through ed_fm_change_mass (kg)
-	double		internal_fuel;
-	double		external_fuel;
-	
-	// Drag chute state
-	double		dragchute_command = 0.0;			// dragChute command
-	double		dragchute = 0.0;					// is the dragChute out?
-
-	double      surface_height_m = 0.0; // absolute elevation of the supporting surface (m)
-    bool        surface_height_valid = false;
-    bool        altitude_valid = false;
-	bool		suspension_wow[3] = { false, false, false }; // Per-gear weight-on-wheels from DCS suspension feedback (0=nose, 1=left main, 2=right main)
-
-	EDPARAM cockpitAPI;
-	param_stuff param_class;
 }
 
 static F117::DamageState g_damage;
@@ -509,62 +419,58 @@ namespace
 }
 
 // World-axis state captured from DCS and reused during the simulation step.
-double ax_world = 0;
-double az_world = 0;
-double vx_world = 0;
-double vy_world = 0;
-double vz_world = 0;
+double ax_world{};
+double az_world{};
+double vx_world{};
+double vy_world{};
+double vz_world{};
 
 // Accumulate a body-axis force for the current frame.
 // The position parameter is ignored here; forces are applied at the current center of mass.
-void add_local_force(const Vec3 & Force, const Vec3 & Force_pos)
+void add_local_force(const Vec3& force)
 {
-	common_force.x += Force.x;
-	common_force.y += Force.y;
-	common_force.z += Force.z;
+    common_force = Vec3(common_force.x + force.x, common_force.y + force.y, common_force.z + force.z);
 }
 
 // Accumulate a body-axis moment for the current frame.
-void add_local_moment(const Vec3 & Moment)
+void add_local_moment(const Vec3& moment)
 {
-	common_moment.x += Moment.x;
-	common_moment.y += Moment.y;
-	common_moment.z += Moment.z;
+    common_moment = Vec3(common_moment.x + moment.x, common_moment.y + moment.y, common_moment.z + moment.z);
 }
 
 
 // Return the accumulated body-axis force to DCS after the current simulation step.
-void ed_fm_add_local_force(double & x,double &y,double &z,double & pos_x,double & pos_y,double & pos_z)
+void ed_fm_add_local_force(double& fx, double& fy, double& fz,
+    double& applicationX, double& applicationY, double& applicationZ)
 {
-	x = common_force.x;
-	y = common_force.y;
-	z = common_force.z;
-	pos_x = center_of_gravity.x;
-	pos_y = center_of_gravity.y;
-	pos_z = center_of_gravity.z;
+    // The component model supplies its moments explicitly; do not add r cross F here.
+    const Vec3 totals = common_force;
+    const Vec3 application = center_of_gravity;
+    fx = totals.x; fy = totals.y; fz = totals.z;
+    applicationX = application.x; applicationY = application.y; applicationZ = application.z;
 }
 
-// Not used
-void ed_fm_add_global_force(double & x,double &y,double &z,double & pos_x,double & pos_y,double & pos_z)
-{}
-
-// Not used
-void ed_fm_add_global_moment(double & x,double &y,double &z)
+void ed_fm_add_global_force(double& fx, double& fy, double& fz,
+    double& px, double& py, double& pz)
 {
+    fx = fy = fz = px = py = pz = 0.0;
+}
+
+void ed_fm_add_global_moment(double& mx, double& my, double& mz)
+{
+    mx = my = mz = 0.0;
 }
 
 // Return the accumulated body-axis moment to DCS after the current simulation step.
-void ed_fm_add_local_moment(double & x,double &y,double &z)
+void ed_fm_add_local_moment(double& mx, double& my, double& mz)
 {
-	x = common_moment.x;
-	y = common_moment.y;
-	z = common_moment.z; 
+    const Vec3 totals = common_moment;
+    mx = totals.x; my = totals.y; mz = totals.z;
 }
 
-float aoa_filter = 0.0;
-float aos_filter = 0.0;
-float roll_filter = 0.0;
 
+
+float aoa_filter{}, aos_filter{};
 
 // Forward declarations for damage debug logging
 static FILE* g_damageLog = nullptr;
@@ -578,107 +484,65 @@ namespace
 {
     bool handle_roll_command(int command, float value)
     {
-        switch (command)
+        if (command == trimLeft || command == trimRight)
         {
-        case JoystickRoll:
-            F117::FLIGHTCONTROLS::latStickInput = limit(value, -1.0, 1.0);
-            F117::roll_cmd = limit(value, -1.0, 1.0);
-            return true;
-        case RollLeft:
-            F117::FLIGHTCONTROLS::latStickInput = (-value - 0.025) / 2.0 * 100.0;
-            F117::roll_cmd = (-value - 0.025) / 2.0 * 100.0;
-            return true;
-        case RollLeftStop:
-            F117::FLIGHTCONTROLS::latStickInput = 0.0;
-            return true;
-        case trimLeft:
-            F117::rollTrim += kRollTrimStep;
-            return true;
-        case RollRight:
-            F117::FLIGHTCONTROLS::latStickInput = (-value + 0.025) / 2.0 * 100.0;
-            F117::roll_cmd = (-value + 0.025) / 2.0 * 100.0;
-            return true;
-        case RollRightStop:
-            F117::FLIGHTCONTROLS::latStickInput = 0.0;
-            return true;
-        case trimRight:
-            F117::rollTrim -= kRollTrimStep;
+            F117::rollTrim += command == trimLeft ? kRollTrimStep : -kRollTrimStep;
             return true;
         }
-
-        return false;
+        double demand;
+        if (command == JoystickRoll) demand = limit(value, -1.0, 1.0);
+        else if (command == RollLeft || command == RollRight)
+            demand = (-value + (command == RollLeft ? -0.025 : 0.025)) / 2.0 * 100.0;
+        else if (command == RollLeftStop || command == RollRightStop)
+        {
+            F117::FLIGHTCONTROLS::latStickInput = 0;
+            return true;
+        }
+        else return false;
+        F117::roll_cmd = demand;
+        F117::FLIGHTCONTROLS::latStickInput = demand;
+        return true;
     }
 
     bool handle_pitch_command(int command, float value)
     {
-        switch (command)
+        if (command == trimUp || command == trimDown)
         {
-        case JoystickPitch:
-            F117::FLIGHTCONTROLS::longStickInput = limit(-value, -1.0, 1.0);
-            return true;
-        case PitchUp:
-            F117::FLIGHTCONTROLS::longStickInput = -1.0;
-            return true;
-        case PitchUpStop:
-            F117::FLIGHTCONTROLS::longStickInput = 0.0;
-            return true;
-        case trimUp:
-            F117::pitchTrim -= kPitchTrimStep;
-            return true;
-        case PitchDown:
-            F117::FLIGHTCONTROLS::longStickInput = 1.0;
-            return true;
-        case PitchDownStop:
-            F117::FLIGHTCONTROLS::longStickInput = 0.0;
-            return true;
-        case trimDown:
-            F117::pitchTrim += kPitchTrimStep;
+            F117::pitchTrim += command == trimUp ? -kPitchTrimStep : kPitchTrimStep;
             return true;
         }
-
-        return false;
+        double demand;
+        if (command == JoystickPitch) demand = limit(-value, -1.0, 1.0);
+        else if (command == PitchUp || command == PitchDown) demand = command == PitchUp ? -1.0 : 1.0;
+        else if (command == PitchUpStop || command == PitchDownStop) demand = 0.0;
+        else return false;
+        F117::FLIGHTCONTROLS::longStickInput = demand;
+        return true;
     }
 
     bool handle_yaw_command(int command, float value)
     {
-        switch (command)
+        if (command == NwsAuthorityOn || command == NwsAuthorityOff)
         {
-        case JoystickYaw:
-            F117::pedInput = limit(-value * (501.0 / (beta_DEG * beta_DEG + 500.0)), -1.0, 1.0);
-            return true;
-        case rudderleft:
-        {
-            const double rudderKeyBias = 101.0 / (beta_DEG * beta_DEG + 100.0);
-            F117::pedInput = limit(value + rudderKeyBias, -1.0, 1.0);
+            F117::nwsAuthorityHeld = command == NwsAuthorityOn;
             return true;
         }
-        case rudderleftend:
-            F117::pedInput = 0.0;
-            return true;
-        case NwsAuthorityOn:
-            F117::nwsAuthorityHeld = true;
-            return true;
-        case NwsAuthorityOff:
-            F117::nwsAuthorityHeld = false;
-            return true;
-        case ruddertrimLeft:
-            F117::yawTrim += kYawTrimStep;
-            return true;
-        case rudderright:
+        if (command == ruddertrimLeft || command == ruddertrimRight)
         {
-            const double rudderKeyBias = 101.0 / (beta_DEG * beta_DEG + 100.0);
-            F117::pedInput = limit(-value - rudderKeyBias, -1.0, 1.0);
+            F117::yawTrim += command == ruddertrimLeft ? kYawTrimStep : -kYawTrimStep;
             return true;
         }
-        case rudderrightend:
-            F117::pedInput = 0.0;
-            return true;
-        case ruddertrimRight:
-            F117::yawTrim -= kYawTrimStep;
-            return true;
+        double demand;
+        if (command == JoystickYaw) demand = -value * (501.0 / (beta_DEG * beta_DEG + 500.0));
+        else if (command == rudderleft || command == rudderright)
+        {
+            const double magnitude = value + 101.0 / (beta_DEG * beta_DEG + 100.0);
+            demand = command == rudderleft ? magnitude : -magnitude;
         }
-
-        return false;
+        else if (command == rudderleftend || command == rudderrightend) demand = 0.0;
+        else return false;
+        F117::pedInput = limit(demand, -1.0, 1.0);
+        return true;
     }
 
     void apply_lua_damage_hit()
@@ -1440,62 +1304,44 @@ namespace
     }
     bool handle_engine_and_throttle_command(int command, float value)
     {
-        switch (command)
+        using namespace F117::ENGINE_START;
+        if (command == EnginesOff || command == LeftEngineOff || command == RightEngineOff)
         {
-        case EnginesOff:
-            g_engineStarts.request_stop(F117::ENGINE_START::LEFT);
-            g_engineStarts.request_stop(F117::ENGINE_START::RIGHT);
-            F117::engineswitch = 0;
-            F117::throttleInput = 0.0;
-            return true;
-        case LeftEngineOff:
-        case RightEngineOff:
-            g_engineStarts.request_stop(command == LeftEngineOff ? F117::ENGINE_START::LEFT : F117::ENGINE_START::RIGHT);
+            if (command != RightEngineOff) g_engineStarts.request_stop(LEFT);
+            if (command != LeftEngineOff) g_engineStarts.request_stop(RIGHT);
             F117::engineswitch = g_engineStarts.any_running();
             if (!F117::engineswitch) F117::throttleInput = 0.0;
             return true;
-        case EnginesOn:
+        }
+        if (command == EnginesOn)
         {
-            const double n2[2] = { F117::engines[0].N2, F117::engines[1].N2 };
-            g_engineStarts.request_both(n2, external_start_air());
+            const double cores[] = {F117::engines[LEFT].N2, F117::engines[RIGHT].N2};
+            g_engineStarts.request_both(cores, external_start_air());
             return true;
         }
-        case LeftEngineOn:
-        case RightEngineOn:
+        if (command == LeftEngineOn || command == RightEngineOn)
         {
-            const int side = command == LeftEngineOn ? F117::ENGINE_START::LEFT : F117::ENGINE_START::RIGHT;
+            const int side = command == LeftEngineOn ? LEFT : RIGHT;
             g_engineStarts.request_start(side, F117::engines[side].N2, external_start_air());
             return true;
         }
-        case JoystickThrottle:
-            if (F117::engineswitch == true)
+        if (command == JoystickThrottle)
+        {
+            if (F117::engineswitch)
             {
-                const double axisPct = limit(((-value + 1.0) * 0.5) * 100.0, 0.0, 100.0);
-                if (g_autothrottle.accept_axis(axisPct))
-                {
-                    F117::throttleInput = axisPct;
-                }
-            }
-            return true;
-        case ThrottleIncrease:
-            if (F117::engineswitch == true && F117::internal_fuel >= 5.0)
-            {
-                g_autothrottle.pilot_throttle_step();
-                F117::throttleInput += kThrottleStep;
-                F117::throttleInput = limit(F117::throttleInput, 0.0, 100.0);
-            }
-            return true;
-        case ThrottleDecrease:
-            if (F117::engineswitch == true)
-            {
-                g_autothrottle.pilot_throttle_step();
-                F117::throttleInput -= kThrottleStep;
-                F117::throttleInput = limit(F117::throttleInput, 0.0, 100.0);
+                const double percent = limit(((-value + 1.0) * 0.5) * 100.0, 0.0, 100.0);
+                if (g_autothrottle.accept_axis(percent)) F117::throttleInput = percent;
             }
             return true;
         }
-
-        return false;
+        if (command != ThrottleIncrease && command != ThrottleDecrease) return false;
+        if (F117::engineswitch && (command == ThrottleDecrease || F117::internal_fuel >= 5.0))
+        {
+            g_autothrottle.pilot_throttle_step();
+            const double step = command == ThrottleIncrease ? kThrottleStep : -kThrottleStep;
+            F117::throttleInput = limit(F117::throttleInput + step, 0.0, 100.0);
+        }
+        return true;
     }
 
     bool handle_actuator_toggle_command(int command)
@@ -1592,34 +1438,22 @@ namespace
 
     bool handle_autopilot_command(int command)
     {
-        switch (command)
+        int* selected = nullptr;
+        if (command == autopilot_alt) selected = &alt_hold;
+        if (command == autopilot_horiz) selected = &horiz_hold;
+        if (command == autopilot_alt_roll) selected = &altroll_hold;
+        if (!selected && command != autopilot_reset) return false;
+
+        const bool engage = selected && *selected == 0;
+        alt_hold = horiz_hold = altroll_hold = 0;
+        if (engage) *selected = 1;
+        if (command == autopilot_reset)
         {
-        case autopilot_alt:
-            horiz_hold = 0;
-            altroll_hold = 0;
-            alt_hold = (alt_hold < 0.5) ? 1 : 0;
-            return true;
-        case autopilot_horiz:
-            alt_hold = 0;
-            altroll_hold = 0;
-            horiz_hold = (horiz_hold < 0.5) ? 1 : 0;
-            return true;
-        case autopilot_alt_roll:
-            alt_hold = 0;
-            horiz_hold = 0;
-            altroll_hold = (altroll_hold < 0.5) ? 1 : 0;
-            return true;
-        case autopilot_reset: // stick disengage paddle: A/P, A/T and PAARS
-            horiz_hold = 0;
-            alt_hold = 0;
-            altroll_hold = 0;
             g_autothrottle.disconnect_button();
             g_paars.disengage();
             g_paarsEngagedAutothrottle = false;
-            return true;
         }
-
-        return false;
+        return true;
     }
 
     // Either engine running.
@@ -1797,40 +1631,26 @@ void update_total_velocity_from_airmass()
     }
 }
 
-void update_atmosphere_from_total_velocity(double* temp)
+void update_atmosphere_from_total_velocity(double* airData)
 {
-    F117::ATMOS::atmos(F117::ambientTemperature_DegK, F117::ambientDensity_KgPerM3, F117::totalVelocity_MPS, temp);
-    F117::dynamicPressure_PA = temp[0];
-    F117::mach = temp[1];
+    F117::ATMOS::atmos(F117::ambientTemperature_DegK, F117::ambientDensity_KgPerM3,
+        F117::totalVelocity_MPS, airData);
+    F117::dynamicPressure_PA = airData[0];
+    F117::mach = airData[1];
 }
 
 void update_autopilot_hold_state()
 {
-    if (g_damage.cockpit > 0.7)
+    if (g_damage.cockpit <= 0.7)
     {
-        if (alt_hold == 1)
-        {
-            pitchTrim = limit(vspeed, -10, 10);
-        }
-
-        if (altroll_hold == 1)
-        {
-            pitchTrim = limit(vspeed, -10, 10);
-            rollTrim = roll_angle / 10;
-        }
-
-        if (horiz_hold == 1)
-        {
-            pitchTrim = pitch_angle * 2;
-            rollTrim = roll_angle / 10;
-        }
+        alt_hold = horiz_hold = altroll_hold = 0;
+        return;
     }
-    else
-    {
-        alt_hold = 0;
-        altroll_hold = 0;
-        horiz_hold = 0;
-    }
+    if (horiz_hold)
+        pitchTrim = 2.0 * pitch_angle;
+    else if (alt_hold || altroll_hold)
+        pitchTrim = limit(vspeed, -10.0, 10.0);
+    if (horiz_hold || altroll_hold) rollTrim = 0.1 * roll_angle;
 }
 
 
@@ -1971,7 +1791,7 @@ void update_flight_control_commands(double dt, double controlDegradation)
         F117::dynamicPressure_PA,
         F117::gearDown > 0.5,
         dt);
-    F117::rudder_DEG = F117::rudder_DEG_commanded + F117::yawTrim;
+    F117::rudder_DEG = F117::yawTrim + F117::rudder_DEG_commanded;
     // 25 deg lets full pedal reach the 8 deg of steady sideslip on TO 1F-117A-1 page 6-3 at low speed.
     F117::rudder_DEG = limit(F117::rudder_DEG, -25.0 / aos_filter, 25.0 / aos_filter);
 }
@@ -2229,35 +2049,29 @@ void apply_aerodynamic_forces_and_thrust()
     const double qS = F117::wingArea_M2 * F117::dynamicPressure_PA; // N
 
     Vec3 cy_force(0.0, 0.0, F117::AERO::Cy_total * qS);
-    Vec3 cy_force_pos(0.0, 0, 0);
-    add_local_force(cy_force, cy_force_pos);
+    add_local_force(cy_force);
 
     Vec3 cx_force(-F117::AERO::Cx_total * qS * g_damage.structuralDragFactor, 0, 0);
-    Vec3 cx_force_pos(0, 0.0, 0.0);
-    add_local_force(cx_force, cx_force_pos);
+    add_local_force(cx_force);
 
     const double liftDamageFactor = 1.0 - g_damage.totalWingLoss;
     Vec3 cz_force(0.0, -F117::AERO::Cz_total * qS * liftDamageFactor, 0.0);
-    Vec3 cz_force_pos(0, 0, 0);
-    add_local_force(cz_force, cz_force_pos);
+    add_local_force(cz_force);
 
     const double qS_b = qS * F117::wingSpan_M; // N·m
     double rollMoment = F117::AERO::Cl_total * qS_b;
     rollMoment += g_damage.wingAsymmetry * qS_b * 0.05;
-    Vec3 cl_moment(rollMoment, 0.0, 0.0);
-    add_local_moment(cl_moment);
+
 
     const double pitchDamageFactor = 1.0 - g_damage.totalTailLoss * 0.5;
     const double noseDownBias = -g_damage.totalWingLoss * qS_b * 0.08;
-    Vec3 cm_moment(0.0, 0.0, F117::AERO::Cm_total * qS * F117::meanChord_M * pitchDamageFactor + noseDownBias);
-    add_local_moment(cm_moment);
+    const double pitchMoment = F117::AERO::Cm_total * qS * F117::meanChord_M * pitchDamageFactor + noseDownBias;
 
     const double qS_span = qS_b; // N·m (same as qS_b for yaw)
     double yawMoment = -F117::AERO::Cn_total * qS_span;
     const double tailAsymDamage = g_damage.leftTail - g_damage.rightTail;
     yawMoment += tailAsymDamage * qS_span * 0.03;
-    Vec3 cn_moment(0.0, yawMoment, 0.0);
-    add_local_moment(cn_moment);
+    add_local_moment({rollMoment, yawMoment, pitchMoment});
 
     const double thrust_cant_up_deg = 0.1;
     const double thrust_toe_out_deg = 10;
@@ -2276,23 +2090,18 @@ void apply_aerodynamic_forces_and_thrust()
     const double thrust_z_R = rightThrust * cos(cant_up_rad) * sin(toe_out_rad);
 
     Vec3 thrust_force_L(thrust_x_L, thrust_y_L, thrust_z_L);
-    Vec3 thrust_force_pos_L(-4.604, 0.000, -1.427);
-    add_local_force(thrust_force_L, thrust_force_pos_L);
+    add_local_force(thrust_force_L);
 
     Vec3 thrust_force_R(thrust_x_R, thrust_y_R, -thrust_z_R);
-    Vec3 thrust_force_pos_R(-4.604, 0.000, 1.427);
-    add_local_force(thrust_force_R, thrust_force_pos_R);
+    add_local_force(thrust_force_R);
 }
 
 }
 
-//-----------------------------------------------------------------------
 // Main FM update called once per DCS simulation step.
 // `dt` is the current frame step in seconds.
-//-----------------------------------------------------------------------
-void ed_fm_simulate(double dt)
+static void simulate_aircraft_frame(double dt)
 {
-	F117::DeltaTime = dt;
 
 	CockpitInterop::ForceIRADSIndicatorActive();
 	CockpitInterop::UpdateIRADSSensorFrame(dt,
@@ -2308,17 +2117,13 @@ begin_simulation_frame();
 update_derived_damage_values();
 
 // Compute air-relative speed using the current wind estimate.
-// The downstream aero model still expects feet/second here.
 update_total_velocity_from_airmass();
 
 // Update Mach and dynamic pressure from the atmosphere model.
-// The tuned aero model still uses its original imperial-unit convention here.
-double* temp = F117::temp;
-update_atmosphere_from_total_velocity(temp);
+double airData[2]{};
+update_atmosphere_from_total_velocity(airData);
 
-//---------------------------------------------
 //-----CONTROL DYNAMICS------------------------
-//---------------------------------------------
 //
 // While PAARS flies the recovery the autopilot holds stay selected but do not act.
 if (!g_paars.engaged())
@@ -2330,7 +2135,6 @@ update_paars();
 
 // Fuel system
 update_fuel_system(dt);
-// Legacy experimental fuel-scaling hook left here for reference.
 
 // Cockpit damage reduces effective control input below 0.7 integrity.
 double controlDegradation = get_control_degradation();
@@ -2406,12 +2210,16 @@ update_propulsion_and_control_effectiveness(dt, tailIntegrity);
 update_aerodynamic_coefficients();
 apply_aerodynamic_forces_and_thrust();
 		// Mark subsystem initialization complete after the first successful simulation frame.
-		F117::simInitialized = true;
-		F117::ACTUATORS::initialized = true;
-		F117::FLIGHTCONTROLS::simInitialized = true;
+		F117::simInitialized = F117::ACTUATORS::initialized = F117::FLIGHTCONTROLS::simInitialized = true;
 
 		update_weight_on_wheels();
 
+}
+
+void ed_fm_simulate(double dt)
+{
+    DeltaTime = dt;
+    simulate_aircraft_frame(dt);
 }
 
 void ed_fm_set_surface(double h, double h_obj, unsigned /*surface_type*/,
@@ -2422,284 +2230,124 @@ void ed_fm_set_surface(double h, double h_obj, unsigned /*surface_type*/,
         F117::surface_height_m = std::isfinite(h_obj) ? (std::max)(h, h_obj) : h;
 }
 
-void ed_fm_set_atmosphere(
-	double h,//altitude above sea level			(meters)
-	double t,//current atmosphere temperature   (Kelvin)
-	double a,//speed of sound					(meters/sec)
-	double ro,// atmosphere density				(kg/m^3)
-	double p,// atmosphere pressure				(N/m^2)
-	double wind_vx,//components of velocity vector, including turbulence in world coordinate system (meters/sec)
-	double wind_vy,//components of velocity vector, including turbulence in world coordinate system (meters/sec)
-	double wind_vz //components of velocity vector, including turbulence in world coordinate system (meters/sec)
-	)
+void ed_fm_set_atmosphere(double altitude, double temperature, double /*soundSpeed*/,
+    double density, double pressure, double windX, double windY, double windZ)
 {
-	F117::ambientTemperature_DegK = t;
-	F117::ambientDensity_KgPerM3 = ro;
-	F117::ambientPressure_PA = p;
-	F117::altitude_m = h;
-    F117::altitude_valid = std::isfinite(h);
-	wind_world_cs.x = wind_vx;
-	wind_world_cs.y = wind_vy;
-	wind_world_cs.z = wind_vz;
+    // Air data and ballistic wind are separate from the body-frame wind callback.
+    wind_world_cs = {windX, windY, windZ};
+    F117::altitude_valid = std::isfinite(altitude);
+    F117::altitude_m = altitude;
+    F117::ambientPressure_PA = pressure;
+    F117::ambientDensity_KgPerM3 = density;
+    F117::ambientTemperature_DegK = temperature;
 }
 
-void ed_fm_set_current_mass_state ( double mass,
-									double center_of_mass_x,
-									double center_of_mass_y,
-									double center_of_mass_z,
-									double moment_of_inertia_x,
-									double moment_of_inertia_y,
-									double moment_of_inertia_z
-									)
+void ed_fm_set_current_mass_state(double massKg, double cgX, double cgY, double cgZ,
+    double rollInertia, double yawInertia, double pitchInertia)
 {
-	center_of_gravity.x  = center_of_mass_x;
-	center_of_gravity.y  = center_of_mass_y;
-	center_of_gravity.z  = center_of_mass_z;
-
-	inertia.x = moment_of_inertia_x; // Current DCS-owned inertia state.
-	inertia.y = moment_of_inertia_y;
-	inertia.z = moment_of_inertia_z;
-
-	F117::weight_N = mass * 9.98665002864;
+    center_of_gravity = {cgX, cgY, cgZ};
+    inertia = {rollInertia, yawInertia, pitchInertia};
+    // Preserve the controller's calibrated mass-to-load scale during this source replacement.
+    constexpr double controllerWeightPerKg = 9.98665002864;
+    F117::weight_N = controllerWeightPerKg * massKg;
 }
-/*
-called before simulation to set up your environment for the next step
-*/
-void ed_fm_set_current_state (double ax,//linear acceleration component in world coordinate system
-							double ay,//linear acceleration component in world coordinate system
-							double az,//linear acceleration component in world coordinate system
-							double vx,//linear velocity component in world coordinate system
-							double vy,//linear velocity component in world coordinate system
-							double vz,//linear velocity component in world coordinate system
-							double px,//center of the body position in world coordinate system
-							double py,//center of the body position in world coordinate system
-							double pz,//center of the body position in world coordinate system
-							double omegadotx,//angular accelearation components in world coordinate system
-							double omegadoty,//angular accelearation components in world coordinate system
-							double omegadotz,//angular accelearation components in world coordinate system
-							double omegax,//angular velocity components in world coordinate system
-							double omegay,//angular velocity components in world coordinate system
-							double omegaz,//angular velocity components in world coordinate system
-							double quaternion_x,//orientation quaternion components in world coordinate system
-							double quaternion_y,//orientation quaternion components in world coordinate system
-							double quaternion_z,//orientation quaternion components in world coordinate system
-							double quaternion_w //orientation quaternion components in world coordinate system
-							)
+void ed_fm_set_current_state(double accelX, double accelY, double accelZ,
+    double speedX, double speedY, double speedZ, double posX, double posY, double posZ,
+    double /*angularAccelX*/, double /*angularAccelY*/, double /*angularAccelZ*/,
+    double /*rateX*/, double /*rateY*/, double /*rateZ*/,
+    double qx, double qy, double qz, double qw)
 {
-	ax_world = ax;
-	F117::ay_world = ay;
-	az_world = az;
-	vx_world = vx;
-	vy_world = vy;
-	vz_world = vz;
-	position_world_cs.x = px;
-	position_world_cs.y = py;
-	position_world_cs.z = pz;
-	F117::aircraftQuaternionX = quaternion_x;
-	F117::aircraftQuaternionY = quaternion_y;
-	F117::aircraftQuaternionZ = quaternion_z;
-	F117::aircraftQuaternionW = quaternion_w;
-
-	F117::vspeed = vy -3.25; // Bias retained to match the current autopilot tuning.
+    position_world_cs = {posX, posY, posZ};
+    vx_world = speedX; vy_world = speedY; vz_world = speedZ;
+    ax_world = accelX; F117::ay_world = accelY; az_world = accelZ;
+    F117::aircraftQuaternionX = qx; F117::aircraftQuaternionY = qy;
+    F117::aircraftQuaternionZ = qz; F117::aircraftQuaternionW = qw;
+    // Existing hold-law vertical-speed reference, in m/s.
+    F117::vspeed = speedY - 3.25;
 }
 
-double ax_body = 0;
-double ay_body = 0;
-double az_body = 0;
-double vx_body = 0;
-double vy_body = 0;
-double vz_body = 0;
+double ax_body{};
+double ay_body{};
+double az_body{};
+double vx_body{};
+double vy_body{};
+double vz_body{};
 
-void ed_fm_set_current_state_body_axis(	
-	double ax,//linear acceleration component in body coordinate system (meters/sec^2)
-	double ay,//linear acceleration component in body coordinate system (meters/sec^2)
-	double az,//linear acceleration component in body coordinate system (meters/sec^2)
-	double vx,//linear velocity component in body coordinate system (meters/sec)
-	double vy,//linear velocity component in body coordinate system (meters/sec)
-	double vz,//linear velocity component in body coordinate system (meters/sec)
-	double wind_vx,//wind linear velocity component in body coordinate system (meters/sec)
-	double wind_vy,//wind linear velocity component in body coordinate system (meters/sec)
-	double wind_vz,//wind linear velocity component in body coordinate system (meters/sec)
-	double omegadotx,//angular accelearation components in body coordinate system (rad/sec^2)
-	double omegadoty,//angular accelearation components in body coordinate system (rad/sec^2)
-	double omegadotz,//angular accelearation components in body coordinate system (rad/sec^2)
-	double omegax,//angular velocity components in body coordinate system (rad/sec)
-	double omegay,//angular velocity components in body coordinate system (rad/sec)
-	double omegaz,//angular velocity components in body coordinate system (rad/sec)
-	double yaw,  //radians (rad)
-	double pitch,//radians (rad)
-	double roll, //radians (rad)
-	double common_angle_of_attack, //AoA  (rad)
-	double common_angle_of_slide   //AoS  (rad)
-	)
-
+void ed_fm_set_current_state_body_axis(double accelX, double accelY, double accelZ,
+    double speedX, double speedY, double speedZ, double windX, double windY, double windZ,
+    double /*angularAccelX*/, double /*angularAccelY*/, double /*angularAccelZ*/,
+    double rateX, double rateY, double rateZ, double /*heading*/, double pitchRad, double rollRad,
+    double attackRad, double slipRad)
 {
-	ax_body = ax;
-	ay_body = ay;
-	az_body = az;
-	vx_body = vx;
-	vy_body = vy;
-	vz_body = vz;
-
-	velocity_world_cs.x = vx;
-	velocity_world_cs.y = vy;
-	velocity_world_cs.z = vz;
-
-	wind.x = wind_vx;
-	wind.y = wind_vy;
-	wind.z = wind_vz;
-
-	pitch_angle = (pitch * radiansToDegrees); 
-	roll_angle = (roll * radiansToDegrees);
-	// Update body-axis aircraft state used by the control laws and aero model.
-	F117::alpha_DEG	= (common_angle_of_attack * F117::radiansToDegrees);
-	F117::beta_DEG	= (common_angle_of_slide * F117::radiansToDegrees);
-	F117::rollRate_RPS = omegax;   // These rates feed the tuned damping/limiter schedules.
-	F117::yawRate_RPS = -omegay;  // Sign convention matches the existing FM tuning.
-	F117::pitchRate_RPS = omegaz;  // These rates act like dampers/limiters in several control paths.
-	
-
-	F117::az = ay;
-	F117::ay = az;
+    // ED uses X forward, Y up, Z right. The control laws use positive yaw to the right.
+    wind = {windX, windY, windZ};
+    velocity_world_cs = {speedX, speedY, speedZ}; // Historical name: this snapshot is body-frame.
+    vx_body = speedX; vy_body = speedY; vz_body = speedZ;
+    ax_body = accelX; ay_body = accelY; az_body = accelZ;
+    F117::rollRate_RPS = rateX; F117::pitchRate_RPS = rateZ; F117::yawRate_RPS = -rateY;
+    F117::pitch_angle = radiansToDegrees * pitchRad;
+    F117::roll_angle = radiansToDegrees * rollRad;
+    F117::alpha_DEG = radiansToDegrees * attackRad;
+    F117::beta_DEG = radiansToDegrees * slipRad;
+    // Retain the load-axis names used by the controller interface.
+    F117::az = accelY; F117::ay = accelZ;
 }
 
 
-void ed_fm_set_command(int command, float value)	// Command = Command Index (See Export.lua), Value = Signal Value (-1 to 1 for Joystick Axis)
+void ed_fm_set_command(int command, float value)
 {
-    if (CockpitInterop::HandleIRADSCommand(command, value))
-    {
-        return;
-    }
-
-    if (handle_roll_command(command, value))
-    {
-        return;
-    }
-
-    if (handle_pitch_command(command, value))
-    {
-        return;
-    }
-
-    if (handle_yaw_command(command, value))
-    {
-        return;
-    }
-
-    if (handle_engine_and_throttle_command(command, value))
-    {
-        return;
-    }
-
-    if (handle_actuator_toggle_command(command))
-    {
-        return;
-    }
-
-    if (handle_autopilot_command(command))
-    {
-        return;
-    }
-
-    if (handle_autothrottle_command(command))
-    {
-        return;
-    }
-
-    if (handle_paars_command(command))
-    {
-        return;
-    }
-
-    switch (command)
-    {
-    case resetTrim:
-        F117::pitchTrim = 0.0;
-        F117::rollTrim = 0.0;
-        F117::yawTrim = 0.0;
-        break;
-    }
+    // Route a command to its first owner. IRADS has priority over flight controls.
+    using AxisHandler = bool (*)(int, float);
+    const AxisHandler axes[] = {CockpitInterop::HandleIRADSCommand, handle_roll_command,
+        handle_pitch_command, handle_yaw_command, handle_engine_and_throttle_command};
+    for (const auto handle : axes) if (handle(command, value)) return;
+    using SwitchHandler = bool (*)(int);
+    const SwitchHandler switches[] = {handle_actuator_toggle_command, handle_autopilot_command,
+        handle_autothrottle_command, handle_paars_command};
+    for (const auto handle : switches) if (handle(command)) return;
+    if (command == resetTrim) pitchTrim = rollTrim = yawTrim = 0.0;
 }
 
 
-/*
-	Mass handling 
-
-	will be called  after ed_fm_simulate :
-	you should collect mass changes in ed_fm_simulate 
-
-	double delta_mass = 0;
-	double x = 0;
-	double y = 0; 
-	double z = 0;
-	double piece_of_mass_MOI_x = 0;
-	double piece_of_mass_MOI_y = 0; 
-	double piece_of_mass_MOI_z = 0;
- 
-	//
-	while (ed_fm_change_mass(delta_mass,x,y,z,piece_of_mass_MOI_x,piece_of_mass_MOI_y,piece_of_mass_MOI_z))
-	{
-	//internal DCS calculations for changing mass, center of gravity,  and moments of inertia
-	}
-*/
 bool ed_fm_change_mass(double& delta_mass, double& delta_mass_pos_x,
     double& delta_mass_pos_y, double& delta_mass_pos_z,
     double& delta_mass_moment_of_inertia_x, double& delta_mass_moment_of_inertia_y,
     double& delta_mass_moment_of_inertia_z)
 {
-    delta_mass = 0.0;
-    delta_mass_pos_x = delta_mass_pos_y = delta_mass_pos_z = 0.0;
-    delta_mass_moment_of_inertia_x = delta_mass_moment_of_inertia_y = delta_mass_moment_of_inertia_z = 0.0;
-
-    // DCS starts the aircraft at M_empty with no fuel in its mass and adds delta_mass to it, as measured in
-    // DCS 2.9.31. So the EFM reports fuel as it is loaded (positive) and burned (negative). It goes in at the
-    // empty centre of mass (center_of_mass in the mod's FM/config.lua), so fuel state doesn't move the CG.
-    const double change = F117::internal_fuel - F117::fuel_mass_in_dcs;
-    if (!std::isfinite(change) || std::abs(change) < 0.01) return false;
-
-    delta_mass = change;
-    delta_mass_pos_y = 0.1;
-    F117::fuel_mass_in_dcs += change;
-    return true;
+    // DCS repeatedly drains this callback. Acknowledge each fuel delta exactly once.
+    const double pendingKg = F117::internal_fuel - F117::fuel_mass_in_dcs;
+    const bool report = std::isfinite(pendingKg) && std::abs(pendingKg) >= 0.01;
+    delta_mass = report ? pendingKg : 0.0;
+    delta_mass_pos_x = 0.0; delta_mass_pos_z = 0.0;
+    delta_mass_pos_y = report ? 0.1 : 0.0; // Empty-aircraft CG in FM/config.lua.
+    delta_mass_moment_of_inertia_x = 0.0;
+    delta_mass_moment_of_inertia_y = 0.0;
+    delta_mass_moment_of_inertia_z = 0.0;
+    if (report) F117::fuel_mass_in_dcs = F117::internal_fuel;
+    return report;
 }
 
-/*
-	set internal fuel volume , init function, called on object creation and for refueling , 
-	you should distribute it inside at different fuel tanks
-*/
-void ed_fm_set_internal_fuel(double fuel)
+void ed_fm_set_internal_fuel(double kilograms)
 {
-	internal_fuel = fuel;
+    F117::internal_fuel = kilograms;
 }
-/*
-	get internal fuel volume 
-*/
 double ed_fm_get_internal_fuel()
 {
-	return internal_fuel + external_fuel;
+    return F117::internal_fuel; // The F-117 carries no external fuel tanks.
 }
-/*
-	set external fuel volume for each payload station , called for weapon init and on reload
-*/
-void  ed_fm_set_external_fuel (int	 station,
-								double fuel,
-								double x,
-								double y,
-								double z)
+void ed_fm_set_external_fuel(int /*station*/, double /*kilograms*/,
+    double /*x*/, double /*y*/, double /*z*/)
 {
+    // No supported loadout has an external tank; DCS owns all weapon masses.
 }
-/*
-	get external fuel volume 
-*/
-
 double ed_fm_get_external_fuel ()
 {
-	return external_fuel;
+    return 0.0; // No external tank stations.
 }
 
-void ed_fm_refueling_add_fuel(double fuel)
+void ed_fm_refueling_add_fuel(double kilograms)
 {
-	F117::internal_fuel += fuel;
+    F117::internal_fuel = F117::internal_fuel + kilograms;
 }
 
 
@@ -2709,26 +2357,22 @@ namespace
 
     void sync_gear_draw_args(float* drawargs)
     {
-        if (F117::simInitialized)
+        if (!F117::simInitialized)
         {
-            F117::ACTUATORS::gear.position = drawargs[kGearArgRight];
+            for (const int argument : {kGearArgNose, kGearArgLeft, kGearArgRight})
+                drawargs[argument] = static_cast<float>(F117::ACTUATORS::gear.position);
+            return;
         }
-        else
-        {
-            drawargs[kGearArgNose] = static_cast<float>(F117::ACTUATORS::gear.position);
-            drawargs[kGearArgLeft] = static_cast<float>(F117::ACTUATORS::gear.position);
-            drawargs[kGearArgRight] = static_cast<float>(F117::ACTUATORS::gear.position);
-        }
+        F117::ACTUATORS::gear.position = drawargs[kGearArgRight];
     }
 
     void update_weight_on_wheels_from_draw_args(float* drawargs)
     {
-        F117::wow_from_draw_args = (drawargs[kWowArgNose] + drawargs[kWowArgLeft] + drawargs[kWowArgRight]) > kWeightOnWheelsDrawArgThreshold;
-        if (F117::wow_from_draw_args)
-        {
-            F117::weight_on_wheels = true;
-            F117::GearCommand = kGearCommandDown;
-        }
+        const float contact = drawargs[kWowArgNose] + drawargs[kWowArgLeft] + drawargs[kWowArgRight];
+        F117::wow_from_draw_args = contact > kWeightOnWheelsDrawArgThreshold;
+        if (!F117::wow_from_draw_args) return;
+        F117::weight_on_wheels = F117::wow_from_draw_args;
+        F117::GearCommand = kGearCommandDown;
     }
 
     void update_control_surface_draw_args(float* drawargs)
@@ -2782,9 +2426,9 @@ void ed_fm_set_draw_args_v2(float* drawargs, size_t size) // Sync external-model
 
 // FC3 cockpit draw-arg callback used for stick, rudder pedal, throttle, and gear-handle animation.
 
-void ed_fm_set_fc3_cockpit_draw_args_v2(float* drawargs, size_t size)
+void ed_fm_set_fc3_cockpit_draw_args_v2(float* arguments, size_t /*count*/)
 {
-    update_fc3_cockpit_draw_args(drawargs);
+    update_fc3_cockpit_draw_args(arguments);
 }
 
 void ed_fm_configure(const char * cfg_path)
@@ -2797,37 +2441,23 @@ namespace
 {
     bool try_get_suspension_param(unsigned index, double& value)
     {
-        switch (index)
-        {
-        case ED_FM_SUSPENSION_0_RELATIVE_BRAKE_MOMENT:
-            value = 0.0;
-            return true;
-        case ED_FM_SUSPENSION_1_RELATIVE_BRAKE_MOMENT:
-        case ED_FM_SUSPENSION_2_RELATIVE_BRAKE_MOMENT:
-            value = F117::rolling_friction;
-            return true;
-        case ED_FM_SUSPENSION_0_WHEEL_SELF_ATTITUDE:
-        case ED_FM_SUSPENSION_1_WHEEL_SELF_ATTITUDE:
-        case ED_FM_SUSPENSION_2_WHEEL_SELF_ATTITUDE:
-            value = 0.0;
-            return true;
-        case ED_FM_SUSPENSION_0_WHEEL_YAW:
-            value = F117::rudder_pos * F117::noseWheelYawRange_RAD;
-            return true;
-        case ED_FM_ANTI_SKID_ENABLE:
-            value = true;
-            return true;
-        case ED_FM_SUSPENSION_0_GEAR_POST_STATE:
-        case ED_FM_SUSPENSION_1_GEAR_POST_STATE:
-        case ED_FM_SUSPENSION_2_GEAR_POST_STATE:
-        case ED_FM_SUSPENSION_0_DOWN_LOCK:
-            value = F117::ACTUATORS::gear.position;
-            return true;
-        case ED_FM_FC3_GEAR_HANDLE_POS:
-            value = F117::GearCommand;
-            return true;
-        }
-
+        const struct { unsigned id; double reading; } suspension[] = {
+            {ED_FM_SUSPENSION_0_RELATIVE_BRAKE_MOMENT, 0.0},
+            {ED_FM_SUSPENSION_1_RELATIVE_BRAKE_MOMENT, F117::rolling_friction},
+            {ED_FM_SUSPENSION_2_RELATIVE_BRAKE_MOMENT, F117::rolling_friction},
+            {ED_FM_SUSPENSION_0_WHEEL_SELF_ATTITUDE, 0.0},
+            {ED_FM_SUSPENSION_1_WHEEL_SELF_ATTITUDE, 0.0},
+            {ED_FM_SUSPENSION_2_WHEEL_SELF_ATTITUDE, 0.0},
+            {ED_FM_SUSPENSION_0_WHEEL_YAW, F117::rudder_pos * F117::noseWheelYawRange_RAD},
+            {ED_FM_ANTI_SKID_ENABLE, 1.0},
+            {ED_FM_SUSPENSION_0_GEAR_POST_STATE, F117::ACTUATORS::gear.position},
+            {ED_FM_SUSPENSION_1_GEAR_POST_STATE, F117::ACTUATORS::gear.position},
+            {ED_FM_SUSPENSION_2_GEAR_POST_STATE, F117::ACTUATORS::gear.position},
+            {ED_FM_SUSPENSION_0_DOWN_LOCK, F117::ACTUATORS::gear.position},
+            {ED_FM_FC3_GEAR_HANDLE_POS, F117::GearCommand},
+        };
+        for (const auto& parameter : suspension)
+            if (parameter.id == index) { value = parameter.reading; return true; }
         return false;
     }
 
@@ -2901,32 +2531,18 @@ namespace
 
     bool try_get_misc_param(unsigned index, double& value)
     {
-        switch (index)
-        {
-        case ED_FM_FUEL_INTERNAL_FUEL:
-        case ED_FM_FUEL_TOTAL_FUEL:
-            value = F117::internal_fuel + F117::external_fuel;
-            return true;
-        case ED_FM_OXYGEN_SUPPLY:
-            value = kAirframeOxygenSupply;
-            return true;
-        case ED_FM_FLOW_VELOCITY:
-            value = kDefaultFlowVelocity;
-            return true;
-        case ED_FM_FC3_STICK_PITCH:
-            value = F117::FLIGHTCONTROLS::longStickInput;
-            return true;
-        case ED_FM_FC3_STICK_ROLL:
-            value = F117::FLIGHTCONTROLS::latStickInput;
-            return true;
-        case ED_FM_FC3_RUDDER_PEDALS:
-            value = F117::pedInput;
-            return true;
-        case ED_FM_FC3_AUTOPILOT_STATUS:
-            value = F117::alt_hold;
-            return true;
-        }
-
+        const struct { unsigned id; double reading; } cockpit[] = {
+            {ED_FM_FUEL_INTERNAL_FUEL, F117::internal_fuel},
+            {ED_FM_FUEL_TOTAL_FUEL, F117::internal_fuel},
+            {ED_FM_OXYGEN_SUPPLY, kAirframeOxygenSupply},
+            {ED_FM_FLOW_VELOCITY, kDefaultFlowVelocity},
+            {ED_FM_FC3_STICK_PITCH, F117::FLIGHTCONTROLS::longStickInput},
+            {ED_FM_FC3_STICK_ROLL, F117::FLIGHTCONTROLS::latStickInput},
+            {ED_FM_FC3_RUDDER_PEDALS, F117::pedInput},
+            {ED_FM_FC3_AUTOPILOT_STATUS, static_cast<double>(F117::alt_hold)},
+        };
+        for (const auto& parameter : cockpit)
+            if (parameter.id == index) { value = parameter.reading; return true; }
         return false;
     }
 }
@@ -2996,17 +2612,16 @@ namespace
 
     void reset_session_controls()
     {
-        F117::simInitialized = false;
-        F117::ACTUATORS::initialized = false;
+        F117::simInitialized = F117::ACTUATORS::initialized = false;
         F117::FLIGHTCONTROLS::reset_runtime_state();
         F117::alt_hold = F117::altroll_hold = F117::horiz_hold = 0;
         F117::airRefuelDoorOpen = false;
         F117::pitchTrim = F117::rollTrim = F117::yawTrim = 0.0;
-        F117::pedInput = 0.0;
+        F117::pedInput = F117::WheelBrakeCommand = 0.0;
         F117::nwsAuthorityHeld = false;
         F117::noseWheelYawRange_RAD = F117::kNoseWheelYawLow_RAD;
-        F117::FLIGHTCONTROLS::latStickInput = F117::FLIGHTCONTROLS::longStickInput = 0.0;
-        F117::FLIGHTCONTROLS::longStickForce = 0.0;
+        for (double* input : {&F117::FLIGHTCONTROLS::latStickInput,
+            &F117::FLIGHTCONTROLS::longStickInput, &F117::FLIGHTCONTROLS::longStickForce}) *input = 0.0;
         F117::throttleInput = F117::throttle_state = F117::thrust_N = 0.0;
         F117::engineswitch = false;
         g_engineStarts.reset(false);
@@ -3020,7 +2635,6 @@ namespace
         F117::elevator_DEG = F117::aileron_DEG = F117::rudder_DEG = 0.0;
         F117::elevator_DEG_commanded = F117::aileron_DEG_commanded = F117::rudder_DEG_commanded = 0.0;
         F117::elevator_PCT = F117::aileron_PCT = F117::rudder_PCT = 0.0;
-        F117::WheelBrakeCommand = 0.0;
         F117::rolling_friction = kWheelBrakeOffFriction;
         F117::tailhook_command = F117::tailhook_pos = 0.0;
         F117::dragchute_command = F117::dragchute = 0.0;
@@ -3040,10 +2654,8 @@ namespace
         F117::ACTUATORS::gear.set(kGearCommandDown);
         F117::gearDown = kGearCommandDown;
         F117::GearCommand = kGearCommandDown;
-        F117::weight_on_wheels = true;
-        F117::wow_from_draw_args = true;
+        F117::weight_on_wheels = F117::wow_from_draw_args = true;
         F117::throttleInput = 0.0;
-        F117::WheelBrakeCommand = 0.0;
         F117::engineswitch = enginesRunning;
         g_engineStarts.reset(enginesRunning);
         F117::rolling_friction = kWheelBrakeOffFriction;
@@ -3058,13 +2670,11 @@ namespace
         reset_session_controls();
         F117::gearDown = kGearCommandUp;
         F117::GearCommand = kGearCommandUp;
-        F117::weight_on_wheels = false;
-        F117::wow_from_draw_args = false;
+        F117::weight_on_wheels = F117::wow_from_draw_args = false;
         F117::throttleInput = kAirStartThrottle;
         F117::throttle_state = kAirStartThrottle;
-        F117::WheelBrakeCommand = 0.0;
-        F117::engineswitch = true;
         g_engineStarts.reset(true);
+        F117::engineswitch = g_engineStarts.any_running();
         F117::rolling_friction = kWheelBrakeOffFriction;
         F117::engines[0].N2 = F117::engines[1].N2 = kAirStartN2;
         reset_damage_and_events();
@@ -3075,12 +2685,11 @@ namespace
 
 // Reset transient FM state when the aircraft is destroyed, restarted, or unloaded.
 
-void ed_fm_release()
+void ed_fm_release ()
 {
     reset_session_controls();
-    // The next aircraft starts at M_empty again. Only here: DCS collects the loaded fuel before the start calls.
-    F117::fuel_mass_in_dcs = 0.0;
-    F117::DeltaTime = 0.0;
+    // DCS will collect the next aircraft's initial fuel mass afresh.
+    F117::fuel_mass_in_dcs = F117::DeltaTime = 0.0;
     F117::gearDown = F117::GearCommand = 0.0;
     F117::weight_on_wheels = F117::wow_from_draw_args = false;
     reset_damage_and_events();
@@ -3091,44 +2700,32 @@ void ed_fm_release()
 
 
 // Conditions to make the screen shake in first-person view.
-double ed_fm_get_shake_amplitude()
+double ed_fm_get_shake_amplitude ()
 {
-	// Severe wing damage - heavy shaking
-	if (g_damage.leftWing < 0.2 || g_damage.rightWing < 0.2)
-		return 10;
-
-	// Cockpit damage - moderate shaking
-	if (g_damage.cockpit < 0.5)
-		return 2.0 * (1.0 - g_damage.cockpit);
-
-	// Engine damage - proportional shaking
-	double engineDamage = 1.0 - (g_damage.leftEngine + g_damage.rightEngine) / 2.0;
-	if (engineDamage > 0.3)
-		return engineDamage * 5.0;
-
-	// G-force shaking
-	if (F117::az > 80.0)
-		return F117::az / 150.0;
-
-	// High AoA buffet
-	if (F117::alpha_DEG > 45 && F117::mach >= 0.1)
-		return F117::alpha_DEG / 100.0;
-
-	// Sideslip shaking
-	if (F117::beta_DEG > 15 && F117::mach >= 0.05)
-		return F117::beta_DEG / 50.0;
-
-	return 0;
+    const double engineLoss = 1.0 - (g_damage.leftEngine + g_damage.rightEngine) / 2.0;
+    // Highest-priority active source wins, matching the aircraft's existing shake schedule.
+    const struct { bool active; double amplitude; } sources[] = {
+        {g_damage.leftWing < 0.2 || g_damage.rightWing < 0.2, 10.0},
+        {g_damage.cockpit < 0.5, 2.0 * (1.0 - g_damage.cockpit)},
+        {engineLoss > 0.3, engineLoss * 5.0},
+        {F117::az > 80.0, F117::az / 150.0},
+        {F117::mach >= 0.1 && F117::alpha_DEG > 45.0, F117::alpha_DEG / 100.0},
+        {F117::mach >= 0.05 && F117::beta_DEG > 15.0, F117::beta_DEG / 50.0},
+    };
+    for (const auto& source : sources) if (source.active) return source.amplitude;
+    return 0.0;
 }
 
 // Optional DCS easy-flight hook. This FM currently leaves game-mode behavior unchanged.
-void ed_fm_set_easy_flight(bool value) 
-{}
+void ed_fm_set_easy_flight(bool /*enabled*/)
+{
+    // There is one control-law configuration for both DCS difficulty settings.
+}
 
 // DCS hook for the unlimited-fuel option.
-void ed_fm_unlimited_fuel(bool value) 
+void ed_fm_unlimited_fuel(bool value)
 {
-		F117::param_class.param_stuff::fuelparam(1-value);
+		F117::param_class.set_unlimited_fuel(value);
 }
 
 // Cold-start initialization.
@@ -3403,22 +3000,18 @@ static void initDamageLog()
 
 // Damage callback. DCS reports remaining integrity from 1.0 intact down to 0.1 destroyed.
 
-void ed_fm_on_damage(int Element, double element_integrity_factor)
+void ed_fm_on_damage(int element, double remainingIntegrity)
 {
     initDamageLog();
-    log_damage_callback_header(Element, element_integrity_factor);
-
-    if (F117::param_class.invincible_value == 0)
+    log_damage_callback_header(element, remainingIntegrity);
+    if (!F117::param_class.invincible_value)
     {
         log_damage_callback_skipped_immortal();
         return;
     }
-
-    // DCS already applies Lua critical_damage; do not amplify it a second time.
-    if (!std::isfinite(element_integrity_factor)) return;
-    const double integrity = damage_integrity_from_dcs(element_integrity_factor);
-    const char* mapped = apply_damage_for_element(Element, integrity);
-    log_damage_mapping_result(mapped);
+    if (!std::isfinite(remainingIntegrity)) return;
+    const double normalized = damage_integrity_from_dcs(remainingIntegrity);
+    log_damage_mapping_result(apply_damage_for_element(element, normalized));
 }
 
 
@@ -3430,14 +3023,14 @@ void ed_fm_repair()
 }
 
 
-void ed_fm_set_immortal(bool value)
+void ed_fm_set_immortal(bool enabled)
 {
-	F117::param_class.param_stuff::invincible(1 - value);
+	F117::param_class.set_immortal(enabled);
 	initDamageLog();
 	if (g_damageLog)
 	{
 		fprintf(g_damageLog, "ed_fm_set_immortal called: value=%d -> invincible_value=%d\n",
-			(int)value, (int)F117::param_class.invincible_value);
+			(int)enabled, (int)F117::param_class.invincible_value);
 		fflush(g_damageLog);
 	}
 }

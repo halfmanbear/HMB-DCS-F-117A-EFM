@@ -9,16 +9,12 @@
 #include "stdafx.h"
 #include "Avionics/CockpitBase_Interop.h"
 
-BOOL APIENTRY DllMain(HMODULE hModule,
-                      DWORD   ul_reason_for_call,
-                      LPVOID  lpReserved)
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
 {
-    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
-    {
-        OutputDebugStringA("F117: dllmain hit\n");
-        CockpitInterop::g_hDLL = hModule;
-        CockpitInterop::Log_("DllMain: DLL_PROCESS_ATTACH");
-        CockpitInterop::InjectIRADSSensor_Early();
-    }
+    if (reason != DLL_PROCESS_ATTACH) return TRUE;
+    OutputDebugStringA("F117: dllmain hit\n");
+    CockpitInterop::g_hDLL = instance;
+    CockpitInterop::Log_("DllMain: DLL_PROCESS_ATTACH");
+    CockpitInterop::InjectIRADSSensor_Early();
     return TRUE;
 }

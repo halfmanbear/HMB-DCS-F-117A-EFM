@@ -1,138 +1,113 @@
 #pragma once
-// Used in ed_fm_set_command() 
-enum InputCommands
-{
-	// commands from command_defs.lua
 
-	//general controls
-	resetTrim = 97,
-	FBW_override = 121,
+// Wire IDs are persisted in DCS bindings. Keep them stable when adding commands.
+// Custom IDs follow Cockpit/Scripts/command_defs.lua in the aircraft mod.
+// These integer constants are also consumed by CockpitBase_Interop.cpp.
 
-	EnginesOn = 309,
-	LeftEngineOn = 311,
-	RightEngineOn = 312,
+// Flight axes.
+constexpr int JoystickPitch = 2001;
+constexpr int JoystickRoll = 2002;
+constexpr int JoystickYaw = 2003;
+constexpr int JoystickThrottle = 2004;
+constexpr int ThrottleAxisLeft = 2005;
+constexpr int ThrottleAxisRight = 2006;
 
-	EnginesOff = 310,
-	LeftEngineOff = 313,
-	RightEngineOff = 314,
+// Discrete stick and pedal inputs.
+constexpr int PitchDown = 193;
+constexpr int PitchDownStop = 194;
+constexpr int PitchUp = 195;
+constexpr int PitchUpStop = 196;
+constexpr int RollLeft = 197;
+constexpr int RollLeftStop = 198;
+constexpr int RollRight = 199;
+constexpr int RollRightStop = 200;
+constexpr int rudderleft = 201;
+constexpr int rudderleftend = 202;
+constexpr int rudderright = 203;
+constexpr int rudderrightend = 204;
 
-	//Pitch
-	PitchUp = 195,
-	PitchUpStop = 196,
-	PitchDown = 193,
-	PitchDownStop = 194,
-	trimUp = 95,
-	trimDown = 96,
+// Trim and flight control override.
+constexpr int trimLeft = 93;
+constexpr int trimRight = 94;
+constexpr int trimUp = 95;
+constexpr int trimDown = 96;
+constexpr int resetTrim = 97;
+constexpr int ruddertrimLeft = 98;
+constexpr int ruddertrimRight = 99;
+constexpr int FBW_override = 121;
 
-	//Roll
-	RollLeft = 197,
-	RollLeftStop = 198,
-	RollRight = 199,
-	RollRightStop = 200,
-	trimLeft = 93,
-	trimRight = 94,
+// Engine switches and throttle steps.
+constexpr int EnginesOn = 309;
+constexpr int EnginesOff = 310;
+constexpr int LeftEngineOn = 311;
+constexpr int RightEngineOn = 312;
+constexpr int LeftEngineOff = 313;
+constexpr int RightEngineOff = 314;
+constexpr int throttleupLeft = 161;
+constexpr int throttledownLeft = 162;
+constexpr int throttleupRight = 163;
+constexpr int throttledownRight = 164;
+constexpr int ThrottleIncrease = 1032;
+constexpr int ThrottleDecrease = 1033;
+constexpr int ThrottleStop = 1034;
 
-	//Yaw
-	rudderleft = 201,
-	rudderleftend = 202,
-	rudderright = 203,
-	rudderrightend = 204,
-	ruddertrimLeft = 98,
-	ruddertrimRight = 99,
+// Airframe mechanisms.
+constexpr int geartoggle = 68;
+constexpr int gearup = 430;
+constexpr int geardown = 431;
+constexpr int WheelBrakeOn = 74;
+constexpr int WheelBrakeOff = 75;
+constexpr int tailhook = 69;
+constexpr int AirRefuel = 155;
+constexpr int dragChute = 76;
 
-	//throttle,
-	//throttle = 3002,
-	throttleAxis = 2004, //3006
-	ThrottleAxisLeft = 2005,
-	ThrottleAxisRight = 2006,
-	throttleupLeft = 161, 
-	throttleupRight = 163,
-	throttledownLeft = 162,
-	throttledownRight = 164,
-	ThrottleIncrease = 1032,
-	ThrottleDecrease = 1033,
-	ThrottleStop = 1034,
+// Stock avionics and hold modes.
+constexpr int nav = 105;
+constexpr int bvr = 106;
+constexpr int vs = 107;
+constexpr int bore = 108;
+constexpr int helm = 109;
+constexpr int fi0 = 110;
+constexpr int a2g = 111;
+constexpr int gun = 113;
+constexpr int autopilot_alt = 59;
+constexpr int autopilot_horiz = 62;
+constexpr int autopilot_alt_roll = 387;
+constexpr int autopilot_reset = 408;
+constexpr int TVSensorZoomIn = 103;
+constexpr int TVSensorZoomOut = 104;
 
-	//gear commands
-	geartoggle = 68,
-	gearup = 430,
-	geardown = 431,
-	WheelBrakeOn = 74,
-	WheelBrakeOff = 75,
-	tailhook = 69,
+// F-117 bay and release protocol.
+constexpr int pickleOn = 350;
+constexpr int pickleOff = 351;
+constexpr int bombay = 10100;
+constexpr int bombayOpen = 10101;
+constexpr int bombayClose = 10102;
+constexpr int weaponReleaseHoldOn = 10103;
+constexpr int weaponReleaseHoldOff = 10104;
+constexpr int MasterArmToggle = 10122;
+constexpr int luaDamageHit = 10200;
 
-	//air brake commands
-	AirRefuel = 155,
+// IRADS protocol (Keys, hotas_commands and f117_commands).
+constexpr int IRADSZoomIn = 10008;
+constexpr int IRADSZoomOut = 10009;
+constexpr int IRADSSlewLeft = 10110;
+constexpr int IRADSSlewRight = 10111;
+constexpr int IRADSSlewUp = 10112;
+constexpr int IRADSSlewDown = 10113;
+constexpr int IRADSSlewStop = 10114;
+constexpr int IRADSDesignationClear = 10117;
+constexpr int IRADSLaserArmToggle = 10118;
+constexpr int IRADSSlewHorizontalAxis = 10119;
+constexpr int IRADSSlewVerticalAxis = 10120;
+constexpr int IRADSZoomAxis = 10121;
 
-	//AirBrakes = 73,
-	//AirBrakesOn = 147,
-	//AirBrakesOff = 148,
+// F-117 automatic controls and steering.
+constexpr int AutothrottleEngage = 10125;
+constexpr int AutothrottleDisconnect = 10126;
+constexpr int PaarsToggle = 10127;
+constexpr int NwsAuthorityOn = 10128;
+constexpr int NwsAuthorityOff = 10129;
 
-	//Misc commands
-
-	bombay = 10100,
-	bombayOpen = 10101,
-	bombayClose = 10102,
-	pickleOn = 350,
-	pickleOff = 351,
-	weaponReleaseHoldOn = 10103,
-	weaponReleaseHoldOff = 10104,
-	luaDamageHit = 10200,	// Lua damage monitor -> EFM: value = damage fraction (0-1)
-	dragChute = 76,
-
-	//flap commands
-	//flapstoggle = 72,
-	//flapsup = 145,
-	//flapsdown = 146,
-
-	// joystick axis commands
-	JoystickPitch = 2001,
-	JoystickRoll = 2002,
-	JoystickYaw = 2003,
-	JoystickThrottle = 2004,
-
-	// modes
-	nav	= 105,
-	bvr	= 106,
-	vs	= 107,
-	bore	= 108,
-	helm	= 109,
-	fi0	= 110,
-	a2g	= 111,
-	gun	= 113,
-
-	// autopilot modes
-	//autopilot = 62, // [A]
-	//route_follow = 429,// [Left alt + 6] 
-	autopilot_horiz = 62,  // [A]
-	autopilot_alt = 59,  // [H]
-	autopilot_alt_roll = 387,  // [Left alt + 6]
-	autopilot_reset = 408,  // [Left alt + 9]
-
-	// stock DCS TV sensor commands used by cockpit Lua
-	TVSensorZoomIn = 103,
-	TVSensorZoomOut = 104,
-
-	// IRADS / DLIR custom commands
-	IRADSSlewLeft = 10110,
-	IRADSSlewRight = 10111,
-	IRADSSlewUp = 10112,
-	IRADSSlewDown = 10113,
-	IRADSSlewStop = 10114,
-	IRADSZoomIn = 10008,  // matches Keys.IRADSZoomIn in command_defs.lua
-	IRADSZoomOut = 10009, // matches Keys.IRADSZoomOut in command_defs.lua
-	IRADSDesignationClear = 10117,
-	IRADSLaserArmToggle = 10118,
-	IRADSSlewHorizontalAxis = 10119,
-	IRADSSlewVerticalAxis = 10120,
-	IRADSZoomAxis = 10121,
-    MasterArmToggle = 10122,
-	// OCIP autothrottle (TO 1F-117A-1A 4-2)
-	AutothrottleEngage = 10125,     // A/T engage switch
-	AutothrottleDisconnect = 10126, // inboard throttle A/T disengage button
-	PaarsToggle = 10127,            // stick ARS switch (PAARS, TO 1F-117A-1A 4-6)
-	NwsAuthorityOn = 10128,         // stick NWS authority button pressed (TO 1F-117A-1 1-29)
-	NwsAuthorityOff = 10129,        // stick NWS authority button released
-
-	Reserved // placeholder
-};
+// Alternate name retained for callers using the common throttle axis.
+constexpr int throttleAxis = JoystickThrottle;

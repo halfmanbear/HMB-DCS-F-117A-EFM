@@ -1,12 +1,6 @@
-#ifndef __F117FLIGHTCONTROLS__
-#define __F117FLIGHTCONTROLS__
+#pragma once
 
-#include "../stdafx.h"
-
-namespace F117
-{
-	namespace FLIGHTCONTROLS
-	{
+namespace F117 { namespace FLIGHTCONTROLS {
 		extern bool simInitialized;
 		extern double longStickInput;
 		extern double alphaFiltered;
@@ -23,8 +17,5 @@ namespace F117
 		double fcs_pitch_controller_force_command(double longStickInput, double pitchTrim, double dt);
 		double fcs_pitch_controller(double longStickInput, double pitchTrim, double angle_of_attack_ind, double pitch_rate_DEG_s, double az, double differentialCommand, double dynPressure_PA, double dt, double roll_angle_DEG, double pitch_angle_DEG, double roll_rate_DEG_s, double velocity_mps, double mach, double thrust_N, double Cx_total);
 		double fcs_roll_controller(double latStickInput, double longStickForce, double ay, double pedInput, double beta_deg, double roll_angle_deg, double roll_rate, double roll_rate_trim, double dynPressure_PA, double rollAccelPerSurfaceDeg, double surfacePerRollRate, bool gearDown, bool airRefuelDoorOpen, double dt);
-	}
-}
-
-#endif
+}}
 

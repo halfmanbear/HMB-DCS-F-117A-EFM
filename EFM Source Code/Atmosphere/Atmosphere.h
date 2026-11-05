@@ -1,22 +1,14 @@
-#include "../stdafx.h"
+#pragma once
+#include <cmath>
 
-namespace F117
-{
-	namespace ATMOS
-	{
-		// Simple atmospheric calculations.
-		// Inputs: temperature (K), density (kg/m³), vt (m/s)
-		// Outputs: coeff[0] = dynamic pressure (Pa), coeff[1] = Mach (dimensionless)
-		void atmos(double temperature, double density, double vt, double *coeff)
-		{
-			constexpr double kGammaAir = 1.4;
-			constexpr double kRAir     = 287.058; // J/(kg·K)
-
-			double mach = vt / sqrt(kGammaAir * kRAir * temperature);
-			double qbar = 0.5 * density * vt * vt;
-
-			coeff[0] = qbar;
-			coeff[1] = mach;
-		}
-	}
-}
+namespace F117 { namespace ATMOS {
+    // SI air data: dynamic pressure (Pa), followed by Mach.
+    inline void atmos(double kelvin, double kgPerCubicMetre, double metresPerSecond, double* result)
+    {
+        constexpr double heatCapacityRatio = 1.4;
+        constexpr double gasConstant = 287.058;
+        const double soundSpeed = std::sqrt(heatCapacityRatio * gasConstant * kelvin);
+        result[1] = metresPerSecond / soundSpeed;
+        result[0] = (0.5 * kgPerCubicMetre) * metresPerSecond * metresPerSecond;
+    }
+}}

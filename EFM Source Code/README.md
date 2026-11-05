@@ -1,10 +1,26 @@
-Thank you for checking out this flight model project!
-Credit goes to CptSmiley for the F-16 flight model which I modified to make this.
-You can find that version here: https://github.com/RagnarDa/F-16Demo
+# F-117A external flight model
 
-Microsoft Visual Studio (2019) is reccomended.
+This DLL implements the DCS external flight model callbacks declared by the bundled ED SDK. It contains the aircraft's component aerodynamic model, installed engine model, flight controls, actuators, fuel accounting and cockpit integration.
 
-IMPORTANT:
-Make sure to have Custom_FM.sln in a folder ABOVE the folder containing Custom_FM.vcxproj.
+Build in Developer PowerShell for Visual Studio 2022, with its C++ desktop workload and a Windows 10 SDK:
 
-Feel free to do whatever you want with the source code, but please give credit where it is due.
+```powershell
+msbuild F117.sln /p:Configuration=Release /p:Platform=x64
+```
+
+The DLL is written to `bin/F_117_NightHawk.dll`. Intermediate files go to the repository's ignored `build/obj/` directory. Debug x64 is also supported. The Win32 configurations remain available for existing solution consumers; DCS uses x64.
+
+`OutDir` and `IntDir` accept explicit MSBuild overrides. Release x64 can instead target a mod directory with `DcsSavedGamesModBinDir`, or derive that directory from an explicitly supplied `DcsSavedGamesRoot`. Normal builds use the local `bin` directory. The mod's package workflow can continue supplying its isolated output paths.
+
+The project imports ED's callback declarations directly through `F_117_NightHawk.h`. SDK files under `include/` retain their original interfaces. `Inputs.h` defines stable integer command IDs: stock DCS bindings plus the custom protocol in the aircraft mod's `Cockpit/Scripts/command_defs.lua`.
+
+From the repository root, run the production adapter regression:
+
+```powershell
+python tests/efm_adapters_regression.py build/tests
+python tests/simulation_state_regression.py build/tests
+```
+
+The flight performance bench lives in the companion aircraft mod repository at `tools/fm_bench`. Pass `--dll` to its `scorecard.py` to check a particular build.
+
+See `LICENSE` for the current licensing status and the retained historical notice.

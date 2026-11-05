@@ -4,7 +4,7 @@ from lupa.lua51 import LuaRuntime
 repo=Path(__file__).resolve().parents[1]
 src=repo/'EFM Source Code'
 mod=Path(sys.argv[1]); out=Path(sys.argv[2]); out.mkdir(exist_ok=True)
-inputs=dict((name,int(value)) for name,value in re.findall(r'^\s*(\w+)\s*=\s*(\d+)\s*,', (src/'Inputs.h').read_text(encoding="utf-8-sig"),re.M))
+inputs=dict((name,int(value)) for name,value in re.findall(r'^\s*constexpr int (\w+)\s*=\s*(\d+)\s*;', (src/'Inputs.h').read_text(encoding="utf-8-sig"),re.M))
 lua=LuaRuntime(); lua.execute((mod/'Cockpit/Scripts/command_defs.lua').read_text(encoding="utf-8-sig"))
 k=lua.globals().Keys; f=lua.globals().f117_commands; h=lua.globals().hotas_commands; fov=lua.globals().irads_fov_commands
 for name,want in [('PanelLight',10001),('BcnLgt',10007),('IRADSZoomIn',10008),('IRADSZoomOut',10009),('MFDOverlayToggle',10010)]: assert k[name]==want,(name,k[name])

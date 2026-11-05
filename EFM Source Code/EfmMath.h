@@ -11,13 +11,6 @@ struct Vec3
     double z;
 };
 
-inline Vec3 cross(const Vec3& a, const Vec3& b)
-{
-    return Vec3(a.y * b.z - a.z * b.y,
-                a.z * b.x - a.x * b.z,
-                a.x * b.y - a.y * b.x);
-}
-
 // Clamp value into [lower, upper]. The upper bound wins if the bounds cross.
 inline double limit(double value, double lower, double upper)
 {

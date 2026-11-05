@@ -3,10 +3,7 @@
 #include <initializer_list>
 #include "../EfmMath.h"
 
-namespace F117
-{
-    namespace ACTUATORS
-    {
+namespace F117 { namespace ACTUATORS {
         // A surface or mechanism that moves toward its command at a speed proportional to the
         // remaining travel (gain, 1/s), capped by a speed limit and held inside its travel stops.
         struct Servo
@@ -106,5 +103,4 @@ namespace F117
             for (Servo* servo : { &elevator, &rudder, &throttle, &gear, &tailhook, &weaponBay, &dragChute })
                 servo->set(0.0);
         }
-    }
-}
+}}
