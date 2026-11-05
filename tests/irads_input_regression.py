@@ -7,7 +7,7 @@ mod=Path(sys.argv[1]); out=Path(sys.argv[2]); out.mkdir(exist_ok=True)
 inputs=dict((name,int(value)) for name,value in re.findall(r'^\s*constexpr int (\w+)\s*=\s*(\d+)\s*;', (src/'Inputs.h').read_text(encoding="utf-8-sig"),re.M))
 lua=LuaRuntime(); lua.execute((mod/'Cockpit/Scripts/command_defs.lua').read_text(encoding="utf-8-sig"))
 k=lua.globals().Keys; f=lua.globals().f117_commands; h=lua.globals().hotas_commands; fov=lua.globals().irads_fov_commands
-for name,want in [('PanelLight',10001),('BcnLgt',10007),('IRADSZoomIn',10008),('IRADSZoomOut',10009),('MFDOverlayToggle',10010)]: assert k[name]==want,(name,k[name])
+for name,want in [('PanelLight',10140),('BcnLgt',10146),('IRADSZoomIn',10008),('IRADSZoomOut',10009),('MFDOverlayToggle',10010)]: assert k[name]==want,(name,k[name])
 for lua_name,cpp_name in [('WEAPON_RELEASE_ON','weaponReleaseHoldOn'),('WEAPON_RELEASE_OFF','weaponReleaseHoldOff'),('IRADS_DESIGNATION_CLEAR','IRADSDesignationClear'),('IRADS_LASER_ARM_TOGGLE','IRADSLaserArmToggle'),('IRADS_SLEW_HORIZONTAL','IRADSSlewHorizontalAxis'),('IRADS_SLEW_VERTICAL','IRADSSlewVerticalAxis'),('IRADS_ZOOM_AXIS','IRADSZoomAxis')]: assert f[lua_name]==inputs[cpp_name]
 for suffix,cpp_name in [('UP','IRADSSlewUp'),('DOWN','IRADSSlewDown'),('LEFT','IRADSSlewLeft'),('RIGHT','IRADSSlewRight'),('DEPRESS','IRADSSlewStop')]: assert h['THROTTLE_DESIGNATOR_CONTROLLER_'+suffix]==inputs[cpp_name]
 assert k.IRADSZoomIn==inputs['IRADSZoomIn'] and k.IRADSZoomOut==inputs['IRADSZoomOut']
@@ -19,6 +19,8 @@ for device in ['keyboard','joystick']:
     external_profile = function(_) return {keyCommands={},axisCommands={}} end
     defaultDeviceAssignmentFor = function(_) return {} end
     join = function(a,b) for _,v in ipairs(b) do table.insert(a,v) end end
+    -- Stock DCS command numbers the profiles use by name.
+    iCommandPlaneEOSOnOff, iCommandPlanePickleOn, iCommandPlanePickleOff = 87, 350, 351
     setmetatable(_G,{__index=function(t,k) if string.sub(k,1,8)=='iCommand' then rawset(t,k,k); return k end end})
     """)
     result=vm.execute((mod/f'Input/F-117-NightHawk/{device}/default.lua').read_text(encoding="utf-8-sig"))
@@ -96,7 +98,9 @@ print('PASS: deployed cockpit commands exercised; overlay toggles; no Lua zoom/s
 
 indicator=Path('Cockpit/Scripts/MFD/Indicator/MFD_indication_page.lua')
 page=(mod/indicator).read_text(encoding='utf-8')
-assert '"F117_LASER_ARMED"' in page and '{"MLAS_TOGGLE"}' not in page
+readouts=(mod/'Cockpit/Scripts/Systems/IRADS_Readouts.lua').read_text(encoding='utf-8')
+# The page draws laser state from text that IRADS_Readouts.lua builds from the EFM's F117_LASER_ARMED.
+assert '"F117_IRADS_LASER_TEXT"' in page and '"F117_LASER_ARMED"' in readouts and '{"MLAS_TOGGLE"}' not in page
 syntax=LuaRuntime()
 syntax.execute('assert(loadstring(...))',page)
 assert 'dispatch_action(nil,392)' not in (mod/'Cockpit/Scripts/Systems/Displays.lua').read_text(encoding='utf-8')
@@ -146,7 +150,7 @@ static auto s_sensor_fill_camera=fillCamera;
 static void* s_camera_bridge_indicator=nullptr;
 static bool s_irads_power=true;
 static bool s_irads_lock_valid=false;
-bool s_irads_ray_valid=false,s_irads_terrain_pending=false;double s_irads_render_ray[6]{},s_irads_request_ray[6]{};unsigned s_irads_terrain_sequence=0;double s_irads_terrain_wait=0;
+bool s_irads_ray_valid=false,s_irads_terrain_pending=false;double s_irads_render_ray[6]{},s_irads_request_ray[6]{};unsigned s_irads_terrain_sequence=0;double s_irads_terrain_wait=0,s_irads_ray_age=1e9;
 static void* g_avTVSensor_instance=sensor;
 static float s_irads_horizontal_axis=0, s_irads_vertical_axis=0;
 static float s_irads_analog_horizontal=0, s_irads_analog_vertical=0;

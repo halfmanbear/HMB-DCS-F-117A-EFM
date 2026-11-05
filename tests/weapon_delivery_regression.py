@@ -82,6 +82,7 @@ namespace CockpitInterop {
  bool IsIRADSPowered(){return power;} bool HasIRADSLock(){return lockValid;}
  bool GetIRADSLockWorldPoint(double* p){p[0]=1000;p[1]=0;p[2]=-2000;return lockValid;}
  int GetIRADSZoomLevel(){return 1;} void Log_(const char*){}
+ bool GetIRADSLineOfSight(double* d){d[0]=0;d[1]=0;d[2]=1;return power&&lockValid;}
 }
 namespace WeaponsInterop {
  constexpr unsigned kDefaultLaserCode=1688;

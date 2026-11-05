@@ -43,7 +43,7 @@ vm.execute('stations[3].count=1');vm.globals()['update']();assert param('F117_RE
 print('PASS: actual Weapons.lua auto-steps once per accepted release, skips unsupported/empty stations, tolerates inventory lag, handles depletion/reset/rearm')
 # Validate the deployed pickle binding without depending on a personal saved profile.
 keyboard=(mod/'Input/F-117-NightHawk/keyboard/default.lua').read_text(encoding='utf-8')
-assert "combos = {{key = 'Space', reformers = {'RAlt'}}}, down = 350, up = 351" in keyboard
+assert "combos = {{key = 'Space', reformers = {'RAlt'}}}, down = iCommandPlanePickleOn, up = iCommandPlanePickleOff" in keyboard
 print('PASS: deployed generic pickle uses RAlt+Space with separate press/release commands')
 source=(repo/'EFM Source Code/Avionics/CockpitBase_Interop.cpp').read_text(encoding='utf-8-sig')
 def extract(name):
@@ -62,7 +62,7 @@ AvTVSensorLayout sensor{};void* g_avTVSensor_instance=&sensor;
 AvTVSensorLayout* AsSensor(void* p){return static_cast<AvTVSensorLayout*>(p);}
 CcCockpitContextLayout* AsContext(void* p){return static_cast<CcCockpitContextLayout*>(p);}
 bool s_irads_power=true,s_irads_lock_valid=true,s_irads_designating=false;
-bool s_irads_ray_valid=false,s_irads_terrain_pending=false;double s_irads_render_ray[6]{},s_irads_request_ray[6]{};unsigned s_irads_terrain_sequence=0;double s_irads_terrain_wait=0;
+bool s_irads_ray_valid=false,s_irads_terrain_pending=false;double s_irads_render_ray[6]{},s_irads_request_ray[6]{};unsigned s_irads_terrain_sequence=0;double s_irads_terrain_wait=0,s_irads_ray_age=1e9;
 bool s_carrier_link_disabled_logged=false,s_carrier_set=false;
 void** g_contexts_ptr_addr=nullptr;void* s_our_ind=nullptr;
 double s_irads_lock_world[3]={10000,0,2000};float s_irads_horizontal_axis=0,s_irads_vertical_axis=0;

@@ -71,7 +71,7 @@ int main(){
 
     // Path hugs the leading edge from the apex region to the tip, on the correct side,
     // clear of the skin, with per-point opacity in 0..1 that is zero at the nose.
-    for(double aoa:{8.0,12.0,18.0}){
+    for(double aoa:{8.0,9.0,10.0}){
         for(unsigned idx:{0u,1u}){
             o=fly(idx,aoa,160);
             assert(o.version==1&&o.spline_points_count==12&&o.opacity>0&&o.opacity<0.25f);
@@ -92,27 +92,20 @@ int main(){
         }
     }
 
-    // Breakdown position (Fig. 6.25): X/L from the nose. DeltaTime is 0, so the
-    // unsteady wander is at its zero phase for the left vortex.
-    const double table[][2]={{20,0.775},{25,0.68},{30,0.555}};
-    for(auto& row:table){
-        o=fly(0,row[0],120);
-        const float expect=kNoseX-(float)row[1]*kLength;
-        const float got=burst_x(o);
-        std::fprintf(stderr,"AoA %4.1f breakdown x %.2f m (thesis %.2f)\n",row[0],got,expect);
-        assert(std::fabs(got-expect)<0.15f);
-        assert(got>kTeX);                                   // over the wing at 20 deg and above
-    }
-    assert(burst_x(fly(0,15,150))<kTeX);                    // just aft of the trailing edge at 15 deg
-    assert(burst_x(fly(0,15,150))>kTeX-1.0f);
+    // The overwing vapour cloud takes over from 8 deg and is at full strength by
+    // 11.5 deg, so the vortices fade out over that range and are gone above it.
+    assert(fly(0,8,150).opacity>fly(0,10,150).opacity&&fly(0,10,150).opacity>fly(0,11,150).opacity);
+    for(double aoa:{11.5,15.0,20.0,30.0})
+        for(unsigned idx:{0u,1u})
+            assert(fly(idx,aoa,150).spline==nullptr);
     assert(burst_x(fly(0,10,150))<-9.0f);                  // far downstream, off the end of the spline
 
     // Vapour needs suction: a slow approach shows less than a fast, loaded turn.
-    assert(fly(0,10,75).opacity<0.6f*fly(0,12,180).opacity);
+    assert(fly(0,8,75).opacity<0.6f*fly(0,8,180).opacity);
     // The windward vortex is stronger and breaks down further forward.
-    LERX_vortex wl=fly(0,22,150,4),wr=fly(1,22,150,4);
+    LERX_vortex wl=fly(0,9,150,4),wr=fly(1,9,150,4);
     assert(wr.opacity>wl.opacity&&burst_x(wr)>burst_x(wl));
-    std::puts("PASS: LE vortex path, surface clearance, opacity, condensation and breakdown location");
+    std::puts("PASS: LE vortex path, surface clearance, opacity, condensation, cloud handover and sideslip asymmetry");
 }
 """
 p = out / 'lerx_vortex_tests.cpp'
