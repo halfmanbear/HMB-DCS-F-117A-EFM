@@ -86,7 +86,10 @@ namespace F117 {
     double noseWheelYawRange_RAD{kNoseWheelYawLow_RAD};
     bool nwsAuthorityHeld{}, airRefuelDoorOpen{};
     double tailhook_command{}, tailhook_pos{}, dragchute_command{}, dragchute{};
-    float misc_cmd{}, misc_state{};
+    // Weapon bays: 0 is the left bay (station 1, arg 27), 1 is the right bay (station 2, arg 28).
+    // 0 is closed and 1 is door open with the trapeze fully lowered.
+    constexpr int kWeaponBayCount = 2;
+    float bay_cmd[kWeaponBayCount]{}, bay_state[kWeaponBayCount]{};
 
     // Engine telemetry and the fuel mass already acknowledged by DCS.
     bool engineswitch{true};
@@ -99,8 +102,12 @@ namespace F117 {
 
     // Weapon delivery state belongs to one aircraft session.
     bool weapon_release_pickle_held{}, weapon_release_gate{}, weapon_release_gate_fired{};
-    bool weapon_bay_owned_by_release{}, weapon_bay_close_pending{}, master_armed{}, laser_armed{};
-    double weapon_bay_close_delay{}, weapon_release_gate_hold{}, release_retry_delay{};
+    // A bay is owned by the release when the pickle opened it, so the pickle closes it again.
+    // A bay the pilot opened by hand is never owned and stays open until the pilot closes it.
+    bool weapon_bay_owned_by_release[kWeaponBayCount]{}, weapon_bay_close_pending[kWeaponBayCount]{};
+    bool master_armed{}, laser_armed{};
+    double weapon_bay_close_delay[kWeaponBayCount]{};
+    double weapon_release_gate_hold{}, release_retry_delay{};
     int release_status{};
     unsigned release_sequence{};
     double release_target[3]{};
@@ -263,6 +270,12 @@ namespace
     constexpr double kWeaponBayOpenThreshold = 0.995;
     constexpr double kWeaponBayClosedThreshold = 0.005;
     constexpr double kWeaponBayHoldAfterReleaseSeconds = 1.0;
+    // Each bay arg opens the door over 0 to 0.7 and lowers the trapeze over 0.6 to 1 (the keys in the EDM).
+    constexpr double kWeaponBayDoorFullyOpenArg = 0.7;
+    // TO 1F-117A-1 (Section VI): opening a single bay door "has effects similar to gear extension", which is about one
+    // degree of sideslip that the pilot can retrim. The sign is a choice: the extra drag on the open side yaws the nose
+    // that way, as the left-side nose gear does.
+    constexpr double kWeaponBayOneDoorSideslip_DEG = 1.0;
     constexpr double kWeaponReleaseGateMinHoldSeconds = 0.25; // Long enough for cockpit Lua update rates to sample the gate.
     constexpr double kLaserOverrunSeconds = 4.0;              // keep lasing this long past predicted impact
     constexpr char kEfmLaunchActiveParamName[] = "F117_EFM_LAUNCH_ACTIVE";
@@ -315,7 +328,11 @@ namespace
     constexpr int kLeftRudderArg = 17;
     constexpr int kRightRudderArg = 18;
     constexpr int kTailhookArg = 25;
-    constexpr int kWeaponBayArg = 26;
+    constexpr int kWeaponBayArgs[kWeaponBayCount] = {27, 28}; // left, right; each moves its door, then its trapeze
+    // The standard bay argument. Nothing in the model is animated by it, but DCS draws the stores only while it is
+    // open, so it reads open while either bay is. Without it the store of a bay that is open vanishes while the
+    // other bay is shut.
+    constexpr int kWeaponBayAnyArg = 26;
     constexpr int kDragChuteArg = 35;
     constexpr int kMirroredGearArgNose = 611;
     constexpr int kMirroredGearArgLeft = 614;
@@ -1085,53 +1102,105 @@ namespace
         }
     }
 
-    bool weapon_bay_is_open()
+    bool weapon_bay_valid(int bay)
     {
-        return F117::misc_state >= kWeaponBayOpenThreshold;
+        return bay >= 0 && bay < F117::kWeaponBayCount;
     }
 
-    bool weapon_bay_is_closed()
+    bool weapon_bay_is_open(int bay)
     {
-        return F117::misc_state <= kWeaponBayClosedThreshold;
+        return weapon_bay_valid(bay) && F117::bay_state[bay] >= kWeaponBayOpenThreshold;
     }
 
-    void command_weapon_bay_open()
+    bool weapon_bay_is_closed(int bay)
     {
-        F117::misc_cmd = 1.0f;
+        return !weapon_bay_valid(bay) || F117::bay_state[bay] <= kWeaponBayClosedThreshold;
     }
 
-    void command_weapon_bay_close()
+    void command_weapon_bay_open(int bay)
     {
-        F117::misc_cmd = 0.0f;
+        if (weapon_bay_valid(bay)) F117::bay_cmd[bay] = 1.0f;
     }
 
+    void command_weapon_bay_close(int bay)
+    {
+        if (weapon_bay_valid(bay)) F117::bay_cmd[bay] = 0.0f;
+    }
+
+    // A bay toggles on its command, so a second press while it is still travelling reverses it.
+    void toggle_weapon_bay(int bay)
+    {
+        if (!weapon_bay_valid(bay)) return;
+        if (F117::bay_cmd[bay] > 0.5f) command_weapon_bay_close(bay);
+        else command_weapon_bay_open(bay);
+    }
+
+    // Both bays together: close them if either is open or opening, otherwise open them.
+    void toggle_all_weapon_bays()
+    {
+        bool anyOpen = false;
+        for (int bay = 0; bay < F117::kWeaponBayCount; ++bay) anyOpen = anyOpen || F117::bay_cmd[bay] > 0.5f;
+        for (int bay = 0; bay < F117::kWeaponBayCount; ++bay)
+        {
+            if (anyOpen) command_weapon_bay_close(bay);
+            else command_weapon_bay_open(bay);
+        }
+    }
+
+    // The bay of the station the pilot has selected, or -1. Weapons.lua publishes the one-based station.
+    int selected_weapon_bay()
+    {
+        static void* stationParam = nullptr;
+        if (!stationParam) stationParam = F117::cockpitAPI.getParamHandle("F117_WEAPON_STATION");
+        const double raw = stationParam ? F117::cockpitAPI.getParamNumber(stationParam) : 0.0;
+        if (!std::isfinite(raw)) return -1;
+        const int bay = static_cast<int>(raw) - 1;
+        return weapon_bay_valid(bay) ? bay : -1;
+    }
+
+    void forget_weapon_bay_ownership(int bay)
+    {
+        F117::weapon_bay_owned_by_release[bay] = false;
+        F117::weapon_bay_close_pending[bay] = false;
+        F117::weapon_bay_close_delay[bay] = 0.0;
+    }
+
+    // Ends any release in progress. The doors the pickle opened close, as in the auto mode of the bay door
+    // selector, whether the pilot takes them over by hand, changes Master Arm or the session restarts.
     void reset_weapon_release_sequence()
     {
+        for (int bay = 0; bay < F117::kWeaponBayCount; ++bay)
+        {
+            if (F117::weapon_bay_owned_by_release[bay]) command_weapon_bay_close(bay);
+            forget_weapon_bay_ownership(bay);
+        }
         F117::weapon_release_pickle_held = false;
         F117::weapon_release_gate = false;
         F117::weapon_release_gate_fired = false;
-        F117::weapon_bay_owned_by_release = false;
-        F117::weapon_bay_close_pending = false;
-        F117::weapon_bay_close_delay = 0.0;
         F117::weapon_release_gate_hold = 0.0;
         publish_weapon_release_gate_param();
     }
 
     void handle_weapon_release_pressed()
     {
-        F117::weapon_bay_close_pending = false;
-        F117::weapon_bay_close_delay = 0.0;
+        // Only the selected store's bay opens. A new pickle cancels that bay's pending auto-close.
+        const int bay = selected_weapon_bay();
+        if (weapon_bay_valid(bay))
+        {
+            F117::weapon_bay_close_pending[bay] = false;
+            F117::weapon_bay_close_delay[bay] = 0.0;
+        }
         if (F117::weapon_release_pickle_held) return; // key repeat is not new consent
         F117::weapon_release_pickle_held = true;
         F117::weapon_release_gate_fired = false;
         F117::release_retry_delay = 0.0;
 
-        // If the bay is already open, leave ownership as-is so a re-pickle during a
-        // pending auto-close still closes the bay on the next release.
-        if (!weapon_bay_is_open())
+        // A bay the pilot already holds open is left alone, and one the pickle opened keeps its ownership, so a
+        // re-pickle during a pending auto-close still closes it on the next release.
+        if (weapon_bay_valid(bay) && F117::bay_cmd[bay] < 0.5f)
         {
-            command_weapon_bay_open();
-            F117::weapon_bay_owned_by_release = true;
+            command_weapon_bay_open(bay);
+            F117::weapon_bay_owned_by_release[bay] = true;
         }
 
         publish_weapon_release_gate_param();
@@ -1142,24 +1211,20 @@ namespace
         F117::weapon_release_pickle_held = false;
         F117::weapon_release_gate_fired = false;
 
-        if (F117::weapon_bay_owned_by_release)
+        for (int bay = 0; bay < F117::kWeaponBayCount; ++bay)
         {
-            if (weapon_bay_is_open())
+            if (!F117::weapon_bay_owned_by_release[bay]) continue;
+            if (weapon_bay_is_open(bay))
             {
-                F117::weapon_bay_close_pending = true;
-                F117::weapon_bay_close_delay = kWeaponBayHoldAfterReleaseSeconds;
+                F117::weapon_bay_close_pending[bay] = true;
+                F117::weapon_bay_close_delay[bay] = kWeaponBayHoldAfterReleaseSeconds;
             }
             else
             {
-                command_weapon_bay_close();
-                F117::weapon_bay_close_pending = false;
-                F117::weapon_bay_close_delay = 0.0;
+                command_weapon_bay_close(bay);
+                F117::weapon_bay_close_pending[bay] = false;
+                F117::weapon_bay_close_delay[bay] = 0.0;
             }
-        }
-        else
-        {
-            F117::weapon_bay_close_pending = false;
-            F117::weapon_bay_close_delay = 0.0;
         }
 
         publish_weapon_release_gate_param();
@@ -1234,13 +1299,24 @@ namespace
         else if (!CockpitInterop::HasIRADSLock()) status=3;
         else if (!storeValid || station<0 || station>8) status=4;
         else if (laserRequired && (!F117::laser_armed || !WeaponsInterop::IsLaserFiring())) status=5;
-        else if (!weapon_bay_is_open()) status=6;
+        // The pickle opens the selected store's bay itself, so bay position is not a fault. The store
+        // is only let go once that bay is open (see the launch condition below).
         else if (!hasSolution) status=7;
         else if (!g_releaseAlignmentValid) status=14;
         else if (!inZone) status=8;
         else if (!efmLaunchAvailable) status=13;
         F117::weapon_release_gate_hold=max(0.0,F117::weapon_release_gate_hold-dt);
-        if (status==9 && F117::weapon_release_pickle_held && !F117::weapon_release_gate_fired && F117::release_retry_delay<=0.0)
+        // Consent held while the selection moves to another store (station keys): open that store's bay too.
+        if (F117::weapon_release_pickle_held && !F117::weapon_release_gate_fired && weapon_bay_valid(station) &&
+            F117::bay_cmd[station]<0.5f)
+        {
+            command_weapon_bay_open(station);
+            F117::weapon_bay_owned_by_release[station]=true;
+            F117::weapon_bay_close_pending[station]=false;
+            F117::weapon_bay_close_delay[station]=0.0;
+        }
+        if (status==9 && F117::weapon_release_pickle_held && !F117::weapon_release_gate_fired && F117::release_retry_delay<=0.0 &&
+            weapon_bay_is_open(station))
         {
             double point[3]={};
             if (CockpitInterop::GetIRADSLockWorldPoint(point) && WeaponsInterop::LaunchAtPoint(point,station))
@@ -1278,24 +1354,27 @@ namespace
         publish_named_param(flightParam,"F117_STORE_FLIGHT_TIME",F117::weapon_flight_time_remaining);
         F117::weapon_release_gate=F117::weapon_release_gate_hold>0.0;
 
-        if (!F117::weapon_release_pickle_held &&
-            F117::weapon_bay_owned_by_release &&
-            weapon_bay_is_closed())
+        // Each bay's auto-close runs on its own timer, so the first store's door shuts while the pilot
+        // pickles the next store.
+        for (int bay=0;bay<F117::kWeaponBayCount;++bay)
         {
-            F117::weapon_bay_owned_by_release = false;
-            F117::weapon_bay_close_pending = false;
-            F117::weapon_bay_close_delay = 0.0;
-        }
+            if (!F117::weapon_release_pickle_held && F117::weapon_bay_owned_by_release[bay] && weapon_bay_is_closed(bay))
+                forget_weapon_bay_ownership(bay);
 
-        if (!F117::weapon_release_pickle_held && F117::weapon_bay_close_pending)
-        {
-            F117::weapon_bay_close_delay = max(0.0, F117::weapon_bay_close_delay - dt);
-            if (F117::weapon_bay_close_delay <= 0.0)
+            if (F117::weapon_bay_close_pending[bay])
             {
-                command_weapon_bay_close();
-                F117::weapon_bay_close_pending = false;
+                F117::weapon_bay_close_delay[bay] = max(0.0, F117::weapon_bay_close_delay[bay] - dt);
+                if (F117::weapon_bay_close_delay[bay] <= 0.0)
+                {
+                    command_weapon_bay_close(bay);
+                    F117::weapon_bay_close_pending[bay] = false;
+                }
             }
         }
+
+        static void* bayParams[F117::kWeaponBayCount]={};
+        static const char* const kBayParamNames[F117::kWeaponBayCount]={"F117_BAY_L","F117_BAY_R"};
+        for (int bay=0;bay<F117::kWeaponBayCount;++bay) publish_named_param(bayParams[bay],kBayParamNames[bay],F117::bay_state[bay]);
 
         static void* s_efmLaunchActiveParam = nullptr;
         publish_named_param(s_efmLaunchActiveParam, kEfmLaunchActiveParamName, 1.0);
@@ -1396,22 +1475,27 @@ namespace
             return true;
         case bombay:
             reset_weapon_release_sequence();
-            if (misc_state < 0.5)
-            {
-                command_weapon_bay_open();
-            }
-            else if (misc_state > 0.5)
-            {
-                command_weapon_bay_close();
-            }
+            toggle_all_weapon_bays();
             return true;
         case bombayOpen:
             reset_weapon_release_sequence();
-            command_weapon_bay_open();
+            for (int bay = 0; bay < F117::kWeaponBayCount; ++bay) command_weapon_bay_open(bay);
             return true;
         case bombayClose:
             reset_weapon_release_sequence();
-            command_weapon_bay_close();
+            for (int bay = 0; bay < F117::kWeaponBayCount; ++bay) command_weapon_bay_close(bay);
+            return true;
+        case bombaySelected:
+            reset_weapon_release_sequence();
+            toggle_weapon_bay(selected_weapon_bay());
+            return true;
+        case bombayLeft:
+            reset_weapon_release_sequence();
+            toggle_weapon_bay(0);
+            return true;
+        case bombayRight:
+            reset_weapon_release_sequence();
+            toggle_weapon_bay(1);
             return true;
         case pickleOn:
         case weaponReleaseHoldOn:
@@ -1813,7 +1897,8 @@ double update_airframe_actuators(double dt)
     F117::gearDown = F117::ACTUATORS::drive_gear(F117::GearCommand, dt, gear_retraction_blocked());
 
     F117::tailhook_pos = F117::ACTUATORS::drive(F117::ACTUATORS::tailhook, F117::tailhook_command, dt);
-    F117::misc_state = static_cast<float>(F117::ACTUATORS::drive(F117::ACTUATORS::weaponBay, F117::misc_cmd, dt));
+    for (int bay = 0; bay < F117::kWeaponBayCount; ++bay)
+        F117::bay_state[bay] = static_cast<float>(F117::ACTUATORS::drive(F117::ACTUATORS::weaponBay[bay], F117::bay_cmd[bay], dt));
 
     return tailIntegrity;
 }
@@ -1952,7 +2037,10 @@ void update_aerodynamic_coefficients()
     const double CDchute = 0.20 * F117::ACTUATORS::dragChute.position;
     const double Cxchute = CDchute * cos(F117::pi / 180.0);
 
-    const double CDbay = 0.015 * F117::ACTUATORS::weaponBay.position;
+    // 0.015 with both bays open, shared between them.
+    double bayOpenSum = 0.0;
+    for (const auto& servo : F117::ACTUATORS::weaponBay) bayOpenSum += servo.position;
+    const double CDbay = 0.015 * bayOpenSum / F117::kWeaponBayCount;
     const double Czbay = -(CDbay * sin(F117::pi / 180.0));
     const double Cxbay = CDbay * cos(F117::pi / 180.0);
 
@@ -2026,7 +2114,12 @@ void update_aerodynamic_coefficients()
     F117::AERO::Cz_total = Cz + CzGroundEffect + CzGear + Czbay;
     F117::AERO::Cm_total = aero.Cm;
     F117::AERO::Cy_total = aero.CY;
-    F117::AERO::Cn_total = aero.Cn;
+    // One door open more than the other yaws the nose toward it (positive left-bay excess gives a nose-left moment,
+    // which is negative Cn here). The size is the Cn that holds one degree of sideslip.
+    const double leftDoor = limit(F117::ACTUATORS::weaponBay[0].position / kWeaponBayDoorFullyOpenArg, 0.0, 1.0);
+    const double rightDoor = limit(F117::ACTUATORS::weaponBay[1].position / kWeaponBayDoorFullyOpenArg, 0.0, 1.0);
+    const double CnBay = -std::fabs(aero.CnPerBetaDeg) * kWeaponBayOneDoorSideslip_DEG * (leftDoor - rightDoor);
+    F117::AERO::Cn_total = aero.Cn + CnBay;
     F117::AERO::Cl_total = aero.Cl;
     F117::AERO::ClPerAileronDeg = aero.ClPerAileronDeg;
     F117::AERO::CmPerElevatorDeg = aero.CmPerElevatorDeg;
@@ -2389,7 +2482,14 @@ namespace
     {
         drawargs[kDragChuteArg] = static_cast<float>(ACTUATORS::dragChute.position);
         drawargs[kTailhookArg] = static_cast<float>(ACTUATORS::tailhook.position);
-        drawargs[kWeaponBayArg] = static_cast<float>(limit(F117::misc_state, 0.0, 1.0));
+        float anyOpen = 0.0f;
+        for (int bay = 0; bay < kWeaponBayCount; ++bay)
+        {
+            const float position = static_cast<float>(limit(F117::bay_state[bay], 0.0, 1.0));
+            drawargs[kWeaponBayArgs[bay]] = position;
+            anyOpen = position > anyOpen ? position : anyOpen;
+        }
+        drawargs[kWeaponBayAnyArg] = anyOpen;
 
         if (size > kMirroredGearDrawArgRequiredSize)
         {
@@ -2638,7 +2738,7 @@ namespace
         F117::rolling_friction = kWheelBrakeOffFriction;
         F117::tailhook_command = F117::tailhook_pos = 0.0;
         F117::dragchute_command = F117::dragchute = 0.0;
-        F117::misc_cmd = F117::misc_state = 0.0;
+        for (int bay = 0; bay < kWeaponBayCount; ++bay) F117::bay_cmd[bay] = F117::bay_state[bay] = 0.0f;
         F117::surface_height_valid = F117::altitude_valid = false;
         for (bool& wow : F117::suspension_wow) wow = false;
         F117::ACTUATORS::reset_all();

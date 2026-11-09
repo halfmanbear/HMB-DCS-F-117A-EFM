@@ -55,7 +55,7 @@ assert 'dispatch_action' not in (mod/'Cockpit/Scripts/Systems/bomb_bay.lua').rea
 print('PASS: deployed Lua parses; no untargeted release fallback')
 # Actual production gate/sequence functions with controlled cockpit and native outcomes.
 fm=(src/'F_117_NightHawk.cpp').read_text(encoding='utf-8')
-names=['void reset_weapon_release_sequence()','void handle_weapon_release_pressed()','void handle_weapon_release_released()','void update_laser(double dt)','void update_weapon_release_sequence(double dt)']
+names=['bool weapon_bay_valid(int bay)','bool weapon_bay_is_open(int bay)','bool weapon_bay_is_closed(int bay)','void command_weapon_bay_open(int bay)','void command_weapon_bay_close(int bay)','int selected_weapon_bay()','void forget_weapon_bay_ownership(int bay)','void reset_weapon_release_sequence()','void handle_weapon_release_pressed()','void handle_weapon_release_released()','void update_laser(double dt)','void update_weapon_release_sequence(double dt)']
 code=r'''
 #include <cassert>
 #include <cmath>
@@ -66,16 +66,18 @@ code=r'''
 using std::max;
 namespace F117 {
  bool weapon_release_pickle_held=false,weapon_release_gate=false,weapon_release_gate_fired=false;
- bool weapon_bay_owned_by_release=false,weapon_bay_close_pending=false,laser_armed=false,master_armed=false;
+ constexpr int kWeaponBayCount=2;
+ bool weapon_bay_owned_by_release[kWeaponBayCount]{},weapon_bay_close_pending[kWeaponBayCount]{},laser_armed=false,master_armed=false;
+ float bay_cmd[kWeaponBayCount]{},bay_state[kWeaponBayCount]{};
  bool weight_on_wheels=false,wow_from_draw_args=false;
- double weapon_bay_close_delay=0,weapon_release_gate_hold=0,laser_window=0,weapon_flight_time_remaining=0,ccrp_time_of_flight=30,release_retry_delay=0,release_target[3]{};
+ double weapon_bay_close_delay[kWeaponBayCount]{},weapon_release_gate_hold=0,laser_window=0,weapon_flight_time_remaining=0,ccrp_time_of_flight=30,release_retry_delay=0,release_target[3]{};
  int release_status=0; unsigned release_sequence=0;
  struct API {void* getParamHandle(const char*);double getParamNumber(void*);} cockpitAPI;
 }
-double profileValid=1,stationValue=0;
-void* F117::API::getParamHandle(const char* n){return n[5]=='S'? &profileValid:&stationValue;}
+double profileValid=1,stationValue=0,weaponStationValue=1;
+void* F117::API::getParamHandle(const char* n){return n[5]=='S'? &profileValid:n[5]=='W'? &weaponStationValue:&stationValue;}
 double F117::API::getParamNumber(void* p){return *static_cast<double*>(p);}
-bool lockValid=true,power=true,bayOpen=true,solution=true,zone=true,available=true,accept=false,laserLive=false;
+bool lockValid=true,power=true,solution=true,zone=true,available=true,accept=false,laserLive=false;
 bool g_releaseAlignmentValid=true; double g_releaseMinRange=1000,g_releaseMaxRange=10000;
 int launches=0,profile=0;double handoff[3]{};double publishedFlight=-1;
 namespace CockpitInterop {
@@ -91,11 +93,10 @@ namespace WeaponsInterop {
  void UpdateLaser(bool on,const double*,unsigned code){assert(code==1688);laserLive=on;}
  bool IsLaserFiring(){return laserLive;}
 }
-constexpr double kWeaponBayHoldAfterReleaseSeconds=1,kWeaponReleaseGateMinHoldSeconds=.25,kLaserOverrunSeconds=4;
+constexpr double kWeaponBayOpenThreshold=.995,kWeaponBayClosedThreshold=.005,kWeaponBayHoldAfterReleaseSeconds=1,kWeaponReleaseGateMinHoldSeconds=.25,kLaserOverrunSeconds=4;
 const char *kLaserArmedParamName="arm",*kLaserFiringParamName="fire",*kEfmLaunchActiveParamName="efm";
 void publish_named_param(void*&,const char* name,double value){if(std::string(name)=="F117_STORE_FLIGHT_TIME")publishedFlight=value;}
-bool weapon_bay_is_open(){return bayOpen;}bool weapon_bay_is_closed(){return !bayOpen;}
-void command_weapon_bay_open(){}void command_weapon_bay_close(){}
+void setBay(bool open){F117::bay_state[0]=open?1.f:0.f;}
 void publish_weapon_release_gate_param(){}void publish_release_cue_params(){}
 int get_ccrp_profile_index(){return profile;}
 '''+fm[fm.index('    enum class StoreKind'):fm.index('    std::string build_saved_games_dcs_path')]+r'''
@@ -103,12 +104,12 @@ const CcrpStoreModel& get_ccrp_profile(){return kCcrpStoreModels[profile];}
 bool compute_release_solution(double*,double*,double*,bool* z){*z=zone;return solution;}
 '''+ '\n'.join(extract(fm,n) for n in names)+r'''
 int main(){
- handle_weapon_release_pressed();update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==1);
+ setBay(true);handle_weapon_release_pressed();update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==1);
  F117::master_armed=true;lockValid=false;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==3);
  lockValid=true;profileValid=0;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==4);
  profileValid=1;profile=3;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==5);
- F117::laser_armed=true;bayOpen=false;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==6&&laserLive);
- bayOpen=true;g_releaseAlignmentValid=false;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==14);
+ F117::laser_armed=true;setBay(false);update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==9&&laserLive); // doors still travelling: ready, not a fault, no release yet
+ setBay(true);g_releaseAlignmentValid=false;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==14);
  g_releaseAlignmentValid=true;zone=false;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==8);
  zone=true;F117::weight_on_wheels=true;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==12);
  F117::weight_on_wheels=false;available=false;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==13);
@@ -132,6 +133,35 @@ int main(){
  profile=0;
  power=false;update_weapon_release_sequence(.01);assert(!laserLive);
  update_weapon_release_sequence(100);assert(F117::weapon_flight_time_remaining==0&&F117::laser_window==0&&publishedFlight==0);
+ // Per-bay control: the pickle opens only the selected store's bay, and each bay closes on its own timer.
+ F117::master_armed=false;F117::weapon_release_pickle_held=false;weaponStationValue=1;
+ handle_weapon_release_released();reset_weapon_release_sequence();
+ for(int b=0;b<2;++b){F117::bay_cmd[b]=0;F117::bay_state[b]=0;}
+ assert(selected_weapon_bay()==0);weaponStationValue=2;assert(selected_weapon_bay()==1);weaponStationValue=3;assert(selected_weapon_bay()==-1);weaponStationValue=0;assert(selected_weapon_bay()==-1);
+ weaponStationValue=2;stationValue=1;handle_weapon_release_pressed();
+ assert(F117::bay_cmd[0]==0&&F117::bay_cmd[1]==1&&F117::weapon_bay_owned_by_release[1]&&!F117::weapon_bay_owned_by_release[0]);
+ handle_weapon_release_released(); // right bay never reached open: closes straight away
+ assert(F117::bay_cmd[1]==0&&!F117::weapon_bay_close_pending[1]);
+ weaponStationValue=1;stationValue=0;handle_weapon_release_pressed();F117::bay_state[0]=1;handle_weapon_release_released();
+ assert(F117::bay_cmd[0]==1&&F117::weapon_bay_close_pending[0]&&F117::weapon_bay_close_delay[0]==1);
+ weaponStationValue=2;stationValue=1;handle_weapon_release_pressed(); // next store while the first bay waits to close
+ assert(F117::bay_cmd[1]==1&&F117::weapon_bay_close_pending[0]);
+ update_weapon_release_sequence(1.1);
+ assert(F117::bay_cmd[0]==0&&!F117::weapon_bay_close_pending[0]&&F117::bay_cmd[1]==1); // left closes while right pickle is held
+ // A pickle on the same bay during its pending close keeps it open and owned.
+ reset_weapon_release_sequence();F117::bay_cmd[0]=F117::bay_cmd[1]=0;F117::bay_state[0]=F117::bay_state[1]=0;
+ weaponStationValue=1;stationValue=0;handle_weapon_release_pressed();F117::bay_state[0]=1;handle_weapon_release_released();
+ handle_weapon_release_pressed();assert(!F117::weapon_bay_close_pending[0]&&F117::bay_cmd[0]==1&&F117::weapon_bay_owned_by_release[0]);
+ // Selection moving to the other store while consent is held opens that store's bay too.
+ weaponStationValue=2;stationValue=1;update_weapon_release_sequence(.01);
+ assert(F117::bay_cmd[1]==1&&F117::weapon_bay_owned_by_release[1]);
+ // A bay the pilot opened by hand is not the pickle's to close.
+ reset_weapon_release_sequence();F117::bay_cmd[1]=F117::bay_state[1]=1;F117::bay_cmd[0]=F117::bay_state[0]=0;
+ handle_weapon_release_pressed();assert(!F117::weapon_bay_owned_by_release[1]);handle_weapon_release_released();
+ assert(F117::bay_cmd[1]==1&&!F117::weapon_bay_close_pending[1]);
+ // Resetting the sequence (manual command, Master Arm) closes only bays the pickle opened.
+ weaponStationValue=1;stationValue=0;handle_weapon_release_pressed();assert(F117::weapon_bay_owned_by_release[0]);
+ reset_weapon_release_sequence();assert(F117::bay_cmd[0]==0&&F117::bay_cmd[1]==1&&!F117::weapon_release_pickle_held);
  puts("PASS: production release gate: safe/power/ground/target/store/laser/bay/zone/backend inhibits, retry, one release per consent, JDAM target snapshot and laser need for all 14 stores");
 }
 '''

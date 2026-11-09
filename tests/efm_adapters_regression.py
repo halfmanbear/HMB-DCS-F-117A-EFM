@@ -75,6 +75,7 @@ int main() {
     // Command values form a wire contract with saved input bindings.
     static_assert(JoystickPitch==2001 && JoystickRoll==2002 && JoystickYaw==2003 && throttleAxis==2004, "axes");
     static_assert(bombay==10100 && weaponReleaseHoldOn==10103 && weaponReleaseHoldOff==10104, "delivery");
+    static_assert(bombaySelected==10130 && bombayLeft==10131 && bombayRight==10132, "individual bays");
     static_assert(IRADSZoomIn==10008 && IRADSZoomOut==10009 && IRADSZoomAxis==10121, "IRADS");
     static_assert(AutothrottleEngage==10125 && NwsAuthorityOff==10129, "automatic controls");
 

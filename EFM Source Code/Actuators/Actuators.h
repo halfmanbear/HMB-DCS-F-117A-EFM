@@ -44,7 +44,8 @@ namespace F117 { namespace ACTUATORS {
         Servo throttle   { 20.2, -25.0, 20.0,    0.0, 100.0 };
         Servo gear       { 20.2,  -0.5,  0.5,    0.0,   1.0 };   // 0 up, 1 down
         Servo tailhook   { 20.2, -0.75, 0.75,    0.0,   1.0 };
-        Servo weaponBay  { 20.2,  -0.5,  0.5,    0.0,   1.0 };   // 0 closed, 1 open
+        // Left and right bay: 0 closed, 1 door open and trapeze down. Two seconds for the full travel.
+        Servo weaponBay[2] = { Servo(20.2, -0.5, 0.5, 0.0, 1.0), Servo(20.2, -0.5, 0.5, 0.0, 1.0) };
         Servo dragChute  { 20.2,   0.0, 0.75,    0.0,   1.0 };   // deploys only; stowing is immediate
 
         inline double drive(Servo& servo, double command, double dt)
@@ -100,7 +101,7 @@ namespace F117 { namespace ACTUATORS {
 
         inline void reset_all()
         {
-            for (Servo* servo : { &elevator, &rudder, &throttle, &gear, &tailhook, &weaponBay, &dragChute })
+            for (Servo* servo : { &elevator, &rudder, &throttle, &gear, &tailhook, &weaponBay[0], &weaponBay[1], &dragChute })
                 servo->set(0.0);
         }
 }}

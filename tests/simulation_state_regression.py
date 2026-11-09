@@ -54,7 +54,7 @@ double elevator_DEG_commanded=0,aileron_DEG_commanded=0,rudder_DEG_commanded=0;
 float elev_pos=0,rudder_pos=0;
 double elevator_PCT=0,aileron_PCT=0,rudder_PCT=0,throttle_state=0,rolling_friction=0,WheelBrakeCommand=0;
 double pitchTrim=0,rollTrim=0,yawTrim=0,tailhook_command=0,tailhook_pos=0,dragchute_command=0,dragchute=0;
-float misc_cmd=0,misc_state=0;
+constexpr int kWeaponBayCount=2;float bay_cmd[kWeaponBayCount]={},bay_state[kWeaponBayCount]={};
 namespace ENGINE {struct EngineState {double N2=0,thrustFractionOfMax=0;};}
 ENGINE::EngineState engines[2];
 double engine_thrust_N[2]={},engine_fuel_flow_kg_s[2]={},engine_egt_C[2]={},engine_oil_psi[2]={};
@@ -108,7 +108,7 @@ void check_mass(double expected) {
 void dirty_session() {
     alt_hold=altroll_hold=horiz_hold=1;airRefuelDoorOpen=true;
     pitchTrim=rollTrim=yawTrim=3;surface_height_valid=altitude_valid=true;
-    ACTUATORS::dragChute.position=1;ACTUATORS::gear.position=.4;ACTUATORS::weaponBay.position=1;
+    ACTUATORS::dragChute.position=1;ACTUATORS::gear.position=.4;ACTUATORS::weaponBay[0].position=ACTUATORS::weaponBay[1].position=1;bay_cmd[0]=bay_cmd[1]=bay_state[0]=bay_state[1]=1;
     thrust_N=80000;elev_pos=rudder_pos=1;
     FLIGHTCONTROLS::longStickInput=1;fuel_mass_in_dcs=3;
     g_autothrottle.engage(300,50,true,true);g_paars.engage(-30,0,false,false);
@@ -116,7 +116,7 @@ void dirty_session() {
 void check_clean_session() {
     assert(alt_hold==0&&altroll_hold==0&&horiz_hold==0&&!airRefuelDoorOpen);
     assert(pitchTrim==0&&rollTrim==0&&yawTrim==0);
-    assert(ACTUATORS::dragChute.position==0&&ACTUATORS::weaponBay.position==0);
+    assert(ACTUATORS::dragChute.position==0&&ACTUATORS::weaponBay[0].position==0&&ACTUATORS::weaponBay[1].position==0&&bay_cmd[0]==0&&bay_cmd[1]==0&&bay_state[0]==0&&bay_state[1]==0);
     assert(!ACTUATORS::initialized&&!simInitialized&&FLIGHTCONTROLS::longStickInput==0);
     assert(!g_autothrottle.engaged()&&!g_paars.engaged());
     assert(!surface_height_valid&&!altitude_valid);
