@@ -1,4 +1,5 @@
 #pragma once
+#include <cmath>
 // Release ranges copied from the stock DCS weapon definitions in
 // CoreMods/aircraft/AircraftWeaponPack/JDAM.lua. Profiles 0, 1 and 2 are the
 // GBU-31(V)1/B, GBU-31(V)3/B and GBU-32(V)2/B. tests/jdam_envelope_regression.py

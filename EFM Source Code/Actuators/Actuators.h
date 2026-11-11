@@ -36,17 +36,17 @@ namespace F117 { namespace ACTUATORS {
 
         // Cleared at the start of a session. Until the first frame has run, every actuator
         // takes its command directly, so the aircraft starts in its mission configuration.
-        bool initialized = false;
+        inline bool initialized = false;
 
         //                 gain   rate limits    travel
-        Servo elevator   { 20.2,  -4.0,  4.0,   -1.0,   1.0 };   // stick-to-elevon path, normalised
-        Servo rudder     { 20.2,  -3.0,  3.0,   -1.0,   1.0 };   // pedal-to-fin path, normalised
-        Servo throttle   { 20.2, -25.0, 20.0,    0.0, 100.0 };
-        Servo gear       { 20.2,  -0.5,  0.5,    0.0,   1.0 };   // 0 up, 1 down
-        Servo tailhook   { 20.2, -0.75, 0.75,    0.0,   1.0 };
+        inline Servo elevator   { 20.2,  -4.0,  4.0,   -1.0,   1.0 };   // stick-to-elevon path, normalised
+        inline Servo rudder     { 20.2,  -3.0,  3.0,   -1.0,   1.0 };   // pedal-to-fin path, normalised
+        inline Servo throttle   { 20.2, -25.0, 20.0,    0.0, 100.0 };
+        inline Servo gear       { 20.2,  -0.5,  0.5,    0.0,   1.0 };   // 0 up, 1 down
+        inline Servo tailhook   { 20.2, -0.75, 0.75,    0.0,   1.0 };
         // Left and right bay: 0 closed, 1 door open and trapeze down. Two seconds for the full travel.
-        Servo weaponBay[2] = { Servo(20.2, -0.5, 0.5, 0.0, 1.0), Servo(20.2, -0.5, 0.5, 0.0, 1.0) };
-        Servo dragChute  { 20.2,   0.0, 0.75,    0.0,   1.0 };   // deploys only; stowing is immediate
+        inline Servo weaponBay[2] = { Servo(20.2, -0.5, 0.5, 0.0, 1.0), Servo(20.2, -0.5, 0.5, 0.0, 1.0) };
+        inline Servo dragChute  { 20.2,   0.0, 0.75,    0.0,   1.0 };   // deploys only; stowing is immediate
 
         inline double drive(Servo& servo, double command, double dt)
         {

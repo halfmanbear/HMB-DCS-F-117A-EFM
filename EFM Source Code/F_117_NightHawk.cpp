@@ -1,8 +1,10 @@
 #include "stdafx.h"
 #include "F_117_NightHawk.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <queue>
 #include <string>
@@ -569,13 +571,13 @@ namespace
             return;
         }
 
-        g_damage.leftWing = max(0.0, g_damage.leftWing - kLuaDamageDose * kWingDamageDoseScale);
-        g_damage.rightWing = max(0.0, g_damage.rightWing - kLuaDamageDose * kWingDamageDoseScale);
-        g_damage.leftEngine = max(0.0, g_damage.leftEngine - kLuaDamageDose * kEngineDamageDoseScale);
-        g_damage.rightEngine = max(0.0, g_damage.rightEngine - kLuaDamageDose * kEngineDamageDoseScale);
-        g_damage.leftTail = max(0.0, g_damage.leftTail - kLuaDamageDose * kTailDamageDoseScale);
-        g_damage.rightTail = max(0.0, g_damage.rightTail - kLuaDamageDose * kTailDamageDoseScale);
-        g_damage.cockpit = max(0.0, g_damage.cockpit - kLuaDamageDose * kCockpitDamageDoseScale);
+        g_damage.leftWing = std::max(0.0, g_damage.leftWing - kLuaDamageDose * kWingDamageDoseScale);
+        g_damage.rightWing = std::max(0.0, g_damage.rightWing - kLuaDamageDose * kWingDamageDoseScale);
+        g_damage.leftEngine = std::max(0.0, g_damage.leftEngine - kLuaDamageDose * kEngineDamageDoseScale);
+        g_damage.rightEngine = std::max(0.0, g_damage.rightEngine - kLuaDamageDose * kEngineDamageDoseScale);
+        g_damage.leftTail = std::max(0.0, g_damage.leftTail - kLuaDamageDose * kTailDamageDoseScale);
+        g_damage.rightTail = std::max(0.0, g_damage.rightTail - kLuaDamageDose * kTailDamageDoseScale);
+        g_damage.cockpit = std::max(0.0, g_damage.cockpit - kLuaDamageDose * kCockpitDamageDoseScale);
 
         if (g_damage.leftEngine < kFireDamageThreshold)
         {
@@ -801,8 +803,8 @@ namespace
             return false;
         }
 
-        const double altitudeReference = max(releasePos.y, 0.0);
-        const double seaLevelDensity = max(F117::ambientDensity_KgPerM3, 0.05) * exp(altitudeReference / kAtmosphereScaleHeight_M);
+        const double altitudeReference = std::max(releasePos.y, 0.0);
+        const double seaLevelDensity = std::max(F117::ambientDensity_KgPerM3, 0.05) * exp(altitudeReference / kAtmosphereScaleHeight_M);
 
         Vec3 pos = releasePos;
         Vec3 vel = releaseVel;
@@ -826,7 +828,7 @@ namespace
 
             if (relSpeed > 0.25)
             {
-                const double rho = seaLevelDensity * exp(-max(pos.y, 0.0) / kAtmosphereScaleHeight_M);
+                const double rho = seaLevelDensity * exp(-std::max(pos.y, 0.0) / kAtmosphereScaleHeight_M);
                 const double dragScale = 0.5 * rho * profile.dragCd * profile.referenceAreaM2 / profile.massKg;
                 const double dragAccel = dragScale * relSpeed * relSpeed;
                 const double invRelSpeed = 1.0 / relSpeed;
@@ -851,7 +853,7 @@ namespace
                 outImpactPos->x = prevPos.x + ((pos.x - prevPos.x) * fraction);
                 outImpactPos->y = targetAltMeters;
                 outImpactPos->z = prevPos.z + ((pos.z - prevPos.z) * fraction);
-                *outImpactTime = max(0.0, elapsed - kReleaseIntegrationStepSeconds + (kReleaseIntegrationStepSeconds * fraction));
+                *outImpactTime = std::max(0.0, elapsed - kReleaseIntegrationStepSeconds + (kReleaseIntegrationStepSeconds * fraction));
                 return true;
             }
         }
@@ -875,10 +877,10 @@ namespace
             alongTrack <= 0.0 || crossTrack < 0.0 || minimumWindow < 0.0) return false;
         const bool jdam = kind == StoreKind::Jdam;
         const double lateralRatio = jdam ? 0.577350269 : 0.267949192; // 30 / 15 degrees
-        *aligned = crossTrack <= max(50.0, alongTrack * lateralRatio);
-        const double rangeMargin = max(minimumWindow, ballisticRange * (jdam ? 0.35 : 0.20));
+        *aligned = crossTrack <= std::max(50.0, alongTrack * lateralRatio);
+        const double rangeMargin = std::max(minimumWindow, ballisticRange * (jdam ? 0.35 : 0.20));
         const double horizontalRange = sqrt(alongTrack * alongTrack + crossTrack * crossTrack);
-        return *aligned && alongTrack >= max(1.0, ballisticRange - rangeMargin) &&
+        return *aligned && alongTrack >= std::max(1.0, ballisticRange - rangeMargin) &&
             horizontalRange <= ballisticRange + rangeMargin;
     }
 
@@ -908,7 +910,7 @@ namespace
         const double horizRange = sqrt((dx * dx) + (dz * dz));
         const double dropMeters = position_world_cs.y - targetWorld[1];
 
-        if (horizSpeed < max(kReleaseCueMinSpeedMPS, profile.minSpeedMPS) || dropMeters < max(kReleaseCueMinDropMeters, profile.minDropMeters))
+        if (horizSpeed < std::max(kReleaseCueMinSpeedMPS, profile.minSpeedMPS) || dropMeters < std::max(kReleaseCueMinDropMeters, profile.minDropMeters))
         {
             return false;
         }
@@ -945,7 +947,7 @@ namespace
             };
             impactAlongTrack = (impactDelta.x * vx) + (impactDelta.z * vz);
             errorMeters = alongTrack - impactAlongTrack;
-            timeToGo = (errorMeters > 0.0) ? (errorMeters / max(horizSpeed, profile.minSpeedMPS)) : 0.0;
+            timeToGo = (errorMeters > 0.0) ? (errorMeters / std::max(horizSpeed, profile.minSpeedMPS)) : 0.0;
         }
         bool inZone = false;
         if (kind == StoreKind::Jdam || kind == StoreKind::Glide)
@@ -956,14 +958,14 @@ namespace
                 ? JdamEnvelope::lookup(profile.envelope,dropMeters,airSpeed,&g_releaseMinRange,&g_releaseMaxRange)
                 : GlideEnvelope::lookup(profile.envelope,dropMeters,airSpeed,&g_releaseMinRange,&g_releaseMaxRange);
             if (!tabled) return false;
-            g_releaseAlignmentValid = crossTrack<=max(50.0,alongTrack*0.577350269);
+            g_releaseAlignmentValid = crossTrack<=std::max(50.0,alongTrack*0.577350269);
             inZone = g_releaseAlignmentValid && horizRange>=g_releaseMinRange && horizRange<=g_releaseMaxRange;
             if (kind == StoreKind::Glide)
             {
                 // A glide weapon has no ballistic impact: cue the distance still to close
                 // to the maximum range, and time the flight at a typical glide speed.
-                errorMeters = max(0.0, horizRange - g_releaseMaxRange);
-                timeToGo = errorMeters / max(horizSpeed, profile.minSpeedMPS);
+                errorMeters = std::max(0.0, horizRange - g_releaseMaxRange);
+                timeToGo = errorMeters / std::max(horizSpeed, profile.minSpeedMPS);
                 F117::ccrp_time_of_flight = horizRange / kGlideWeaponSpeedMPS;
             }
         }
@@ -972,7 +974,7 @@ namespace
             // True CCRP: the release fires as the predicted impact crosses the target.
             g_releaseAlignmentValid = crossTrack <= kUnguidedMaxCrossTrackMeters;
             inZone = g_releaseAlignmentValid && fabs(errorMeters) <= profile.releaseWindowMeters;
-            g_releaseMinRange = max(1.0, impactAlongTrack - profile.releaseWindowMeters);
+            g_releaseMinRange = std::max(1.0, impactAlongTrack - profile.releaseWindowMeters);
             g_releaseMaxRange = impactAlongTrack + profile.releaseWindowMeters;
         }
         else if (store_is_missile(kind))
@@ -987,16 +989,16 @@ namespace
             g_releaseMinRange = profile.minRangeMeters;
             g_releaseMaxRange = profile.maxRangeMeters;
             inZone = g_releaseAlignmentValid && slant >= g_releaseMinRange && slant <= g_releaseMaxRange;
-            errorMeters = max(0.0, slant - g_releaseMaxRange);
-            timeToGo = errorMeters / max(horizSpeed, profile.minSpeedMPS);
+            errorMeters = std::max(0.0, slant - g_releaseMaxRange);
+            timeToGo = errorMeters / std::max(horizSpeed, profile.minSpeedMPS);
             F117::ccrp_time_of_flight = slant / kMissileAverageSpeedMPS;
         }
         else
         {
             inZone = guided_release_in_zone(kind, impactAlongTrack,
                 alongTrack, crossTrack, profile.releaseWindowMeters, &g_releaseAlignmentValid);
-            g_releaseMinRange=max(1.0,impactAlongTrack-max(profile.releaseWindowMeters,impactAlongTrack*0.20));
-            g_releaseMaxRange=impactAlongTrack+max(profile.releaseWindowMeters,impactAlongTrack*0.20);
+            g_releaseMinRange=std::max(1.0,impactAlongTrack-std::max(profile.releaseWindowMeters,impactAlongTrack*0.20));
+            g_releaseMaxRange=impactAlongTrack+std::max(profile.releaseWindowMeters,impactAlongTrack*0.20);
         }
         static bool logged = false, lastZone = false, lastAligned = false;
         static unsigned diagnosticFrames = 0;
@@ -1234,8 +1236,8 @@ namespace
     // illumination before and after release; Safe or designation clear stops it.
     void update_laser(double dt)
     {
-        F117::laser_window = max(0.0, F117::laser_window - dt);
-        F117::weapon_flight_time_remaining = max(0.0, F117::weapon_flight_time_remaining - dt);
+        F117::laser_window = std::max(0.0, F117::laser_window - dt);
+        F117::weapon_flight_time_remaining = std::max(0.0, F117::weapon_flight_time_remaining - dt);
 
         double lockPoint[3] = {0.0, 0.0, 0.0};
         const bool haveLock = CockpitInterop::GetIRADSLockWorldPoint(lockPoint);
@@ -1278,7 +1280,7 @@ namespace
     void update_weapon_release_sequence(double dt)
     {
         update_laser(dt);
-        F117::release_retry_delay = max(0.0, F117::release_retry_delay - dt);
+        F117::release_retry_delay = std::max(0.0, F117::release_retry_delay - dt);
         double errorMeters=0.0, timeToGoSeconds=0.0, rangeMeters=0.0;
         bool inZone=false;
         const bool hasSolution = CockpitInterop::HasIRADSLock() &&
@@ -1305,7 +1307,7 @@ namespace
         else if (!g_releaseAlignmentValid) status=14;
         else if (!inZone) status=8;
         else if (!efmLaunchAvailable) status=13;
-        F117::weapon_release_gate_hold=max(0.0,F117::weapon_release_gate_hold-dt);
+        F117::weapon_release_gate_hold=std::max(0.0,F117::weapon_release_gate_hold-dt);
         // Consent held while the selection moves to another store (station keys): open that store's bay too.
         if (F117::weapon_release_pickle_held && !F117::weapon_release_gate_fired && weapon_bay_valid(station) &&
             F117::bay_cmd[station]<0.5f)
@@ -1363,7 +1365,7 @@ namespace
 
             if (F117::weapon_bay_close_pending[bay])
             {
-                F117::weapon_bay_close_delay[bay] = max(0.0, F117::weapon_bay_close_delay[bay] - dt);
+                F117::weapon_bay_close_delay[bay] = std::max(0.0, F117::weapon_bay_close_delay[bay] - dt);
                 if (F117::weapon_bay_close_delay[bay] <= 0.0)
                 {
                     command_weapon_bay_close(bay);
@@ -2946,7 +2948,7 @@ namespace
     void update_wing_from_sections(double& wing, double& inner, double& outer,
         double& innerElevon, double& outerElevon)
     {
-        wing = min(wing, inner * (1.0 - kOuterWingLiftShare + kOuterWingLiftShare * outer));
+        wing = std::min(wing, inner * (1.0 - kOuterWingLiftShare + kOuterWingLiftShare * outer));
         if (inner <= 0.0)
         {
             outer = 0.0;
@@ -2963,96 +2965,96 @@ namespace
         switch (element)
         {
         case kDamageElementNose:
-            g_damage.nose = min(g_damage.nose, integrity);
+            g_damage.nose = std::min(g_damage.nose, integrity);
             return "nose";
         case kDamageElementCockpit:
-            g_damage.cockpit = min(g_damage.cockpit, integrity);
+            g_damage.cockpit = std::min(g_damage.cockpit, integrity);
             return "cockpit";
         case kDamageElementFuselageLeft:
-            g_damage.leftFuselage = min(g_damage.leftFuselage, integrity);
+            g_damage.leftFuselage = std::min(g_damage.leftFuselage, integrity);
             return "left fuselage";
         case kDamageElementFuselageRight:
-            g_damage.rightFuselage = min(g_damage.rightFuselage, integrity);
+            g_damage.rightFuselage = std::min(g_damage.rightFuselage, integrity);
             return "right fuselage";
         case kDamageElementBelly:
-            g_damage.belly = min(g_damage.belly, integrity);
+            g_damage.belly = std::min(g_damage.belly, integrity);
             return "weapon bay doors";
         case kDamageElementEngineLeft:
-            g_damage.leftEngine = min(g_damage.leftEngine, integrity);
+            g_damage.leftEngine = std::min(g_damage.leftEngine, integrity);
             if (g_damage.leftEngine < kFireDamageThreshold)
                 pushFireEvent(8, -4.45, 0.08, -1.7);
             return "left engine";
         case kDamageElementEngineRight:
-            g_damage.rightEngine = min(g_damage.rightEngine, integrity);
+            g_damage.rightEngine = std::min(g_damage.rightEngine, integrity);
             if (g_damage.rightEngine < kFireDamageThreshold)
                 pushFireEvent(7, -4.45, 0.08, 1.7);
             return "right engine";
         case kDamageElementTailLeft:
-            g_damage.leftTailStructure = min(g_damage.leftTailStructure, integrity);
+            g_damage.leftTailStructure = std::min(g_damage.leftTailStructure, integrity);
             if (g_damage.leftTailStructure <= 0.0)
                 g_damage.leftTail = 0.0;
             return "left tail structure";
         case kDamageElementTailRight:
-            g_damage.rightTailStructure = min(g_damage.rightTailStructure, integrity);
+            g_damage.rightTailStructure = std::min(g_damage.rightTailStructure, integrity);
             if (g_damage.rightTailStructure <= 0.0)
                 g_damage.rightTail = 0.0;
             return "right tail structure";
         case kDamageElementWingInnerLeft:
-            g_damage.leftWingInner = min(g_damage.leftWingInner, integrity);
+            g_damage.leftWingInner = std::min(g_damage.leftWingInner, integrity);
             update_wing_from_sections(g_damage.leftWing, g_damage.leftWingInner, g_damage.leftWingOuter,
                 g_damage.leftInnerElevon, g_damage.leftOuterElevon);
             return "left inner wing";
         case kDamageElementWingInnerRight:
-            g_damage.rightWingInner = min(g_damage.rightWingInner, integrity);
+            g_damage.rightWingInner = std::min(g_damage.rightWingInner, integrity);
             update_wing_from_sections(g_damage.rightWing, g_damage.rightWingInner, g_damage.rightWingOuter,
                 g_damage.rightInnerElevon, g_damage.rightOuterElevon);
             return "right inner wing";
         case kDamageElementWingOuterLeft:
-            g_damage.leftWingOuter = min(g_damage.leftWingOuter, integrity);
+            g_damage.leftWingOuter = std::min(g_damage.leftWingOuter, integrity);
             update_wing_from_sections(g_damage.leftWing, g_damage.leftWingInner, g_damage.leftWingOuter,
                 g_damage.leftInnerElevon, g_damage.leftOuterElevon);
             return "left outer wing";
         case kDamageElementWingOuterRight:
-            g_damage.rightWingOuter = min(g_damage.rightWingOuter, integrity);
+            g_damage.rightWingOuter = std::min(g_damage.rightWingOuter, integrity);
             update_wing_from_sections(g_damage.rightWing, g_damage.rightWingInner, g_damage.rightWingOuter,
                 g_damage.rightInnerElevon, g_damage.rightOuterElevon);
             return "right outer wing";
         case kDamageElementNoseGear:
-            g_damage.noseGear = min(g_damage.noseGear, integrity);
+            g_damage.noseGear = std::min(g_damage.noseGear, integrity);
             return "nose gear bay";
         case kDamageElementLeftGear:
-            g_damage.leftGear = min(g_damage.leftGear, integrity);
+            g_damage.leftGear = std::min(g_damage.leftGear, integrity);
             return "left gear bay";
         case kDamageElementRightGear:
-            g_damage.rightGear = min(g_damage.rightGear, integrity);
+            g_damage.rightGear = std::min(g_damage.rightGear, integrity);
             return "right gear bay";
         // DCS applies wheel damage through each suspension's damage_element.
         case kDamageElementNoseWheel:
-            g_damage.noseWheel = min(g_damage.noseWheel, integrity);
+            g_damage.noseWheel = std::min(g_damage.noseWheel, integrity);
             return "nose wheel";
         case kDamageElementLeftWheel:
-            g_damage.leftWheel = min(g_damage.leftWheel, integrity);
+            g_damage.leftWheel = std::min(g_damage.leftWheel, integrity);
             return "left wheel";
         case kDamageElementRightWheel:
-            g_damage.rightWheel = min(g_damage.rightWheel, integrity);
+            g_damage.rightWheel = std::min(g_damage.rightWheel, integrity);
             return "right wheel";
         case kDamageElementAileronLeft:
-            g_damage.leftOuterElevon = min(g_damage.leftOuterElevon, integrity);
+            g_damage.leftOuterElevon = std::min(g_damage.leftOuterElevon, integrity);
             return "left outer elevon";
         case kDamageElementAileronRight:
-            g_damage.rightOuterElevon = min(g_damage.rightOuterElevon, integrity);
+            g_damage.rightOuterElevon = std::min(g_damage.rightOuterElevon, integrity);
             return "right outer elevon";
         case kDamageElementFlapLeft:
-            g_damage.leftInnerElevon = min(g_damage.leftInnerElevon, integrity);
+            g_damage.leftInnerElevon = std::min(g_damage.leftInnerElevon, integrity);
             return "left inner elevon";
         case kDamageElementFlapRight:
-            g_damage.rightInnerElevon = min(g_damage.rightInnerElevon, integrity);
+            g_damage.rightInnerElevon = std::min(g_damage.rightInnerElevon, integrity);
             return "right inner elevon";
         case kDamageElementRudderLeft:
-            g_damage.leftTail = min(g_damage.leftTail, integrity);
+            g_damage.leftTail = std::min(g_damage.leftTail, integrity);
             return "left ruddervator";
         case kDamageElementRudderRight:
-            g_damage.rightTail = min(g_damage.rightTail, integrity);
+            g_damage.rightTail = std::min(g_damage.rightTail, integrity);
             return "right ruddervator";
         default:
             return "IGNORED(unhandled)";

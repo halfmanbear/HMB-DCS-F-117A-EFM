@@ -1,5 +1,6 @@
 #pragma once
 #include "../EfmMath.h"
+#include <algorithm>
 #include <cmath>
 
 namespace F117 { namespace ENGINE {
@@ -66,7 +67,7 @@ namespace F117 { namespace ENGINE {
         }
 
         // Advances one engine and returns its thrust (N).
-        double engine_dynamics(EngineState& engine,
+        inline double engine_dynamics(EngineState& engine,
             double throttleInput,
             double mach,
             double alt,
