@@ -1,4 +1,4 @@
-﻿// Standalone avTVSensor and explicit ccIndicator camera bridge.
+// Standalone avTVSensor and explicit ccIndicator camera bridge.
 // avTVSensor is NOT an avDevice: never register/start it through devices_keeper.
 #include "stdafx.h"
 #include "CockpitBase_Interop.h"
@@ -15,7 +15,7 @@ namespace CockpitInterop
 {
     static constexpr const char* kIRADSBuildMarker = "2026-11-02-thrust-table-v25";
 
-    // â”€â”€ Globals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- Globals ---------------------------------------------------------------
     HMODULE                   g_hDLL                   = nullptr;
     PFN_avTVSensor_ctor       g_avTVSensor_ctor        = nullptr;
     PFN_avTVSensor_initialize g_avTVSensor_initialize  = nullptr;
@@ -85,7 +85,7 @@ namespace CockpitInterop
     static double s_stale_point[3]        = {0.0, 0.0, 0.0};
     static void*  s_our_ind               = nullptr;   // cached DLIR indicator (owned by DCS)
 
-    // â”€â”€ Sensor state accessors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- Sensor state accessors ------------------------------------------------
     // Native call positions used by the sensor bridge.
     static constexpr size_t VTABLE_SLOT_SET_POS  = 4;     // sets the sensor's local mount position
 
@@ -208,7 +208,7 @@ namespace CockpitInterop
         }
     }
 
-    // â”€â”€ Logging â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- Logging ---------------------------------------------------------------
 
     // Keeps the log bounded on disk. When the DLL loads, a log over kLogRotateBytes becomes
     // F117_IRADS.old.log, replacing the previous one. One load stops writing to the file after
@@ -382,7 +382,7 @@ namespace CockpitInterop
         }
     }
 
-    // â”€â”€ Initialize â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- Initialize ------------------------------------------------------------
 
     // g_hDLL is our EFM module (used for the log path), not CockpitBase.
     static FARPROC ResolveCockpitBaseExport(const char* name)
@@ -401,9 +401,9 @@ namespace CockpitInterop
 
         HMODULE hCB = GetModuleHandleA("CockpitBase.dll");
         Log("Initialize: build marker %s", kIRADSBuildMarker);
-        if (!hCB) { Log_("Initialize: CockpitBase.dll not yet loaded â€” will retry"); return false; }
+        if (!hCB) { Log_("Initialize: CockpitBase.dll not yet loaded - will retry"); return false; }
 
-#define LOAD(var, name)         var = reinterpret_cast<decltype(var)>(GetProcAddress(hCB, name));         Log("Initialize: %-60s â†’ %p", name, (void*)var);
+#define LOAD(var, name)         var = reinterpret_cast<decltype(var)>(GetProcAddress(hCB, name));         Log("Initialize: %-60s -> %p", name, (void*)var);
 
         LOAD(g_avTVSensor_ctor,         "??0avTVSensor@cockpit@@QEAA@XZ");
         LOAD(g_avTVSensor_initialize,   "?initialize@avTVSensor@cockpit@@UEAAXXZ");
@@ -446,26 +446,26 @@ namespace CockpitInterop
                   g_avTVSensor_update && g_avTVSensor_update_frame &&
                   g_avTVSensor_zoom_in &&
                   g_avTVSensor_zoom_out;
-        Log(ok ? "Initialize: OK" : "Initialize: PARTIAL â€” some exports missing");
+        Log(ok ? "Initialize: OK" : "Initialize: PARTIAL - some exports missing");
 
         if (!g_avTVSensor_initialize)
-            Log_("Initialize: WARNING â€” avTVSensor::initialize not exported; "
+            Log_("Initialize: WARNING - avTVSensor::initialize not exported; "
                  "standalone sensor cannot initialize");
         if (!g_avTVSensor_initZoom)
-            Log_("Initialize: WARNING â€” avTVSensor::initZoom not exported; "
+            Log_("Initialize: WARNING - avTVSensor::initZoom not exported; "
                  "will fall back to direct zoom reset");
         if (!g_avTVSensor_move_horizontal_abs || !g_avTVSensor_move_vertical_abs)
-            Log_("Initialize: WARNING â€” avTVSensor absolute-axis exports missing; "
+            Log_("Initialize: WARNING - avTVSensor absolute-axis exports missing; "
                  "will fall back to directional slew handlers");
         if (!g_avTVSensor_search)
-            Log_("Initialize: WARNING â€” avTVSensor::search not exported; designation can only capture existing tracks");
+            Log_("Initialize: WARNING - avTVSensor::search not exported; designation can only capture existing tracks");
         if (!g_avTVSensor_stabilize_on_ground)
-            Log_("Initialize: WARNING â€” avTVSensor::stabilizeOnGround not exported; ground designation will fall back to search");
+            Log_("Initialize: WARNING - avTVSensor::stabilizeOnGround not exported; ground designation will fall back to search");
 
         return ok;
     }
 
-    // â”€â”€ Phase A â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- Phase A ---------------------------------------------------------------
 
     bool InjectIRADSSensor_Early()
     {
@@ -475,9 +475,9 @@ namespace CockpitInterop
 
         CcCockpitContextLayout* ctx = AsContext(*g_contexts_ptr_addr);
         Log("InjectIRADSSensor_Early: contexts_ptr value = %p", (void*)ctx);
-        if (!ctx) { Log_("InjectIRADSSensor_Early: context NULL â€” too early, will retry in Late."); return false; }
+        if (!ctx) { Log_("InjectIRADSSensor_Early: context NULL - too early, will retry in Late."); return false; }
 
-        // â”€â”€ Construct avTVSensor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // -- Construct avTVSensor ----------------------------------------------
         if (!g_avTVSensor_instance)
         {
             void* mem = _aligned_malloc(AVTVSENSOR_ALLOC_SIZE, 16);
@@ -501,7 +501,7 @@ namespace CockpitInterop
         return true;
     }
 
-    // â”€â”€ Phase B â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- Phase B ---------------------------------------------------------------
 
     bool InjectIRADSSensor_Late()
     {
@@ -511,10 +511,10 @@ namespace CockpitInterop
         // Fix 1: retry Early if DllMain ran before the cockpit context existed.
         if (!s_added)
         {
-            Log_("InjectIRADSSensor_Late: Early not done â€” retrying now.");
+            Log_("InjectIRADSSensor_Late: Early not done - retrying now.");
             if (!InjectIRADSSensor_Early())
             {
-                Log_("InjectIRADSSensor_Late: Early retry failed â€” cannot proceed.");
+                Log_("InjectIRADSSensor_Late: Early retry failed - cannot proceed.");
                 return false;
             }
         }
@@ -546,7 +546,7 @@ namespace CockpitInterop
                 Log("InjectIRADSSensor_Late: after explicit initialize(), active flag = %d",
                     (int)activeFlag);
                 if (activeFlag == 0)
-                    Log_("InjectIRADSSensor_Late: WARNING â€” initialize() ran but flag still 0 "
+                    Log_("InjectIRADSSensor_Late: WARNING - initialize() ran but flag still 0 "
                          "(SearchTimer alloc may have failed inside initialize)");
             }
             else
@@ -568,7 +568,7 @@ namespace CockpitInterop
             g_avTVSensor_uncage(g_avTVSensor_instance);
         Log_("InjectIRADSSensor_Late: sensor uncaged (byte+0x3AA cleared)");
 
-        // â”€â”€ Fix 3: override camera mount position â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // -- Fix 3: override camera mount position ----------------------------
         // initialize() has no modelled position for this sensor station, so it uses
         // a default.
         // We override with the correct F-117A DLIR belly position. This is safe
@@ -577,7 +577,7 @@ namespace CockpitInterop
         Log_("InjectIRADSSensor_Late: setting IRADS camera mount position.");
         SetCameraPosition(g_avTVSensor_instance);
 
-        // â”€â”€ Activate IR render pass â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // -- Activate IR render pass -------------------------------------------
         // cockpit::avTVSensor::preffered_IR_effect is an exported static, so
         // resolve it by name so it keeps working across DCS updates.
         // ForceIRADSIndicatorActive also forces screenCondition=11 per-frame, but
@@ -595,11 +595,11 @@ namespace CockpitInterop
             }
             else
             {
-                Log_("InjectIRADSSensor_Late: WARNING â€” preffered_IR_effect export not found; skipping FLIR static write");
+                Log_("InjectIRADSSensor_Late: WARNING - preffered_IR_effect export not found; skipping FLIR static write");
             }
         }
 
-        // â”€â”€ Fix 4: initialize zoom through avTVSensor's real setup path â”€â”€â”€â”€â”€â”€
+        // -- Fix 4: initialize zoom through avTVSensor's real setup path ------
         // Zoom is motor-driven and has its own preset list. Initialize the native
         // zoom motor, then set both current and target for our 1.4/10/80 presets.
         {
@@ -610,18 +610,18 @@ namespace CockpitInterop
             if (g_avTVSensor_initZoom)
             {
                 g_avTVSensor_initZoom(g_avTVSensor_instance);
-                Log("InjectIRADSSensor_Late: initZoom() ran â†’ displayed FOV = %.1fÂ°",
+                Log("InjectIRADSSensor_Late: initZoom() ran -> displayed FOV = %.1f deg",
                     (sensor->currentZoom > 0.001 ? sensor->baseFov / sensor->currentZoom : 0.0) * 57.296);
             }
             else
             {
                 sensor->currentZoom = 1.0;
-                Log("InjectIRADSSensor_Late: initZoom missing, fallback zoom reset to 1.0 â†’ displayed FOV = %.1fÂ°",
+                Log("InjectIRADSSensor_Late: initZoom missing, fallback zoom reset to 1.0 -> displayed FOV = %.1f deg",
                     sensor->baseFov * 57.296);
             }
         }
 
-        // â”€â”€ Diagnostic: dump indicator array â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // -- Diagnostic: dump indicator array ---------------------------------
         // Walk the cockpit context's indicators. We log the indicator state that
         // decides whether the DLIR camera feed renders, and keep it pinned to the
         // IRADS values: controller, screen condition, indicator type, render target
@@ -874,7 +874,7 @@ namespace CockpitInterop
             return true;
         case TVSensorZoomIn:
         case IRADSZoomIn:
-            // value_down is not set in the keyboard binding so value=0 â†’ active is always false.
+            // value_down is not set in the keyboard binding so value=0 -> active is always false.
             // Zoom is a momentary press, not an axis, so just call unconditionally.
             Log_("HandleIRADSCommand: ZoomIn");
             setZoomLevel((s_irads_zoom_level < 3) ? s_irads_zoom_level + 1 : 3);
@@ -964,7 +964,7 @@ namespace CockpitInterop
 
         // Keep the sensor uncaged every frame.
         // initialize() cages the sensor, which blocks all slew.
-        // Some DCS mode transitions may also re-cage â€” clearing it each frame
+        // Some DCS mode transitions may also re-cage - clearing it each frame
         // ensures slew is always available during IRADS operation.
         *(reinterpret_cast<uint8_t*>(g_avTVSensor_instance) + 938) = 0;
         if (g_avTVSensor_uncage)
@@ -1083,7 +1083,7 @@ namespace CockpitInterop
     }
 
 
-    // â”€â”€ Phase C: per-frame IRADS indicator keep-alive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- Phase C: per-frame IRADS indicator keep-alive -------------------------
     // Called every frame from ed_fm_simulate. On the first call after indicators
     // are populated (post device_init.lua), it locates the ccIndicator whose
     // controller pointer matches our injected avTVSensor. Every subsequent frame
