@@ -37,9 +37,6 @@
 #include "Avionics/CockpitBase_Interop.h"
 #include "Avionics/Weapons_Interop.h"
 
-using namespace F117;
-using namespace weapons;  // Shared names used by the subsystem adapters below.
-
 namespace
 {
 
@@ -59,7 +56,7 @@ constexpr int kRightElevatorArg = 16;
 constexpr int kLeftRudderArg = 17;
 constexpr int kRightRudderArg = 18;
 constexpr int kTailhookArg = 25;
-constexpr int kWeaponBayArgs[kWeaponBayCount] = {27, 28};  // left, right; each moves its door, then its trapeze
+constexpr int kWeaponBayArgs[F117::kWeaponBayCount] = {27, 28};  // left, right; each moves its door, then its trapeze
 // The standard bay argument. Nothing in the model is animated by it, but DCS draws the stores only while it is
 // open, so it reads open while either bay is. Without it the store of a bay that is open vanishes while the
 // other bay is shut.
@@ -139,7 +136,7 @@ static void simulate_aircraft_frame(double dt)
     CockpitInterop::UpdateIRADSSensorFrame(dt, position_world_cs.x, position_world_cs.y, position_world_cs.z,
                                            F117::aircraftQuaternionX, F117::aircraftQuaternionY,
                                            F117::aircraftQuaternionZ, F117::aircraftQuaternionW);
-    publish_irads_lock_params();
+    weapons::publish_irads_lock_params();
 
     log_simulation_frame(dt, sqrt(ax_world * ax_world + F117::ay_world * F117::ay_world + az_world * az_world));
 
@@ -149,14 +146,14 @@ static void simulate_aircraft_frame(double dt)
     update_derived_damage_values();
 
     // Air-relative speed from the current wind estimate, then Mach and dynamic pressure.
-    update_air_data();
+    F117::update_air_data();
 
     //-----CONTROL DYNAMICS------------------------
     //
     // While PAARS flies the recovery the autopilot holds stay selected but do not act.
     if (!g_paars.engaged())
     {
-        update_autopilot_hold_state();
+        F117::update_autopilot_hold_state();
     }
     update_autothrottle(dt);
     update_paars();
@@ -167,10 +164,10 @@ static void simulate_aircraft_frame(double dt)
     const double controlDegradation = get_control_degradation();
 
     // Run the tuned pitch/roll/yaw control laws and clamp the commanded surfaces.
-    update_flight_control_commands(dt, controlDegradation);
+    F117::update_flight_control_commands(dt, controlDegradation);
 
-    const double tailIntegrity = update_airframe_actuators(dt);
-    update_weapon_release_sequence(dt);
+    const double tailIntegrity = F117::update_airframe_actuators(dt);
+    weapons::update_weapon_release_sequence(dt);
     update_propulsion_and_control_effectiveness(dt, tailIntegrity);
     log_engine_debug_sample();
 
@@ -186,7 +183,7 @@ static void simulate_aircraft_frame(double dt)
 
 void ed_fm_simulate(double dt)
 {
-    DeltaTime = dt;
+    F117::DeltaTime = dt;
     simulate_aircraft_frame(dt);
 }
 
@@ -261,10 +258,10 @@ void ed_fm_set_current_state_body_axis(double accelX, double accelY, double acce
     F117::rollRate_RPS = rateX;
     F117::pitchRate_RPS = rateZ;
     F117::yawRate_RPS = -rateY;
-    F117::pitch_angle = radiansToDegrees * pitchRad;
-    F117::roll_angle = radiansToDegrees * rollRad;
-    F117::alpha_DEG = radiansToDegrees * attackRad;
-    F117::beta_DEG = radiansToDegrees * slipRad;
+    F117::pitch_angle = F117::radiansToDegrees * pitchRad;
+    F117::roll_angle = F117::radiansToDegrees * rollRad;
+    F117::alpha_DEG = F117::radiansToDegrees * attackRad;
+    F117::beta_DEG = F117::radiansToDegrees * slipRad;
     // Retain the load-axis names used by the controller interface.
     F117::az = accelY;
     F117::ay = accelZ;
@@ -286,7 +283,7 @@ void ed_fm_set_command(int command, float value)
         if (handle(command))
             return;
     if (command == resetTrim)
-        pitchTrim = rollTrim = yawTrim = 0.0;
+        F117::pitchTrim = F117::rollTrim = F117::yawTrim = 0.0;
 }
 
 bool ed_fm_change_mass(double& delta_mass, double& delta_mass_pos_x, double& delta_mass_pos_y, double& delta_mass_pos_z,
@@ -357,21 +354,21 @@ void update_weight_on_wheels_from_draw_args(float* drawargs)
 void update_control_surface_draw_args(float* drawargs)
 {
     drawargs[kLeftAileronArg] =
-        static_cast<float>(limit((-aileron_PCT + (rollTrim / 10) / (F117::mach + 1)), -0.75, 0.75));
+        static_cast<float>(limit((-F117::aileron_PCT + (F117::rollTrim / 10) / (F117::mach + 1)), -0.75, 0.75));
     drawargs[kRightAileronArg] =
-        static_cast<float>(limit((aileron_PCT + (rollTrim / 10) / (F117::mach + 1)), -0.75, 0.75));
-    drawargs[kLeftElevatorArg] = static_cast<float>(limit(-elev_pos / (mach + 1), -0.6, 0.6));
-    drawargs[kRightElevatorArg] = static_cast<float>(limit(-elev_pos / (mach + 1), -0.6, 0.6));
-    drawargs[kLeftRudderArg] = static_cast<float>(limit((rudder_pos + (yawTrim / 10)), -0.75, 0.75));
-    drawargs[kRightRudderArg] = static_cast<float>(limit((rudder_pos + (yawTrim / 10)), -0.75, 0.75));
+        static_cast<float>(limit((F117::aileron_PCT + (F117::rollTrim / 10) / (F117::mach + 1)), -0.75, 0.75));
+    drawargs[kLeftElevatorArg] = static_cast<float>(limit(-F117::elev_pos / (F117::mach + 1), -0.6, 0.6));
+    drawargs[kRightElevatorArg] = static_cast<float>(limit(-F117::elev_pos / (F117::mach + 1), -0.6, 0.6));
+    drawargs[kLeftRudderArg] = static_cast<float>(limit((F117::rudder_pos + (F117::yawTrim / 10)), -0.75, 0.75));
+    drawargs[kRightRudderArg] = static_cast<float>(limit((F117::rudder_pos + (F117::yawTrim / 10)), -0.75, 0.75));
 }
 
 void update_misc_draw_args(float* drawargs, size_t size)
 {
-    drawargs[kDragChuteArg] = static_cast<float>(ACTUATORS::dragChute.position);
-    drawargs[kTailhookArg] = static_cast<float>(ACTUATORS::tailhook.position);
+    drawargs[kDragChuteArg] = static_cast<float>(F117::ACTUATORS::dragChute.position);
+    drawargs[kTailhookArg] = static_cast<float>(F117::ACTUATORS::tailhook.position);
     float anyOpen = 0.0f;
-    for (int bay = 0; bay < kWeaponBayCount; ++bay)
+    for (int bay = 0; bay < F117::kWeaponBayCount; ++bay)
     {
         const float position = static_cast<float>(limit(F117::bay_state[bay], 0.0, 1.0));
         drawargs[kWeaponBayArgs[bay]] = position;
@@ -601,7 +598,7 @@ void reset_session_controls()
     F117::rolling_friction = kWheelBrakeOffFriction;
     F117::tailhook_command = F117::tailhook_pos = 0.0;
     F117::dragchute_command = F117::dragchute = 0.0;
-    for (int bay = 0; bay < kWeaponBayCount; ++bay)
+    for (int bay = 0; bay < F117::kWeaponBayCount; ++bay)
         F117::bay_cmd[bay] = F117::bay_state[bay] = 0.0f;
     F117::surface_height_valid = F117::altitude_valid = false;
     for (bool& wow : F117::suspension_wow)
@@ -626,8 +623,8 @@ void apply_ground_start_state(bool enginesRunning)
     F117::rolling_friction = kWheelBrakeOffFriction;
     F117::engines[0].N2 = F117::engines[1].N2 = enginesRunning ? kGroundStartIdleN2 : 0.0;
     reset_damage_and_events();
-    reset_weapon_release_sequence();
-    reset_laser();
+    weapons::reset_weapon_release_sequence();
+    weapons::reset_laser();
 }
 
 void apply_air_start_state()
@@ -643,8 +640,8 @@ void apply_air_start_state()
     F117::rolling_friction = kWheelBrakeOffFriction;
     F117::engines[0].N2 = F117::engines[1].N2 = kAirStartN2;
     reset_damage_and_events();
-    reset_weapon_release_sequence();
-    reset_laser();
+    weapons::reset_weapon_release_sequence();
+    weapons::reset_laser();
 }
 }  // namespace
 
@@ -658,8 +655,8 @@ void ed_fm_release(void)
     F117::gearDown = F117::GearCommand = 0.0;
     F117::weight_on_wheels = F117::wow_from_draw_args = false;
     reset_damage_and_events();
-    reset_weapon_release_sequence();
-    reset_laser();
+    weapons::reset_weapon_release_sequence();
+    weapons::reset_laser();
     CockpitInterop::ResetIRADSSession();
 }
 

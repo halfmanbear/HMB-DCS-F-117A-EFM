@@ -75,7 +75,7 @@ bool g_paarsEngagedAutothrottle=false;double g_paarsRollRateDegS=0;
 void release_paars(){g_paars.disengage();}
 double publishedPullout=0;
 void publish_named_param(void*&,const char* name,double value){if(!std::strcmp(name,"F117_ARS_MIN_ALT"))publishedPullout=value;}
-void reset_damage_and_events(){}void reset_weapon_release_sequence(){}void reset_laser(){}
+void reset_damage_and_events(){}namespace weapons{void reset_weapon_release_sequence(){}void reset_laser(){}}
 namespace CockpitInterop {void ResetIRADSSession(){}}
 """
 for marker, path in [('ACTUATORS_HEADER', src/'Actuators/Actuators.h'),

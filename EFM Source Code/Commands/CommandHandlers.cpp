@@ -12,9 +12,6 @@
 #include "../Weapons/ReleaseSequence.h"
 #include "../Inputs.h"
 
-using namespace F117;
-using namespace weapons;
-
 bool handle_roll_command(int command, float value)
 {
     if (command == trimLeft || command == trimRight)
@@ -73,10 +70,10 @@ bool handle_yaw_command(int command, float value)
     }
     double demand;
     if (command == JoystickYaw)
-        demand = -value * (501.0 / (beta_DEG * beta_DEG + 500.0));
+        demand = -value * (501.0 / (F117::beta_DEG * F117::beta_DEG + 500.0));
     else if (command == rudderleft || command == rudderright)
     {
-        const double magnitude = value + 101.0 / (beta_DEG * beta_DEG + 100.0);
+        const double magnitude = value + 101.0 / (F117::beta_DEG * F117::beta_DEG + 100.0);
         demand = command == rudderleft ? magnitude : -magnitude;
     }
     else if (command == rudderleftend || command == rudderrightend)
@@ -89,13 +86,12 @@ bool handle_yaw_command(int command, float value)
 
 bool handle_engine_and_throttle_command(int command, float value)
 {
-    using namespace F117::ENGINE_START;
     if (command == EnginesOff || command == LeftEngineOff || command == RightEngineOff)
     {
         if (command != RightEngineOff)
-            g_engineStarts.request_stop(LEFT);
+            g_engineStarts.request_stop(F117::ENGINE_START::LEFT);
         if (command != LeftEngineOff)
-            g_engineStarts.request_stop(RIGHT);
+            g_engineStarts.request_stop(F117::ENGINE_START::RIGHT);
         F117::engineswitch = g_engineStarts.any_running();
         if (!F117::engineswitch)
             F117::throttleInput = 0.0;
@@ -103,13 +99,14 @@ bool handle_engine_and_throttle_command(int command, float value)
     }
     if (command == EnginesOn)
     {
-        const double cores[] = {F117::engines[LEFT].N2, F117::engines[RIGHT].N2};
+        const double cores[] = {F117::engines[F117::ENGINE_START::LEFT].N2,
+                                F117::engines[F117::ENGINE_START::RIGHT].N2};
         g_engineStarts.request_both(cores, external_start_air());
         return true;
     }
     if (command == LeftEngineOn || command == RightEngineOn)
     {
-        const int side = command == LeftEngineOn ? LEFT : RIGHT;
+        const int side = command == LeftEngineOn ? F117::ENGINE_START::LEFT : F117::ENGINE_START::RIGHT;
         g_engineStarts.request_start(side, F117::engines[side].N2, external_start_air());
         return true;
     }
@@ -184,42 +181,42 @@ bool handle_actuator_toggle_command(int command)
             F117::airRefuelDoorOpen = !F117::airRefuelDoorOpen;
             return true;
         case bombay:
-            reset_weapon_release_sequence();
-            toggle_all_weapon_bays();
+            weapons::reset_weapon_release_sequence();
+            weapons::toggle_all_weapon_bays();
             return true;
         case bombayOpen:
-            reset_weapon_release_sequence();
+            weapons::reset_weapon_release_sequence();
             for (int bay = 0; bay < F117::kWeaponBayCount; ++bay)
-                command_weapon_bay_open(bay);
+                weapons::command_weapon_bay_open(bay);
             return true;
         case bombayClose:
-            reset_weapon_release_sequence();
+            weapons::reset_weapon_release_sequence();
             for (int bay = 0; bay < F117::kWeaponBayCount; ++bay)
-                command_weapon_bay_close(bay);
+                weapons::command_weapon_bay_close(bay);
             return true;
         case bombaySelected:
-            reset_weapon_release_sequence();
-            toggle_weapon_bay(selected_weapon_bay());
+            weapons::reset_weapon_release_sequence();
+            weapons::toggle_weapon_bay(weapons::selected_weapon_bay());
             return true;
         case bombayLeft:
-            reset_weapon_release_sequence();
-            toggle_weapon_bay(0);
+            weapons::reset_weapon_release_sequence();
+            weapons::toggle_weapon_bay(0);
             return true;
         case bombayRight:
-            reset_weapon_release_sequence();
-            toggle_weapon_bay(1);
+            weapons::reset_weapon_release_sequence();
+            weapons::toggle_weapon_bay(1);
             return true;
         case pickleOn:
         case weaponReleaseHoldOn:
-            handle_weapon_release_pressed();
+            weapons::handle_weapon_release_pressed();
             return true;
         case pickleOff:
         case weaponReleaseHoldOff:
-            handle_weapon_release_released();
+            weapons::handle_weapon_release_released();
             return true;
         case MasterArmToggle:
             F117::master_armed = !F117::master_armed;
-            reset_weapon_release_sequence();  // require fresh consent after changing arm state
+            weapons::reset_weapon_release_sequence();  // require fresh consent after changing arm state
             return true;
         case IRADSLaserArmToggle:
             F117::laser_armed = !F117::laser_armed;
@@ -236,16 +233,16 @@ bool handle_autopilot_command(int command)
 {
     int* selected = nullptr;
     if (command == autopilot_alt)
-        selected = &alt_hold;
+        selected = &F117::alt_hold;
     if (command == autopilot_horiz)
-        selected = &horiz_hold;
+        selected = &F117::horiz_hold;
     if (command == autopilot_alt_roll)
-        selected = &altroll_hold;
+        selected = &F117::altroll_hold;
     if (!selected && command != autopilot_reset)
         return false;
 
     const bool engage = selected && *selected == 0;
-    alt_hold = horiz_hold = altroll_hold = 0;
+    F117::alt_hold = F117::horiz_hold = F117::altroll_hold = 0;
     if (engage)
         *selected = 1;
     if (command == autopilot_reset)
