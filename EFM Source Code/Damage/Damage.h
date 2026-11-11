@@ -7,11 +7,11 @@
 #include "../F_117_NightHawk.h"
 #include "../FlightModel/State.h"
 
-inline F117::DamageState g_damage;
-inline std::queue<ed_fm_simulation_event> g_simEvents;
+inline F117::Damage_state g_damage;
+inline std::queue<ed_fm_simulation_event> g_sim_events;
 
 // Queues a fire emitter at a body-space position unless that emitter is already burning.
-void pushFireEvent(int handle, double x, double y, double z);
+void push_fire_event(int handle, double x, double y, double z);
 
 // Damage dealt by a Lua-reported hit, for aircraft that are not immortal.
 void apply_lua_damage_hit();

@@ -56,15 +56,15 @@ code=r'''
 #include <map>
 #include <string>
 #include "LAYOUT"
-namespace CockpitInterop {
-AvTVSensorLayout sensor{};void* g_avTVSensor_instance=&sensor;
-AvTVSensorLayout* AsSensor(void* p){return static_cast<AvTVSensorLayout*>(p);}
+namespace Cockpit_interop {
+Av_tv_sensor_layout sensor{};void* g_av_tv_sensor_instance=&sensor;
+Av_tv_sensor_layout* as_sensor(void* p){return static_cast<Av_tv_sensor_layout*>(p);}
 bool s_irads_power=true,s_irads_ray_valid=true,s_irads_terrain_pending=false,s_irads_lock_valid=false;
 double s_irads_render_ray[6]={0,1000,0,1,-1,0},s_irads_request_ray[6]{},s_irads_terrain_wait=0;
 unsigned s_irads_terrain_sequence=0;
 double s_irads_lock_world[3]{},s_last_aircraft_pos[3]{},s_irads_ray_age=1e9;
-constexpr double kIRADSRayMaxAge=0.5;
-void Log(const char*,...){}
+constexpr double irads_ray_max_age=0.5;
+void log_format(const char*,...){}
 '''.replace('LAYOUT',(repo/'EFM Source Code/Avionics/CockpitBase_Layouts.h').as_posix())
 code+=lock_unit+'\n'
 code+=r'''
@@ -74,37 +74,37 @@ std::map<std::string,double> params;
 void* getParamHandle(const char* name){return &params[name];}
 double getParamNumber(void* p){return *static_cast<double*>(p);}
 void setParamNumber(void* p,double v){*static_cast<double*>(p)=v;}
-} cockpitAPI; }
-bool g_iradsLockParamsInitialized=true;
-void* g_iradsLockValidParam=F117::cockpitAPI.getParamHandle("VALID");
-void* g_iradsLockWorldXParam=F117::cockpitAPI.getParamHandle("X");
-void* g_iradsLockWorldYParam=F117::cockpitAPI.getParamHandle("Y");
-void* g_iradsLockWorldZParam=F117::cockpitAPI.getParamHandle("Z");
-void* g_iradsLockRangeParam=F117::cockpitAPI.getParamHandle("RANGE");
-void* g_iradsLockAzimuthParam=F117::cockpitAPI.getParamHandle("AZ");
-void* g_iradsLockElevationParam=F117::cockpitAPI.getParamHandle("EL");
+} cockpit_api; }
+bool g_irads_lock_params_initialized=true;
+void* g_irads_lock_valid_param=F117::cockpit_api.getParamHandle("VALID");
+void* g_irads_lock_world_x_param=F117::cockpit_api.getParamHandle("X");
+void* g_irads_lock_world_y_param=F117::cockpit_api.getParamHandle("Y");
+void* g_irads_lock_world_z_param=F117::cockpit_api.getParamHandle("Z");
+void* g_irads_lock_range_param=F117::cockpit_api.getParamHandle("RANGE");
+void* g_irads_lock_azimuth_param=F117::cockpit_api.getParamHandle("AZ");
+void* g_irads_lock_elevation_param=F117::cockpit_api.getParamHandle("EL");
 void initialize_irads_lock_params(){}
 '''
 code+=extract(fm,'void publish_irads_lock_params()')
 code+=r'''
-int main(){using namespace CockpitInterop;
-auto& p=F117::cockpitAPI.params;
-assert(GroundStabilizeIRADS()&&!HasIRADSLock());publish_irads_lock_params();
+int main(){using namespace Cockpit_interop;
+auto& p=F117::cockpit_api.params;
+assert(ground_stabilize_irads()&&!has_irads_lock());publish_irads_lock_params();
 unsigned first=s_irads_terrain_sequence;assert(p["F117_TERRAIN_REQUEST"]==first&&p["VALID"]==0);
 double point[3]={658,342,0};
-assert(!CompleteIRADSTerrainRequest(first+1,true,point)&&s_irads_terrain_pending);
+assert(!complete_irads_terrain_request(first+1,true,point)&&s_irads_terrain_pending);
 p["F117_TERRAIN_X"]=point[0];p["F117_TERRAIN_Y"]=point[1];p["F117_TERRAIN_Z"]=point[2];p["F117_TERRAIN_HIT"]=1;p["F117_TERRAIN_ACK"]=first;
-publish_irads_lock_params();assert(HasIRADSLock()&&p["VALID"]==1&&p["Y"]==342&&p["F117_TERRAIN_REQUEST"]==0);
-assert(sensor.cachedTrackedPoint[0]==658);
-ClearIRADSLock();assert(!HasIRADSLock());assert(GroundStabilizeIRADS());
+publish_irads_lock_params();assert(has_irads_lock()&&p["VALID"]==1&&p["Y"]==342&&p["F117_TERRAIN_REQUEST"]==0);
+assert(sensor.cached_tracked_point[0]==658);
+clear_irads_lock();assert(!has_irads_lock());assert(ground_stabilize_irads());
 publish_irads_lock_params();assert(p["VALID"]==0); // previous ACK must not commit a new request
 unsigned second=s_irads_terrain_sequence;assert(second!=first);
-ClearIRADSLock();assert(!CompleteIRADSTerrainRequest(second,true,point));
-assert(GroundStabilizeIRADS());assert(!CompleteIRADSTerrainRequest(s_irads_terrain_sequence,false,point)&&!HasIRADSLock());
-assert(GroundStabilizeIRADS());double bad[3]={658,1200,0};assert(!CompleteIRADSTerrainRequest(s_irads_terrain_sequence,true,bad));
-assert(GroundStabilizeIRADS());bad[0]=NAN;assert(!CompleteIRADSTerrainRequest(s_irads_terrain_sequence,true,bad));
-assert(GroundStabilizeIRADS());s_irads_power=false;assert(!CompleteIRADSTerrainRequest(s_irads_terrain_sequence,true,point));
-s_irads_power=true;s_irads_ray_valid=false;assert(!GroundStabilizeIRADS());
+clear_irads_lock();assert(!complete_irads_terrain_request(second,true,point));
+assert(ground_stabilize_irads());assert(!complete_irads_terrain_request(s_irads_terrain_sequence,false,point)&&!has_irads_lock());
+assert(ground_stabilize_irads());double bad[3]={658,1200,0};assert(!complete_irads_terrain_request(s_irads_terrain_sequence,true,bad));
+assert(ground_stabilize_irads());bad[0]=NAN;assert(!complete_irads_terrain_request(s_irads_terrain_sequence,true,bad));
+assert(ground_stabilize_irads());s_irads_power=false;assert(!complete_irads_terrain_request(s_irads_terrain_sequence,true,point));
+s_irads_power=true;s_irads_ray_valid=false;assert(!ground_stabilize_irads());
 puts("PASS C++ actual request/commit/publication: pending invalid, payload/ACK, stale/cancelled responses, no-hit, off-ray, nonfinite, power and no-camera guards");
 }
 '''

@@ -3,155 +3,155 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace CockpitInterop
+namespace Cockpit_interop
 {
-struct WorldPoseMatrix
+struct World_pose_matrix
 {
     double m[16];
 };
 
-struct SensorFrameLayout
+struct Sensor_frame_layout
 {
-    double halfAzimuth;
-    double halfElevation;
+    double half_azimuth;
+    double half_elevation;
 };
-static_assert(sizeof(SensorFrameLayout) == 0x10);
+static_assert(sizeof(Sensor_frame_layout) == 0x10);
 
-struct SearchItemLayout
+struct Search_item_layout
 {
-    std::uint32_t objectId;
-    std::uint32_t _pad04;
-    double relativeAzimuth;
-    double relativeElevation;
-    double relativeRange;
-    double localTrackOffsetX;
-    double localTrackOffsetY;
-    double localTrackOffsetZ;
-    SensorFrameLayout candidateFrame;
-    std::uint8_t hasLosIntersection;
-    std::uint8_t preciseTrackCandidate;
-    std::uint8_t _pad4A[6];
+    std::uint32_t object_id;
+    std::uint32_t pad_04;
+    double relative_azimuth;
+    double relative_elevation;
+    double relative_range;
+    double local_track_offset_x;
+    double local_track_offset_y;
+    double local_track_offset_z;
+    Sensor_frame_layout candidate_frame;
+    std::uint8_t has_los_intersection;
+    std::uint8_t precise_track_candidate;
+    std::uint8_t pad_4_a[6];
 };
-static_assert(sizeof(SearchItemLayout) == 0x50);
+static_assert(sizeof(Search_item_layout) == 0x50);
 
-struct AvTrackDataLayout
+struct Av_track_data_layout
 {
-    std::uint32_t objectId;
-    std::uint32_t _pad04;
-    double relativeAzimuth;
-    double relativeElevation;
-    double relativeRange;
-    double worldTransform[16];
+    std::uint32_t object_id;
+    std::uint32_t pad_04;
+    double relative_azimuth;
+    double relative_elevation;
+    double relative_range;
+    double world_transform[16];
     double velocity[3];
-    std::uint8_t _pad0B8[0xD0 - 0xB8];
-    double lastUpdateModelTime;
-    std::uint8_t _pad0D8[0xE8 - 0xD8];
-    void* movingObjectOrType;
-    double approxSize;
-    double localPointOffset[3];
+    std::uint8_t pad_0_b8[0xD0 - 0xB8];
+    double last_update_model_time;
+    std::uint8_t pad_0_d8[0xE8 - 0xD8];
+    void* moving_object_or_type;
+    double approx_size;
+    double local_point_offset[3];
 };
-static_assert(offsetof(AvTrackDataLayout, localPointOffset) == 0xF8);
-static_assert(sizeof(AvTrackDataLayout) == 0x110);
+static_assert(offsetof(Av_track_data_layout, local_point_offset) == 0xF8);
+static_assert(sizeof(Av_track_data_layout) == 0x110);
 
-struct PointerVectorView
+struct Pointer_vector_view
 {
     void** begin;
     void** end;
     void** cap;
 };
-static_assert(sizeof(PointerVectorView) == 0x18);
+static_assert(sizeof(Pointer_vector_view) == 0x18);
 
-struct CcCockpitContextLayout
+struct Cc_cockpit_context_layout
 {
-    std::uint8_t _pad000[0x10];
-    void* movingObjectRaw;  // the aircraft object
-    std::uint8_t _pad018[0x10];
-    void* carrierLinkHostRaw;  // carrier link host pointer
-    std::uint8_t devicesKeeperStorage[0x18];
-    std::uint8_t _pad048[0xB0 - 0x48];
-    PointerVectorView indicators;
-    std::uint8_t _pad0C8[0x130 - 0xC8];
-    PointerVectorView childContexts;
+    std::uint8_t pad_000[0x10];
+    void* moving_object_raw;  // the aircraft object
+    std::uint8_t pad_018[0x10];
+    void* carrier_link_host_raw;  // carrier link host pointer
+    std::uint8_t devices_keeper_storage[0x18];
+    std::uint8_t pad_048[0xB0 - 0x48];
+    Pointer_vector_view indicators;
+    std::uint8_t pad_0_c8[0x130 - 0xC8];
+    Pointer_vector_view child_contexts;
 };
-static_assert(offsetof(CcCockpitContextLayout, movingObjectRaw) == 0x10);
-static_assert(offsetof(CcCockpitContextLayout, carrierLinkHostRaw) == 0x28);
-static_assert(offsetof(CcCockpitContextLayout, devicesKeeperStorage) == 0x30);
-static_assert(offsetof(CcCockpitContextLayout, indicators) == 0xB0);
-static_assert(offsetof(CcCockpitContextLayout, childContexts) == 0x130);
+static_assert(offsetof(Cc_cockpit_context_layout, moving_object_raw) == 0x10);
+static_assert(offsetof(Cc_cockpit_context_layout, carrier_link_host_raw) == 0x28);
+static_assert(offsetof(Cc_cockpit_context_layout, devices_keeper_storage) == 0x30);
+static_assert(offsetof(Cc_cockpit_context_layout, indicators) == 0xB0);
+static_assert(offsetof(Cc_cockpit_context_layout, child_contexts) == 0x130);
 
-struct CcIndicatorLayout
+struct Cc_indicator_layout
 {
-    std::uint8_t _pad000[0x38];
+    std::uint8_t pad_000[0x38];
     void* controller;
-    std::uint8_t _pad040[0x3A0 - 0x40];
-    std::uint32_t screenCondition;
-    std::uint8_t _pad3A4[0x46C - 0x3A4];
-    std::uint8_t indicatorType;
-    std::uint8_t _pad46D[0x470 - 0x46D];
-    std::uint32_t renderTargetId;
-    std::uint8_t _pad474[0x48C - 0x474];
-    std::uint32_t cameraCondition;
+    std::uint8_t pad_040[0x3A0 - 0x40];
+    std::uint32_t screen_condition;
+    std::uint8_t pad_3_a4[0x46C - 0x3A4];
+    std::uint8_t indicator_type;
+    std::uint8_t pad_46_d[0x470 - 0x46D];
+    std::uint32_t render_target_id;
+    std::uint8_t pad_474[0x48C - 0x474];
+    std::uint32_t camera_condition;
 };
-static_assert(offsetof(CcIndicatorLayout, controller) == 0x38);
-static_assert(offsetof(CcIndicatorLayout, screenCondition) == 0x3A0);
-static_assert(offsetof(CcIndicatorLayout, indicatorType) == 0x46C);
-static_assert(offsetof(CcIndicatorLayout, renderTargetId) == 0x470);
-static_assert(offsetof(CcIndicatorLayout, cameraCondition) == 0x48C);
+static_assert(offsetof(Cc_indicator_layout, controller) == 0x38);
+static_assert(offsetof(Cc_indicator_layout, screen_condition) == 0x3A0);
+static_assert(offsetof(Cc_indicator_layout, indicator_type) == 0x46C);
+static_assert(offsetof(Cc_indicator_layout, render_target_id) == 0x470);
+static_assert(offsetof(Cc_indicator_layout, camera_condition) == 0x48C);
 
-struct AvTVSensorLayout
+struct Av_tv_sensor_layout
 {
-    void* primaryVftable;
-    void* platformRoot;
-    std::uint8_t _platformMotors[0xA8 - 0x10];  // avPlatform motors; NEVER avDevice fields
-    WorldPoseMatrix platformWorldPose;
-    WorldPoseMatrix platformInitialWorldPose;
-    WorldPoseMatrix platformInitialLocalPose;
-    double platformLastUpdateTime;  // render extrapolation timestamp
-    std::uint8_t _pad230[0x260 - 0x230];
-    std::uint8_t activeFlag;
-    std::uint8_t _pad261[0x268 - 0x261];
-    void* searchTimer;
-    std::uint8_t _pad270[0x328 - 0x270];
-    double cachedTrackedPoint[3];
-    std::uint8_t trackMode;
-    std::uint8_t _pad341[0x348 - 0x341];
-    double baseFov;
-    std::uint8_t _pad350[0x358 - 0x350];
-    double currentZoom;
-    double targetZoom;  // zoom motor target
-    std::uint8_t _pad368[0x4C0 - 0x368];
-    double aspectRatio;
-    SensorFrameLayout currentFrame;
-    std::uint8_t _pad4D8[0x610 - 0x4D8];
-    std::uint8_t hatLock;
+    void* primary_vftable;
+    void* platform_root;
+    std::uint8_t platform_motors[0xA8 - 0x10];  // avPlatform motors; NEVER avDevice fields
+    World_pose_matrix platform_world_pose;
+    World_pose_matrix platform_initial_world_pose;
+    World_pose_matrix platform_initial_local_pose;
+    double platform_last_update_time;  // render extrapolation timestamp
+    std::uint8_t pad_230[0x260 - 0x230];
+    std::uint8_t active_flag;
+    std::uint8_t pad_261[0x268 - 0x261];
+    void* search_timer;
+    std::uint8_t pad_270[0x328 - 0x270];
+    double cached_tracked_point[3];
+    std::uint8_t track_mode;
+    std::uint8_t pad_341[0x348 - 0x341];
+    double base_fov;
+    std::uint8_t pad_350[0x358 - 0x350];
+    double current_zoom;
+    double target_zoom;  // zoom motor target
+    std::uint8_t pad_368[0x4C0 - 0x368];
+    double aspect_ratio;
+    Sensor_frame_layout current_frame;
+    std::uint8_t pad_4_d8[0x610 - 0x4D8];
+    std::uint8_t hat_lock;
 };
-static_assert(offsetof(AvTVSensorLayout, platformRoot) == 0x08);
-static_assert(offsetof(AvTVSensorLayout, platformWorldPose) == 0xA8);
-static_assert(offsetof(AvTVSensorLayout, platformInitialWorldPose) == 0x128);
-static_assert(offsetof(AvTVSensorLayout, platformInitialLocalPose) == 0x1A8);
-static_assert(offsetof(AvTVSensorLayout, platformLastUpdateTime) == 0x228);
-static_assert(offsetof(AvTVSensorLayout, activeFlag) == 0x260);
-static_assert(offsetof(AvTVSensorLayout, searchTimer) == 0x268);
-static_assert(offsetof(AvTVSensorLayout, cachedTrackedPoint) == 0x328);
-static_assert(offsetof(AvTVSensorLayout, trackMode) == 0x340);
-static_assert(offsetof(AvTVSensorLayout, baseFov) == 0x348);
-static_assert(offsetof(AvTVSensorLayout, currentZoom) == 0x358);
-static_assert(offsetof(AvTVSensorLayout, targetZoom) == 0x360);
-static_assert(offsetof(AvTVSensorLayout, aspectRatio) == 0x4C0);
-static_assert(offsetof(AvTVSensorLayout, currentFrame) == 0x4C8);
-static_assert(offsetof(AvTVSensorLayout, hatLock) == 0x610);
+static_assert(offsetof(Av_tv_sensor_layout, platform_root) == 0x08);
+static_assert(offsetof(Av_tv_sensor_layout, platform_world_pose) == 0xA8);
+static_assert(offsetof(Av_tv_sensor_layout, platform_initial_world_pose) == 0x128);
+static_assert(offsetof(Av_tv_sensor_layout, platform_initial_local_pose) == 0x1A8);
+static_assert(offsetof(Av_tv_sensor_layout, platform_last_update_time) == 0x228);
+static_assert(offsetof(Av_tv_sensor_layout, active_flag) == 0x260);
+static_assert(offsetof(Av_tv_sensor_layout, search_timer) == 0x268);
+static_assert(offsetof(Av_tv_sensor_layout, cached_tracked_point) == 0x328);
+static_assert(offsetof(Av_tv_sensor_layout, track_mode) == 0x340);
+static_assert(offsetof(Av_tv_sensor_layout, base_fov) == 0x348);
+static_assert(offsetof(Av_tv_sensor_layout, current_zoom) == 0x358);
+static_assert(offsetof(Av_tv_sensor_layout, target_zoom) == 0x360);
+static_assert(offsetof(Av_tv_sensor_layout, aspect_ratio) == 0x4C0);
+static_assert(offsetof(Av_tv_sensor_layout, current_frame) == 0x4C8);
+static_assert(offsetof(Av_tv_sensor_layout, hat_lock) == 0x610);
 
-struct AvPlatformLayout
+struct Av_platform_layout
 {
-    void* primaryVftable;
-    void* selfOrRoot;
-    std::uint8_t _pad010[0xA8 - 0x10];
-    WorldPoseMatrix platformWorldPose;
-    WorldPoseMatrix platformInitialWorldPose;
-    WorldPoseMatrix platformInitialLocalPose;
+    void* primary_vftable;
+    void* self_or_root;
+    std::uint8_t pad_010[0xA8 - 0x10];
+    World_pose_matrix platform_world_pose;
+    World_pose_matrix platform_initial_world_pose;
+    World_pose_matrix platform_initial_local_pose;
 };
-static_assert(offsetof(AvPlatformLayout, selfOrRoot) == 0x08);
-static_assert(offsetof(AvPlatformLayout, platformWorldPose) == 0xA8);
-static_assert(offsetof(AvPlatformLayout, platformInitialWorldPose) == 0x128);
-static_assert(offsetof(AvPlatformLayout, platformInitialLocalPose) == 0x1A8);
-}  // namespace CockpitInterop
+static_assert(offsetof(Av_platform_layout, self_or_root) == 0x08);
+static_assert(offsetof(Av_platform_layout, platform_world_pose) == 0xA8);
+static_assert(offsetof(Av_platform_layout, platform_initial_world_pose) == 0x128);
+static_assert(offsetof(Av_platform_layout, platform_initial_local_pose) == 0x1A8);
+}  // namespace Cockpit_interop

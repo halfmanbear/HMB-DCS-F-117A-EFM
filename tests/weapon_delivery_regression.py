@@ -69,41 +69,41 @@ code=r'''
 using std::max;
 namespace F117 {
  bool weapon_release_pickle_held=false,weapon_release_gate=false,weapon_release_gate_fired=false;
- constexpr int kWeaponBayCount=2;
- bool weapon_bay_owned_by_release[kWeaponBayCount]{},weapon_bay_close_pending[kWeaponBayCount]{},laser_armed=false,master_armed=false;
- float bay_cmd[kWeaponBayCount]{},bay_state[kWeaponBayCount]{};
+ constexpr int weapon_bay_count=2;
+ bool weapon_bay_owned_by_release[weapon_bay_count]{},weapon_bay_close_pending[weapon_bay_count]{},laser_armed=false,master_armed=false;
+ float bay_cmd[weapon_bay_count]{},bay_state[weapon_bay_count]{};
  bool weight_on_wheels=false,wow_from_draw_args=false;
- double weapon_bay_close_delay[kWeaponBayCount]{},weapon_release_gate_hold=0,laser_window=0,weapon_flight_time_remaining=0,ccrp_time_of_flight=30,release_retry_delay=0,release_target[3]{};
+ double weapon_bay_close_delay[weapon_bay_count]{},weapon_release_gate_hold=0,laser_window=0,weapon_flight_time_remaining=0,ccrp_time_of_flight=30,release_retry_delay=0,release_target[3]{};
  int release_status=0; unsigned release_sequence=0;
- struct API {void* getParamHandle(const char*);double getParamNumber(void*);} cockpitAPI;
+ struct API {void* getParamHandle(const char*);double getParamNumber(void*);} cockpit_api;
 }
 double profileValid=1,stationValue=0,weaponStationValue=1;
 void* F117::API::getParamHandle(const char* n){return n[5]=='S'? &profileValid:n[5]=='W'? &weaponStationValue:&stationValue;}
 double F117::API::getParamNumber(void* p){return *static_cast<double*>(p);}
 bool lockValid=true,power=true,solution=true,zone=true,available=true,accept=false,laserLive=false;
-bool g_releaseAlignmentValid=true; double g_releaseMinRange=1000,g_releaseMaxRange=10000;
+bool g_release_alignment_valid=true; double g_release_min_range=1000,g_release_max_range=10000;
 int launches=0,profile=0;double handoff[3]{};double publishedFlight=-1;
-namespace CockpitInterop {
- bool IsIRADSPowered(){return power;} bool HasIRADSLock(){return lockValid;}
- bool GetIRADSLockWorldPoint(double* p){p[0]=1000;p[1]=0;p[2]=-2000;return lockValid;}
- int GetIRADSZoomLevel(){return 1;} void Log_(const char*){} void LogV(const char*,va_list){} void Log(const char*,...){}
- bool GetIRADSLineOfSight(double* d){d[0]=0;d[1]=0;d[2]=1;return power&&lockValid;}
+namespace Cockpit_interop {
+ bool is_irads_powered(){return power;} bool has_irads_lock(){return lockValid;}
+ bool get_irads_lock_world_point(double* p){p[0]=1000;p[1]=0;p[2]=-2000;return lockValid;}
+ int get_irads_zoom_level(){return 1;} void log_message(const char*){} void log_vformat(const char*,va_list){} void log_format(const char*,...){}
+ bool get_irads_line_of_sight(double* d){d[0]=0;d[1]=0;d[2]=1;return power&&lockValid;}
 }
-namespace WeaponsInterop {
- constexpr unsigned kDefaultLaserCode=1688;
- bool IsLaunchAvailable(){return available;}
- bool LaunchAtPoint(const double* p,int station){assert(station==0);++launches;for(int i=0;i<3;++i)handoff[i]=p[i];return accept;}
- void UpdateLaser(bool on,const double*,unsigned code){assert(code==1688);laserLive=on;}
- bool IsLaserFiring(){return laserLive;}
+namespace Weapons_interop {
+ constexpr unsigned default_laser_code=1688;
+ bool is_launch_available(){return available;}
+ bool launch_at_point(const double* p,int station){assert(station==0);++launches;for(int i=0;i<3;++i)handoff[i]=p[i];return accept;}
+ void update_laser(bool on,const double*,unsigned code){assert(code==1688);laserLive=on;}
+ bool is_laser_firing(){return laserLive;}
 }
-constexpr double kWeaponBayOpenThreshold=.995,kWeaponBayClosedThreshold=.005,kWeaponBayHoldAfterReleaseSeconds=1,kWeaponReleaseGateMinHoldSeconds=.25,kLaserOverrunSeconds=4;
-const char *kLaserArmedParamName="arm",*kLaserFiringParamName="fire",*kEfmLaunchActiveParamName="efm";
+constexpr double weapon_bay_open_threshold=.995,weapon_bay_closed_threshold=.005,weapon_bay_hold_after_release_seconds=1,weapon_release_gate_min_hold_seconds=.25,laser_overrun_seconds=4;
+const char *laser_armed_param_name="arm",*laser_firing_param_name="fire",*efm_launch_active_param_name="efm";
 void publish_named_param(void*&,const char* name,double value){if(std::string(name)=="F117_STORE_FLIGHT_TIME")publishedFlight=value;}
 void setBay(bool open){F117::bay_state[0]=open?1.f:0.f;}
 void publish_weapon_release_gate_param(){}void publish_release_cue_params(){}
 int get_ccrp_profile_index(){return profile;}
-'''+ccrp_h[ccrp_h.index('enum class StoreKind'):ccrp_h.index('constexpr double kGravity_MPS2')]+r'''
-const CcrpStoreModel& get_ccrp_profile(){return kCcrpStoreModels[profile];}
+'''+ccrp_h[ccrp_h.index('enum class Store_kind'):ccrp_h.index('constexpr double gravity_mps2')]+r'''
+const Ccrp_store_model& get_ccrp_profile(){return ccrp_store_models[profile];}
 bool compute_release_solution(double*,double*,double*,bool* z){*z=zone;return solution;}
 '''+ '\n'.join(extract(fm,n) for n in names)+r'''
 int main(){
@@ -112,8 +112,8 @@ int main(){
  lockValid=true;profileValid=0;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==4);
  profileValid=1;profile=3;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==5);
  F117::laser_armed=true;setBay(false);update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==9&&laserLive); // doors still travelling: ready, not a fault, no release yet
- setBay(true);g_releaseAlignmentValid=false;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==14);
- g_releaseAlignmentValid=true;zone=false;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==8);
+ setBay(true);g_release_alignment_valid=false;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==14);
+ g_release_alignment_valid=true;zone=false;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==8);
  zone=true;F117::weight_on_wheels=true;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==12);
  F117::weight_on_wheels=false;available=false;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==13);
  available=true;update_weapon_release_sequence(.01);assert(launches==1&&!F117::weapon_release_gate_fired&&!F117::weapon_release_gate&&F117::release_sequence==0);
@@ -179,33 +179,33 @@ code=r'''
 #include <cstdio>
 #include <cstring>
 #include "WEAPON_CPP"
-namespace CockpitInterop {void** g_contexts_ptr_addr=nullptr;void Log_(const char*){}void LogV(const char*,va_list){}}
+namespace Cockpit_interop {void** g_contexts_ptr_addr=nullptr;void log_message(const char*){}void log_vformat(const char*,va_list){}}
 static int launchCount=0,selected=-1,nativeResult=1,spotKills=0,spotMoves=0;
 static float passedPoint[3]{};static unsigned char fakeSpot[0x400]{};
 static void* managerSlots[64]{};static void** manager=managerSlots;
 void* getManager(void*){return &manager;}
 int count(void*,int s){return s==0?1:0;}void selectStation(void*,int s){selected=s;}
 int current(void*){return 0;}int stations(void*){return 2;}
-int launch(void*,int station,int sub,unsigned id,const WeaponsInterop::Vec3f* point,bool armed){
+int launch(void*,int station,int sub,unsigned id,const Weapons_interop::Vec3f* point,bool armed){
  assert(station==0&&sub==-1&&id==0&&armed);++launchCount;passedPoint[0]=point->x;passedPoint[1]=point->y;passedPoint[2]=point->z;return nativeResult;}
-void* create(unsigned owner,const WeaponsInterop::Vec3d*,const WeaponsInterop::Vec3d* p,unsigned code){assert(owner==42&&code==1688&&p->x==1000);return fakeSpot;}
-void move(void*,const WeaponsInterop::Vec3d*){++spotMoves;}void kill(void* p){assert(p==fakeSpot+8);++spotKills;}
+void* create(unsigned owner,const Weapons_interop::Vec3d*,const Weapons_interop::Vec3d* p,unsigned code){assert(owner==42&&code==1688&&p->x==1000);return fakeSpot;}
+void move(void*,const Weapons_interop::Vec3d*){++spotMoves;}void kill(void* p){assert(p==fakeSpot+8);++spotKills;}
 int main(){
  void* movingSlots[64]{};movingSlots[0x120/8]=reinterpret_cast<void*>(getManager);void** moving=movingSlots;
  managerSlots[0xa0/8]=reinterpret_cast<void*>(selectStation);managerSlots[0xd0/8]=reinterpret_cast<void*>(count);
  managerSlots[0x168/8]=reinterpret_cast<void*>(current);managerSlots[0x190/8]=reinterpret_cast<void*>(launch);managerSlots[0x1b8/8]=reinterpret_cast<void*>(stations);
- CockpitInterop::CcCockpitContextLayout context{};context.movingObjectRaw=&moving;void* ctx=&context;CockpitInterop::g_contexts_ptr_addr=&ctx;
- double p[3]={1000,50,-2000};assert(WeaponsInterop::LaunchAtPoint(p,0));assert(launchCount==1&&selected==0&&passedPoint[2]==-2000);
- assert(!WeaponsInterop::LaunchAtPoint(p,1)&&launchCount==1); // never fall through to loaded station 0
- nativeResult=0;assert(!WeaponsInterop::LaunchAtPoint(p,0));
- p[0]=NAN;assert(!WeaponsInterop::LaunchAtPoint(p,0));p[0]=1000;
- unsigned char owner[0x200]{};*reinterpret_cast<unsigned*>(owner+0x1c)=42;context.carrierLinkHostRaw=owner+0x100;
- WeaponsInterop::s_resolved=true;WeaponsInterop::s_createLaserSpot=create;WeaponsInterop::s_setPoint=move;WeaponsInterop::s_registerToKill=kill;
- WeaponsInterop::s_spotSuicideVtbl=managerSlots;*reinterpret_cast<const void**>(fakeSpot+8)=managerSlots;
- WeaponsInterop::UpdateLaser(true,p,1688);assert(WeaponsInterop::IsLaserFiring());
- WeaponsInterop::UpdateLaser(true,p,1688);assert(spotMoves==1);
- WeaponsInterop::UpdateLaser(false,p,1688);assert(!WeaponsInterop::IsLaserFiring()&&spotKills==1);
- WeaponsInterop::UpdateLaser(true,p,1688);WeaponsInterop::Reset();assert(spotKills==2&&!WeaponsInterop::IsLaserFiring());
+ Cockpit_interop::Cc_cockpit_context_layout context{};context.moving_object_raw=&moving;void* ctx=&context;Cockpit_interop::g_contexts_ptr_addr=&ctx;
+ double p[3]={1000,50,-2000};assert(Weapons_interop::launch_at_point(p,0));assert(launchCount==1&&selected==0&&passedPoint[2]==-2000);
+ assert(!Weapons_interop::launch_at_point(p,1)&&launchCount==1); // never fall through to loaded station 0
+ nativeResult=0;assert(!Weapons_interop::launch_at_point(p,0));
+ p[0]=NAN;assert(!Weapons_interop::launch_at_point(p,0));p[0]=1000;
+ unsigned char owner[0x200]{};*reinterpret_cast<unsigned*>(owner+0x1c)=42;context.carrier_link_host_raw=owner+0x100;
+ Weapons_interop::s_resolved=true;Weapons_interop::s_create_laser_spot=create;Weapons_interop::s_set_point=move;Weapons_interop::s_register_to_kill=kill;
+ Weapons_interop::s_spot_suicide_vtbl=managerSlots;*reinterpret_cast<const void**>(fakeSpot+8)=managerSlots;
+ Weapons_interop::update_laser(true,p,1688);assert(Weapons_interop::is_laser_firing());
+ Weapons_interop::update_laser(true,p,1688);assert(spotMoves==1);
+ Weapons_interop::update_laser(false,p,1688);assert(!Weapons_interop::is_laser_firing()&&spotKills==1);
+ Weapons_interop::update_laser(true,p,1688);Weapons_interop::reset();assert(spotKills==2&&!Weapons_interop::is_laser_firing());
  puts("PASS: actual Weapons_Interop.cpp: explicit station, coordinates, native nonzero launch acceptance, finite input and laser creation/move/removal/reset");
 }
 '''.replace('WEAPON_CPP',weaponpath)

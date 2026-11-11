@@ -2,16 +2,16 @@
 
 // Pilot command handlers (flight controls, engines, actuators, autopilot, A/T and PAARS) and their per-frame updates.
 
-inline constexpr double kRollTrimStep = 0.02;
-inline constexpr double kPitchTrimStep = 0.05;
-inline constexpr double kYawTrimStep = 0.05;
-inline constexpr double kThrottleStep = 0.5;
+inline constexpr double roll_trim_step = 0.02;
+inline constexpr double pitch_trim_step = 0.05;
+inline constexpr double yaw_trim_step = 0.05;
+inline constexpr double throttle_step = 0.5;
 // Fraction of wheel_brake_moment_max in FM/config.lua. Set by the landing distances in TO 1F-117A-1
 // (Figure A8-2), checked with tools/fm_bench/dcs_check.py --landing in the mod repo.
-inline constexpr double kWheelBrakeOnFriction = 0.32;
-inline constexpr double kWheelBrakeOffFriction = 0.015;
-inline constexpr double kToggleLowThreshold = 0.25;
-inline constexpr double kToggleHighThreshold = 0.75;
+inline constexpr double wheel_brake_on_friction = 0.32;
+inline constexpr double wheel_brake_off_friction = 0.015;
+inline constexpr double toggle_low_threshold = 0.25;
+inline constexpr double toggle_high_threshold = 0.75;
 
 bool handle_roll_command(int command, float value);
 bool handle_pitch_command(int command, float value);

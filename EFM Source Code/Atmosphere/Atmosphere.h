@@ -3,16 +3,16 @@
 
 namespace F117
 {
-namespace ATMOS
+namespace Atmos
 {
 // SI air data: dynamic pressure (Pa), followed by Mach.
-inline void atmos(double kelvin, double kgPerCubicMetre, double metresPerSecond, double* result)
+inline void atmos(double kelvin, double kg_per_cubic_metre, double metres_per_second, double* result)
 {
-    constexpr double heatCapacityRatio = 1.4;
-    constexpr double gasConstant = 287.058;
-    const double soundSpeed = std::sqrt(heatCapacityRatio * gasConstant * kelvin);
-    result[1] = metresPerSecond / soundSpeed;
-    result[0] = (0.5 * kgPerCubicMetre) * metresPerSecond * metresPerSecond;
+    constexpr double heat_capacity_ratio = 1.4;
+    constexpr double gas_constant = 287.058;
+    const double sound_speed = std::sqrt(heat_capacity_ratio * gas_constant * kelvin);
+    result[1] = metres_per_second / sound_speed;
+    result[0] = (0.5 * kg_per_cubic_metre) * metres_per_second * metres_per_second;
 }
-}  // namespace ATMOS
+}  // namespace Atmos
 }  // namespace F117

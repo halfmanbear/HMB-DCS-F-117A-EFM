@@ -18,37 +18,38 @@ namespace F117
 
 namespace
 {
-constexpr double kPitchLawCmPerDeg = 0.0105;  // Elevon pitch power the pitch law's gains were tuned with.
-constexpr double kPitchDamperCmq = -5.0;      // Pitch damping the flight controls add, per unit of q c / 2V.
+constexpr double pitch_law_cm_per_deg = 0.0105;  // Elevon pitch power the pitch law's gains were tuned with.
+constexpr double pitch_damper_cmq = -5.0;        // Pitch damping the flight controls add, per unit of q c / 2V.
 
 // Pitch authority: -25 deg TEU (nose-up) to +37.5 deg TED (nose-down), per Loschke. The physical actuator
 // stop is 45 deg; pitch authority does not reach it.
-constexpr double kElevatorNoseUpLimit_DEG = -25.0;
-constexpr double kElevatorNoseDownLimit_DEG = 37.5;
-constexpr double kElevonPhysicalStop_DEG = 45.0;
+constexpr double elevator_nose_up_limit_deg = -25.0;
+constexpr double elevator_nose_down_limit_deg = 37.5;
+constexpr double elevon_physical_stop_deg = 45.0;
 
-constexpr double kRudderLimit_DEG = 25.0;  // Lets full pedal reach 8 deg of steady sideslip (TO 1F-117A-1 page 6-3).
-constexpr double kMinControlSpeed_MPS = 30.0;    // Floor for speed in the damper and turn-rate terms.
-constexpr double kDefaultRollInertia = 40000.0;  // kg m^2, when DCS has not yet reported one
-constexpr double kMaxPitchLawElevonScale = 8.0;
-constexpr double kPitchTrimStickScale = 15.0;  // pitch trim units that add 1.0 to the elevator actuator input
+constexpr double rudder_limit_deg = 25.0;  // Lets full pedal reach 8 deg of steady sideslip (TO 1F-117A-1 page 6-3).
+constexpr double min_control_speed_mps = 30.0;    // Floor for speed in the damper and turn-rate terms.
+constexpr double default_roll_inertia = 40000.0;  // kg m^2, when DCS has not yet reported one
+constexpr double max_pitch_law_elevon_scale = 8.0;
+constexpr double pitch_trim_stick_scale = 15.0;  // pitch trim units that add 1.0 to the elevator actuator input
 
 // Rudder limiter: the high-beta, high-yaw-rate rudder limit stays symmetric left vs right.
-constexpr double kRudderLimiterBetaScale = 7500.0;
-constexpr double kRudderLimiterYawRateScale_DEGPS = 90.0;
+constexpr double rudder_limiter_beta_scale = 7500.0;
+constexpr double rudder_limiter_yaw_rate_scale_degps = 90.0;
 
 // Autopilot holds: cockpit integrity below which they disengage, and the hold gains.
-constexpr double kAutopilotCockpitIntegrity = 0.7;
-constexpr double kHorizHoldPitchGain = 2.0;
-constexpr double kHorizHoldRollGain = 0.1;
-constexpr double kVerticalSpeedHoldLimit_MPS = 10.0;
+constexpr double autopilot_cockpit_integrity = 0.7;
+constexpr double horiz_hold_pitch_gain = 2.0;
+constexpr double horiz_hold_roll_gain = 0.1;
+constexpr double vertical_speed_hold_limit_mps = 10.0;
 
 // The pitch law's gains are in degrees of an elevon giving kPitchLawCmPerDeg of pitching moment. This
 // turns its command into the deflection that gives the same moment on this airframe at this AOA, as the
 // roll law does with its rolling moment.
 double pitch_law_elevon_scale()
 {
-    return limit(kPitchLawCmPerDeg / (std::max)(std::abs(AERO::CmPerElevatorDeg), 1e-4), 1.0, kMaxPitchLawElevonScale);
+    return limit(pitch_law_cm_per_deg / (std::max)(std::abs(Aero::cm_per_elevator_deg), 1e-4), 1.0,
+                 max_pitch_law_elevon_scale);
 }
 
 // Pitch damper. The tailless airframe has little natural pitch damping (Cmq about -2.2). The manual
@@ -56,128 +57,130 @@ double pitch_law_elevon_scale()
 // Nose-up pitch rate gives trailing edge down. In a steady pull the pitch law's integrator takes up
 // whatever the damper adds, so the elevon there is set by the airframe's own moments and the damper
 // costs no lift.
-double pitch_damper_elevator_DEG()
+double pitch_damper_elevator_deg()
 {
-    const double speed = (std::max)(totalVelocity_MPS, kMinControlSpeed_MPS);
-    const double addedCm = kPitchDamperCmq * meanChord_M / (2.0 * speed) * pitchRate_RPS;
-    return addedCm / (std::min)(AERO::CmPerElevatorDeg, -1e-4);
+    const double speed = (std::max)(total_velocity_mps, min_control_speed_mps);
+    const double added_cm = pitch_damper_cmq * mean_chord_m / (2.0 * speed) * pitch_rate_rps;
+    return added_cm / (std::min)(Aero::cm_per_elevator_deg, -1e-4);
 }
 
-void command_pitch_axis(double dt, double controlDegradation)
+void command_pitch_axis(double dt, double control_degradation)
 {
-    FLIGHTCONTROLS::update_pitch_mode_auto_inputs(gearDown, airRefuelDoorOpen);
+    Flight_controls::update_pitch_mode_auto_inputs(gear_down, air_refuel_door_open);
     // Suspension contact only, with the gear down. The strut draw args in weight_on_wheels aren't used here.
-    FLIGHTCONTROLS::update_ground_contact(
-        gearDown > 0.5 && (suspension_wow[0] || suspension_wow[1] || suspension_wow[2]), dt);
+    Flight_controls::update_ground_contact(
+        gear_down > 0.5 && (suspension_wow[0] || suspension_wow[1] || suspension_wow[2]), dt);
 
-    elevator_DEG_commanded =
-        -(FLIGHTCONTROLS::fcs_pitch_controller(
-            FLIGHTCONTROLS::longStickInput * controlDegradation, 0.0, alpha_DEG, pitchRate_RPS * radiansToDegrees,
-            (az / kStandardGravity_MPS2), 0.0, dynamicPressure_PA, dt, roll_angle, pitch_angle,
-            rollRate_RPS * radiansToDegrees, totalVelocity_MPS, mach, thrust_N, AERO::Cx_total)) *
+    elevator_deg_commanded =
+        -(Flight_controls::fcs_pitch_controller(
+            Flight_controls::long_stick_input * control_degradation, 0.0, alpha_deg,
+            pitch_rate_rps * radians_to_degrees, (az / standard_gravity_mps2), 0.0, dynamic_pressure_pa, dt, roll_angle,
+            pitch_angle, roll_rate_rps * radians_to_degrees, total_velocity_mps, mach, thrust_n, Aero::cx_total)) *
         pitch_law_elevon_scale();
-    elevator_DEG_commanded += pitch_damper_elevator_DEG();
-    elevator_DEG = limit(elevator_DEG_commanded + pitchTrim, kElevatorNoseUpLimit_DEG, kElevatorNoseDownLimit_DEG);
+    elevator_deg_commanded += pitch_damper_elevator_deg();
+    elevator_deg = limit(elevator_deg_commanded + pitch_trim, elevator_nose_up_limit_deg, elevator_nose_down_limit_deg);
 }
 
-void command_roll_axis(double dt, double controlDegradation)
+void command_roll_axis(double dt, double control_degradation)
 {
     // What the roll law needs to know about the airframe at this flight condition. It uses the inertia DCS is
     // flying, so changing moment_of_inertia in the mod's FM/config.lua doesn't change the loop's bandwidth.
-    const double rollMomentPerSurfaceDeg = (std::max)(std::abs(AERO::ClPerAileronDeg), 0.0002);
-    const double rollInertia = inertia.x > 1.0 ? inertia.x : kDefaultRollInertia;
-    const double rollAccelPerSurfaceDeg =
-        rollMomentPerSurfaceDeg * dynamicPressure_PA * wingArea_M2 * wingSpan_M / rollInertia * radiansToDegrees;
-    const double surfacePerRollRate = std::abs(AERO::Clp) * wingSpan_M /
-                                      (2.0 * (std::max)(totalVelocity_MPS, kMinControlSpeed_MPS)) / radiansToDegrees /
-                                      rollMomentPerSurfaceDeg;
+    const double roll_moment_per_surface_deg = (std::max)(std::abs(Aero::cl_per_aileron_deg), 0.0002);
+    const double roll_inertia = inertia.x > 1.0 ? inertia.x : default_roll_inertia;
+    const double roll_accel_per_surface_deg = roll_moment_per_surface_deg * dynamic_pressure_pa * wing_area_m2 *
+                                              wing_span_m / roll_inertia * radians_to_degrees;
+    const double surface_per_roll_rate = std::abs(Aero::clp) * wing_span_m /
+                                         (2.0 * (std::max)(total_velocity_mps, min_control_speed_mps)) /
+                                         radians_to_degrees / roll_moment_per_surface_deg;
 
-    aileron_DEG_commanded = FLIGHTCONTROLS::fcs_roll_controller(
-        FLIGHTCONTROLS::latStickInput * controlDegradation, FLIGHTCONTROLS::longStickForce, ay / kStandardGravity_MPS2,
-        pedInput, beta_DEG, roll_angle, rollRate_RPS * radiansToDegrees,
-        g_paarsRollRateDegS,  // PAARS roll-rate command, added to the pilot's
-        dynamicPressure_PA, rollAccelPerSurfaceDeg, surfacePerRollRate, gearDown > 0.5, airRefuelDoorOpen, dt);
+    aileron_deg_commanded = Flight_controls::fcs_roll_controller(
+        Flight_controls::lat_stick_input * control_degradation, Flight_controls::long_stick_force,
+        ay / standard_gravity_mps2, ped_input, beta_deg, roll_angle, roll_rate_rps * radians_to_degrees,
+        g_paars_roll_rate_deg_s,  // PAARS roll-rate command, added to the pilot's
+        dynamic_pressure_pa, roll_accel_per_surface_deg, surface_per_roll_rate, gear_down > 0.5, air_refuel_door_open,
+        dt);
 
     // Real F-117 pitch/roll mixer: pitch has priority.
     // Each elevon physical stop is 45 deg. Pitch occupies elevator_DEG of that travel.
     // Roll gets whatever remains: max roll deflection = 45 deg - |elevator_DEG|.
     // This means rolling pull-outs automatically have less roll authority at high pitch demand,
     // exactly as the real aircraft (and consistent with Loschke's mixer description).
-    const double maxRollDEG = (std::max)(0.0, kElevonPhysicalStop_DEG - std::abs(elevator_DEG));
-    aileron_DEG = limit(aileron_DEG_commanded + rollTrim, -maxRollDEG, maxRollDEG);
+    const double max_roll_deg = (std::max)(0.0, elevon_physical_stop_deg - std::abs(elevator_deg));
+    aileron_deg = limit(aileron_deg_commanded + roll_trim, -max_roll_deg, max_roll_deg);
 }
 
 // Body yaw rate of a steady level turn at this bank and pitch: g sin(bank) cos(pitch) / V.
-double level_turn_yaw_rate_DEGPS()
+double level_turn_yaw_rate_degps()
 {
-    return kStandardGravity_MPS2 * std::sin(roll_angle / radiansToDegrees) * std::cos(pitch_angle / radiansToDegrees) /
-           (std::max)(totalVelocity_MPS, kMinControlSpeed_MPS) * radiansToDegrees;
+    return standard_gravity_mps2 * std::sin(roll_angle / radians_to_degrees) *
+           std::cos(pitch_angle / radians_to_degrees) / (std::max)(total_velocity_mps, min_control_speed_mps) *
+           radians_to_degrees;
 }
 
 void command_yaw_axis(double dt)
 {
     // Keep the high-beta/high-yaw-rate rudder limiter symmetric left vs right.
-    const double betaMagnitude_DEG = std::abs(beta_DEG);
-    const double yawRateMagnitude_DEG_s = std::abs(yawRate_RPS * radiansToDegrees);
-    const float rudderLimiterScale =
-        static_cast<float>(1.0 + (betaMagnitude_DEG * betaMagnitude_DEG) / kRudderLimiterBetaScale *
-                                     (1.0 + yawRateMagnitude_DEG_s / kRudderLimiterYawRateScale_DEGPS));
+    const double beta_magnitude_deg = std::abs(beta_deg);
+    const double yaw_rate_magnitude_deg_s = std::abs(yaw_rate_rps * radians_to_degrees);
+    const float rudder_limiter_scale =
+        static_cast<float>(1.0 + (beta_magnitude_deg * beta_magnitude_deg) / rudder_limiter_beta_scale *
+                                     (1.0 + yaw_rate_magnitude_deg_s / rudder_limiter_yaw_rate_scale_degps));
 
-    rudder_DEG_commanded = FLIGHTCONTROLS::fcs_yaw_controller(
-        pedInput, 0.0, beta_DEG, yawRate_RPS * radiansToDegrees, level_turn_yaw_rate_DEGPS(),
-        rollRate_RPS * radiansToDegrees, pitchRate_RPS * radiansToDegrees, FLIGHTCONTROLS::alphaFiltered,
-        dynamicPressure_PA, gearDown > 0.5, dt);
-    rudder_DEG = yawTrim + rudder_DEG_commanded;
-    rudder_DEG = limit(rudder_DEG, -kRudderLimit_DEG / rudderLimiterScale, kRudderLimit_DEG / rudderLimiterScale);
+    rudder_deg_commanded = Flight_controls::fcs_yaw_controller(
+        ped_input, 0.0, beta_deg, yaw_rate_rps * radians_to_degrees, level_turn_yaw_rate_degps(),
+        roll_rate_rps * radians_to_degrees, pitch_rate_rps * radians_to_degrees, Flight_controls::alpha_filtered,
+        dynamic_pressure_pa, gear_down > 0.5, dt);
+    rudder_deg = yaw_trim + rudder_deg_commanded;
+    rudder_deg = limit(rudder_deg, -rudder_limit_deg / rudder_limiter_scale, rudder_limit_deg / rudder_limiter_scale);
 }
 }  // namespace
 
 void update_autopilot_hold_state()
 {
-    if (g_damage.cockpit <= kAutopilotCockpitIntegrity)
+    if (g_damage.cockpit <= autopilot_cockpit_integrity)
     {
         alt_hold = horiz_hold = altroll_hold = 0;
         return;
     }
     if (horiz_hold)
-        pitchTrim = kHorizHoldPitchGain * pitch_angle;
+        pitch_trim = horiz_hold_pitch_gain * pitch_angle;
     else if (alt_hold || altroll_hold)
-        pitchTrim = limit(vspeed, -kVerticalSpeedHoldLimit_MPS, kVerticalSpeedHoldLimit_MPS);
+        pitch_trim = limit(vspeed, -vertical_speed_hold_limit_mps, vertical_speed_hold_limit_mps);
     if (horiz_hold || altroll_hold)
-        rollTrim = kHorizHoldRollGain * roll_angle;
+        roll_trim = horiz_hold_roll_gain * roll_angle;
 }
 
-void update_flight_control_commands(double dt, double controlDegradation)
+void update_flight_control_commands(double dt, double control_degradation)
 {
-    command_pitch_axis(dt, controlDegradation);
-    command_roll_axis(dt, controlDegradation);
+    command_pitch_axis(dt, control_degradation);
+    command_roll_axis(dt, control_degradation);
 
-    dragchute = ACTUATORS::drive_drag_chute(dragchute_command, dt, totalVelocity_MPS, weight_on_wheels);
+    dragchute = Actuators::drive_drag_chute(dragchute_command, dt, total_velocity_mps, weight_on_wheels);
 
     command_yaw_axis(dt);
 }
 
 double update_airframe_actuators(double dt)
 {
-    elev_pos = static_cast<float>(
-        ACTUATORS::drive(ACTUATORS::elevator, FLIGHTCONTROLS::longStickInput + (pitchTrim / kPitchTrimStickScale), dt));
+    elev_pos = static_cast<float>(Actuators::drive(
+        Actuators::elevator, Flight_controls::long_stick_input + (pitch_trim / pitch_trim_stick_scale), dt));
 
-    const double tailIntegrity = (g_damage.leftTail + g_damage.rightTail) / 2.0;
-    rudder_pos = static_cast<float>(ACTUATORS::drive(ACTUATORS::rudder, pedInput, dt) * tailIntegrity);
+    const double tail_integrity = (g_damage.left_tail + g_damage.right_tail) / 2.0;
+    rudder_pos = static_cast<float>(Actuators::drive(Actuators::rudder, ped_input, dt) * tail_integrity);
 
-    const double noseWheelRangeTarget = nwsAuthorityHeld ? kNoseWheelYawHigh_RAD : kNoseWheelYawLow_RAD;
-    const double noseWheelRangeStep = kNoseWheelYawRangeRate_RADPS * dt;
-    noseWheelYawRange_RAD +=
-        limit(noseWheelRangeTarget - noseWheelYawRange_RAD, -noseWheelRangeStep, noseWheelRangeStep);
+    const double nose_wheel_range_target = nws_authority_held ? nose_wheel_yaw_high_rad : nose_wheel_yaw_low_rad;
+    const double nose_wheel_range_step = nose_wheel_yaw_range_rate_radps * dt;
+    nose_wheel_yaw_range_rad +=
+        limit(nose_wheel_range_target - nose_wheel_yaw_range_rad, -nose_wheel_range_step, nose_wheel_range_step);
 
-    GearCommand = clamp_gear_command_for_weight_on_wheels(GearCommand);
-    gearDown = ACTUATORS::drive_gear(GearCommand, dt, gear_retraction_blocked());
+    gear_command = clamp_gear_command_for_weight_on_wheels(gear_command);
+    gear_down = Actuators::drive_gear(gear_command, dt, gear_retraction_blocked());
 
-    tailhook_pos = ACTUATORS::drive(ACTUATORS::tailhook, tailhook_command, dt);
-    for (int bay = 0; bay < kWeaponBayCount; ++bay)
-        bay_state[bay] = static_cast<float>(ACTUATORS::drive(ACTUATORS::weaponBay[bay], bay_cmd[bay], dt));
+    tailhook_pos = Actuators::drive(Actuators::tailhook, tailhook_command, dt);
+    for (int bay = 0; bay < weapon_bay_count; ++bay)
+        bay_state[bay] = static_cast<float>(Actuators::drive(Actuators::weapon_bay[bay], bay_cmd[bay], dt));
 
-    return tailIntegrity;
+    return tail_integrity;
 }
 
 }  // namespace F117

@@ -3,24 +3,24 @@
 
 #include <cstdio>
 
-LogFile::~LogFile()
+Log_file::~Log_file()
 {
     close();
 }
 
-bool LogFile::open(const char* path, bool append)
+bool Log_file::open(const char* path, bool append)
 {
     close();
     m_file = std::fopen(path, append ? "a" : "w");
     return m_file != nullptr;
 }
 
-bool LogFile::is_open() const
+bool Log_file::is_open() const
 {
     return m_file != nullptr;
 }
 
-void LogFile::close()
+void Log_file::close()
 {
     if (m_file != nullptr)
     {
@@ -29,7 +29,7 @@ void LogFile::close()
     }
 }
 
-int LogFile::write(const char* format, ...)
+int Log_file::write(const char* format, ...)
 {
     if (m_file == nullptr)
     {

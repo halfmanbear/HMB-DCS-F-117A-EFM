@@ -6,57 +6,58 @@
 
 namespace F117
 {
-namespace FLIGHTCONTROLS
+namespace Flight_controls
 {
 
-bool simInitialized{};
-double longStickInput{};
-double alphaFiltered{};
-double longStickForce{};
-double latStickInput{};
+bool sim_initialized{};
+double long_stick_input{};
+double alpha_filtered{};
+double long_stick_force{};
+double lat_stick_input{};
 
 void reset_runtime_state()
 {
-    simInitialized = false;
-    alphaFiltered = 0.0;
-    longStickForce = 0.0;
+    sim_initialized = false;
+    alpha_filtered = 0.0;
+    long_stick_force = 0.0;
 
-    detail::debug_snapshot = detail::DebugSnapshot{};
-    detail::reset_yaw_state();
-    detail::reset_pitch_state();
-    detail::reset_roll_state();
+    Detail::debug_snapshot = Detail::Debug_snapshot{};
+    Detail::reset_yaw_state();
+    Detail::reset_pitch_state();
+    Detail::reset_roll_state();
 }
 
-void update_ground_contact(bool wheelOnGround, double dt)
+void update_ground_contact(bool wheel_on_ground, double dt)
 {
-    const double change = kGroundContactFadeRate * dt;
-    detail::ground_contact_fade = limit(detail::ground_contact_fade + (wheelOnGround ? change : -change), 0.0, 1.0);
+    const double change = ground_contact_fade_rate * dt;
+    Detail::ground_contact_fade = limit(Detail::ground_contact_fade + (wheel_on_ground ? change : -change), 0.0, 1.0);
 }
 
-void update_yaw_debug_snapshot(double betaDeg, double yawRateRps, double rudderDegCommanded, double rudderDeg,
-                               double rudderPct)
+void update_yaw_debug_snapshot(double beta_deg, double yaw_rate_rps, double rudder_deg_commanded, double rudder_deg,
+                               double rudder_pct)
 {
-    detail::YawSnapshot& yaw = detail::debug_snapshot.yaw;
-    yaw.betaDeg = betaDeg;
-    yaw.rateRps = yawRateRps;
-    yaw.rudderDegCommanded = rudderDegCommanded;
-    yaw.rudderDeg = rudderDeg;
-    yaw.rudderPct = rudderPct;
+    Detail::Yaw_snapshot& yaw = Detail::debug_snapshot.yaw;
+    yaw.beta_deg = beta_deg;
+    yaw.rate_rps = yaw_rate_rps;
+    yaw.rudder_deg_commanded = rudder_deg_commanded;
+    yaw.rudder_deg = rudder_deg;
+    yaw.rudder_pct = rudder_pct;
 }
 
-void update_aero_debug_snapshot(double cyDeltaRudder, double cnDeltaRudder, double clDeltaRudder, double cnDeltaBeta,
-                                double clDeltaBeta, double cyTotal, double cnTotal, double clTotal)
+void update_aero_debug_snapshot(double cy_delta_rudder, double cn_delta_rudder, double cl_delta_rudder,
+                                double cn_delta_beta, double cl_delta_beta, double cy_total, double cn_total,
+                                double cl_total)
 {
-    detail::AeroSnapshot& aero = detail::debug_snapshot.aero;
-    aero.cyDeltaRudder = cyDeltaRudder;
-    aero.cnDeltaRudder = cnDeltaRudder;
-    aero.clDeltaRudder = clDeltaRudder;
-    aero.cnDeltaBeta = cnDeltaBeta;
-    aero.clDeltaBeta = clDeltaBeta;
-    aero.cyTotal = cyTotal;
-    aero.cnTotal = cnTotal;
-    aero.clTotal = clTotal;
+    Detail::Aero_snapshot& aero = Detail::debug_snapshot.aero;
+    aero.cy_delta_rudder = cy_delta_rudder;
+    aero.cn_delta_rudder = cn_delta_rudder;
+    aero.cl_delta_rudder = cl_delta_rudder;
+    aero.cn_delta_beta = cn_delta_beta;
+    aero.cl_delta_beta = cl_delta_beta;
+    aero.cy_total = cy_total;
+    aero.cn_total = cn_total;
+    aero.cl_total = cl_total;
 }
 
-}  // namespace FLIGHTCONTROLS
+}  // namespace Flight_controls
 }  // namespace F117

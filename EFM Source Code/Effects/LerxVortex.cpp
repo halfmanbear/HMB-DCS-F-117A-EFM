@@ -63,7 +63,7 @@ float vortex_time = 0.0F;
 LERX_vortex_spline_point vortex_buffers[2][path_points];
 
 // Centreline path of one vortex before breakdown displacement.
-struct VortexPath
+struct Vortex_path
 {
     float x[path_points];
     float y[path_points];
@@ -161,7 +161,7 @@ float vapour_opacity(float vortex_strength, float aoa, float vel, float rho, flo
 // Conical scaling with local semispan. At low AoA the core hugs the surface close to
 // the edge; with AoA it moves inboard, grows and lifts. Path runs from the apex region
 // to a short wake behind the tip.
-VortexPath build_path(float aoa)
+Vortex_path build_path(float aoa)
 {
     const float a = clampf(aoa, 0.0F, 35.0F);
     const float f_core = 0.90F - 0.003F * a;                          // 0.87 s at 10 deg, 0.81 s at 30
@@ -169,7 +169,7 @@ VortexPath build_path(float aoa)
     const float gap_k = 0.0025F * a;                                  // core clearance / s
     const float trail_slope = 0.5F * tanf(a * degrees_to_radians_f);  // wake rises toward the freestream
 
-    VortexPath path{};
+    Vortex_path path{};
     for (int i = 0; i < path_points; ++i)
     {
         const float x =
@@ -204,7 +204,7 @@ VortexPath build_path(float aoa)
 
 // Breakdown: X/L through Vermeersch Fig. 6.25 (20, 25, 30 deg) and the text's
 // "just aft of the trailing edge" at 15 deg, extended linearly.
-Breakdown find_breakdown(const VortexPath& path, float aoa, float side_bias, float time, unsigned idx)
+Breakdown find_breakdown(const Vortex_path& path, float aoa, float side_bias, float time, unsigned idx)
 {
     float burst_xl;
     if (aoa < 20.0F)
@@ -256,7 +256,8 @@ Breakdown find_breakdown(const VortexPath& path, float aoa, float side_bias, flo
 
 // Displaces the path into spline points: precession before breakdown, a spiral or a
 // pulsing bubble after it, plus per-point opacity and the undisturbed tangent.
-void fill_spline(LERX_vortex_spline_point* sp, const VortexPath& path, const Breakdown& burst, float time, unsigned idx)
+void fill_spline(LERX_vortex_spline_point* sp, const Vortex_path& path, const Breakdown& burst, float time,
+                 unsigned idx)
 {
     const float zs = (idx == 0) ? -1.0F : 1.0F;
     const int last = path_points - 1;
@@ -353,19 +354,19 @@ bool ed_fm_LERX_vortex_update(unsigned idx, LERX_vortex& out)
     // DCS calls this once per side each frame; advance the shared clock once.
     if (idx == 0)
     {
-        vortex_time += static_cast<float>(F117::DeltaTime);
+        vortex_time += static_cast<float>(F117::delta_time);
     }
     const float time = vortex_time;
 
-    if (F117::weight_on_wheels || F117::totalVelocity_MPS < min_airspeed_mps)
+    if (F117::weight_on_wheels || F117::total_velocity_mps < min_airspeed_mps)
     {
         return detach(out);
     }
 
-    const float aoa = static_cast<float>(F117::alpha_DEG);
-    const float beta = static_cast<float>(F117::beta_DEG);
-    const float vel = static_cast<float>(F117::totalVelocity_MPS);
-    float rho = static_cast<float>(F117::ambientDensity_KgPerM3);
+    const float aoa = static_cast<float>(F117::alpha_deg);
+    const float beta = static_cast<float>(F117::beta_deg);
+    const float vel = static_cast<float>(F117::total_velocity_mps);
+    float rho = static_cast<float>(F117::ambient_density_kg_per_m3);
     if (rho < 0.1F)
     {
         rho = sea_level_density;
@@ -385,7 +386,7 @@ bool ed_fm_LERX_vortex_update(unsigned idx, LERX_vortex& out)
         return detach(out);
     }
 
-    const VortexPath path = build_path(aoa);
+    const Vortex_path path = build_path(aoa);
     const Breakdown burst = find_breakdown(path, aoa, side_bias, time, idx);
     out.explosion_start = std::max(0.5F, burst.distance);
 

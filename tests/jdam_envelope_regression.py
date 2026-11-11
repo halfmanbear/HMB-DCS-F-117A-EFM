@@ -68,7 +68,7 @@ GLIDE_HEIGHTS = 18
 
 def check_glide(path, header):
     stock = path.read_text(encoding='latin-1')
-    start = header.index('namespace GlideEnvelope')
+    start = header.index('namespace Glide_envelope')
     maximum = header_array(header, f'maximum[2][{GLIDE_HEIGHTS}][{SPEEDS}]', start)
     minimum = header_array(header, f'minimum[2][{GLIDE_HEIGHTS}][{SPEEDS}]', start)
     speeds = header_array(header, f'speeds[{SPEEDS}]', start)
@@ -83,8 +83,8 @@ def check_glide(path, header):
             stock_speeds, stock_heights, grid = stock_table(block, name, GLIDE_HEIGHTS)
             assert stock_speeds == speeds, f'{first_name} {name} speeds differ'
             assert stock_heights == heights, f'{first_name} {name} heights differ'
-            assert values[table * size:(table + 1) * size] == [v for row in grid for v in row],                 f'{first_name} {name} differs from GlideEnvelope'
-    print('PASS: GlideEnvelope matches stock min/max release ranges for the AGM-154A and AGM-154B')
+            assert values[table * size:(table + 1) * size] == [v for row in grid for v in row],                 f'{first_name} {name} differs from Glide_envelope'
+    print('PASS: Glide_envelope matches stock min/max release ranges for the AGM-154A and AGM-154B')
 
 
 if __name__ == '__main__':

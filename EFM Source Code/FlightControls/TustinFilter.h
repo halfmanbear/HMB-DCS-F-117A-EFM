@@ -8,52 +8,52 @@
 // lag p / (s + p) is num = {0, p}, den = {1, p} and a washout s / (s + w) is num = {1, 0},
 // den = {1, w}. The filter is discretised once, at a fixed step, with the bilinear (Tustin)
 // substitution s = (2 / T) (1 - z^-1) / (1 + z^-1).
-class TustinFilter
+class Tustin_filter
 {
 public:
-    static constexpr int kMaxOrder = 2;
+    static constexpr int max_order = 2;
 
-    void configure(const double* num, const double* den, int order, double stepS)
+    void configure(const double* num, const double* den, int order, double step_s)
     {
-        order_ = (order < 1) ? 1 : (order > kMaxOrder ? kMaxOrder : order);
-        const double k = 2.0 / stepS;
+        order_ = (order < 1) ? 1 : (order > max_order ? max_order : order);
+        const double k = 2.0 / step_s;
 
-        double zNum[kMaxOrder + 1] = {};
-        double zDen[kMaxOrder + 1] = {};
+        double z_num[max_order + 1] = {};
+        double z_den[max_order + 1] = {};
         for (int term = 0; term <= order_; ++term)
         {
             // num[term] multiplies s^(n - term), which becomes
             // k^(n - term) (1 - z^-1)^(n - term) (1 + z^-1)^term over a common (1 + z^-1)^n.
-            const int sPower = order_ - term;
-            double poly[kMaxOrder + 1] = {1.0};
+            const int s_power = order_ - term;
+            double poly[max_order + 1] = {1.0};
             int degree = 0;
             for (int i = 0; i < order_; ++i)
             {
-                const double sign = (i < sPower) ? -1.0 : 1.0;
+                const double sign = (i < s_power) ? -1.0 : 1.0;
                 for (int j = degree + 1; j > 0; --j)
                     poly[j] += sign * poly[j - 1];
                 ++degree;
             }
             double scale = 1.0;
-            for (int i = 0; i < sPower; ++i)
+            for (int i = 0; i < s_power; ++i)
                 scale *= k;
             for (int j = 0; j <= order_; ++j)
             {
-                zNum[j] += num[term] * scale * poly[j];
-                zDen[j] += den[term] * scale * poly[j];
+                z_num[j] += num[term] * scale * poly[j];
+                z_den[j] += den[term] * scale * poly[j];
             }
         }
 
-        double numSum = 0.0;
-        double denSum = 0.0;
+        double num_sum = 0.0;
+        double den_sum = 0.0;
         for (int j = 0; j <= order_; ++j)
         {
-            b_[j] = zNum[j] / zDen[0];
-            a_[j] = zDen[j] / zDen[0];
-            numSum += b_[j];
-            denSum += a_[j];
+            b_[j] = z_num[j] / z_den[0];
+            a_[j] = z_den[j] / z_den[0];
+            num_sum += b_[j];
+            den_sum += a_[j];
         }
-        steadyGain_ = (denSum != 0.0) ? numSum / denSum : 0.0;
+        steady_gain_ = (den_sum != 0.0) ? num_sum / den_sum : 0.0;
         settle(0.0);
     }
 
@@ -66,34 +66,34 @@ public:
 
         double output = b_[0] * input;
         for (int i = 1; i <= order_; ++i)
-            output += b_[i] * pastInput_[i - 1] - a_[i] * pastOutput_[i - 1];
+            output += b_[i] * past_input_[i - 1] - a_[i] * past_output_[i - 1];
 
         for (int i = order_ - 1; i > 0; --i)
         {
-            pastInput_[i] = pastInput_[i - 1];
-            pastOutput_[i] = pastOutput_[i - 1];
+            past_input_[i] = past_input_[i - 1];
+            past_output_[i] = past_output_[i - 1];
         }
-        pastInput_[0] = input;
-        pastOutput_[0] = output;
+        past_input_[0] = input;
+        past_output_[0] = output;
         return output;
     }
 
 private:
     double settle(double input)
     {
-        const double output = steadyGain_ * input;
-        for (int i = 0; i < kMaxOrder; ++i)
+        const double output = steady_gain_ * input;
+        for (int i = 0; i < max_order; ++i)
         {
-            pastInput_[i] = input;
-            pastOutput_[i] = output;
+            past_input_[i] = input;
+            past_output_[i] = output;
         }
         return output;
     }
 
     int order_ = 1;
-    double b_[kMaxOrder + 1] = {};
-    double a_[kMaxOrder + 1] = {};
-    double pastInput_[kMaxOrder] = {};  // newest first
-    double pastOutput_[kMaxOrder] = {};
-    double steadyGain_ = 0.0;
+    double b_[max_order + 1] = {};
+    double a_[max_order + 1] = {};
+    double past_input_[max_order] = {};  // newest first
+    double past_output_[max_order] = {};
+    double steady_gain_ = 0.0;
 };

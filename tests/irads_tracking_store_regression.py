@@ -55,37 +55,37 @@ code=r'''
 #include <cstdio>
 #include <limits>
 #include "LAYOUT"
-using namespace CockpitInterop;
-AvTVSensorLayout sensor{};void* g_avTVSensor_instance=&sensor;
-AvTVSensorLayout* AsSensor(void* p){return static_cast<AvTVSensorLayout*>(p);}
-CcCockpitContextLayout* AsContext(void* p){return static_cast<CcCockpitContextLayout*>(p);}
+using namespace Cockpit_interop;
+Av_tv_sensor_layout sensor{};void* g_av_tv_sensor_instance=&sensor;
+Av_tv_sensor_layout* as_sensor(void* p){return static_cast<Av_tv_sensor_layout*>(p);}
+Cc_cockpit_context_layout* as_context(void* p){return static_cast<Cc_cockpit_context_layout*>(p);}
 bool s_irads_power=true,s_irads_lock_valid=true;
 bool s_irads_ray_valid=false,s_irads_terrain_pending=false;double s_irads_render_ray[6]{},s_irads_request_ray[6]{};unsigned s_irads_terrain_sequence=0;double s_irads_terrain_wait=0,s_irads_ray_age=1e9;
 bool s_carrier_link_disabled_logged=false;
 void* s_our_ind=nullptr;
 double s_irads_lock_world[3]={10000,0,2000};float s_irads_horizontal_axis=0,s_irads_vertical_axis=0;
-void Log_(const char*){}template<class...T>void Log(const char*,T...){}
-void SeedInjectedSensorPose(double x,double y,double z,double,double,double,double){
- double m[16]={1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1};std::memcpy(sensor.platformWorldPose.m,m,sizeof(m));}
-void laggingNative(void*,double){sensor.platformWorldPose.m[0]=.99;sensor.platformWorldPose.m[1]=-.01;}
-void laggingFrame(void*){sensor.platformWorldPose.m[2]=.01;}
+void log_message(const char*){}template<class...T>void log_format(const char*,T...){}
+void seed_injected_sensor_pose(double x,double y,double z,double,double,double,double){
+ double m[16]={1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1};std::memcpy(sensor.platform_world_pose.m,m,sizeof(m));}
+void laggingNative(void*,double){sensor.platform_world_pose.m[0]=.99;sensor.platform_world_pose.m[1]=-.01;}
+void laggingFrame(void*){sensor.platform_world_pose.m[2]=.01;}
 void nothing(void*){}
-auto g_avTVSensor_update=laggingNative;auto g_avTVSensor_update_frame=laggingFrame;
+auto g_av_tv_sensor_update=laggingNative;auto g_av_tv_sensor_update_frame=laggingFrame;
 void uncage_sensor(){}
-void* ResolveCockpitBaseExport(const char*){return nullptr;}
-constexpr size_t kCameraEyeOffset=0x260,kCameraForwardOffset=0x230;constexpr unsigned kRenderLogLimit=120,kRenderLogInterval=120;constexpr double kRadToDeg=57.295779513;
+void* resolve_cockpit_base_export(const char*){return nullptr;}
+constexpr size_t camera_eye_offset=0x260,camera_forward_offset=0x230;constexpr unsigned render_log_limit=120,render_log_interval=120;constexpr double rad_to_deg=57.295779513;
 alignas(16) char camera[0x400]{};
 void* originalCamera(void*){return &camera;}auto s_original_get_camera=originalCamera;
 double renderedPose[16]{};
 void fillCamera(void*,void*){
- std::memcpy(renderedPose,sensor.platformWorldPose.m,sizeof(renderedPose));
+ std::memcpy(renderedPose,sensor.platform_world_pose.m,sizeof(renderedPose));
  // Native get_position uses time-lastUpdate>0 to rebuild the pose from motors.
- if (1000.0-sensor.platformLastUpdateTime>0.0) {renderedPose[0]=1;renderedPose[1]=0;renderedPose[2]=0;}
+ if (1000.0-sensor.platform_last_update_time>0.0) {renderedPose[0]=1;renderedPose[1]=0;renderedPose[2]=0;}
  float forward[3],eye[3];for(int i=0;i<3;++i){forward[i]=static_cast<float>(renderedPose[i]);eye[i]=static_cast<float>(renderedPose[12+i]);}
  std::memcpy(camera+0x230,forward,sizeof(forward));std::memcpy(camera+0x260,eye,sizeof(eye));
 }auto s_sensor_fill_camera=fillCamera;
 '''.replace('LAYOUT',str(repo/'EFM Source Code/Avionics/CockpitBase_Layouts.h').replace('\\','/'))
-code+='\n'.join(extract(source,n) for n in ['bool AimPoseAtWorldPoint(','void UpdateIRADSSensorFrame(','static void* __fastcall IRADSGetCamera('])
+code+='\n'.join(extract(source,n) for n in ['bool aim_pose_at_world_point(','void update_irads_sensor_frame(','static void* __fastcall irads_get_camera('])
 code+=r'''
 void checkAim(const double* p,const double* t){
  double d[3],norm=0;for(int i=0;i<3;++i){d[i]=t[i]-p[12+i];norm+=d[i]*d[i];}norm=std::sqrt(norm);
@@ -93,22 +93,22 @@ void checkAim(const double* p,const double* t){
  for(int a=0;a<3;++a)for(int b=0;b<3;++b){double dot=0;for(int i=0;i<3;++i)dot+=p[a*4+i]*p[b*4+i];assert(std::fabs(dot-(a==b?1:0))<1e-10);}
 }
 int main(){
- sensor.activeFlag=1;sensor.currentZoom=80;
+ sensor.active_flag=1;sensor.current_zoom=80;
  for(int frame=0;frame<3600;++frame){
   double x=frame*3.0,y=3000+100*std::sin(frame*.01),z=300*std::cos(frame*.01);
-  UpdateIRADSSensorFrame(1.0/60,x,y,z,0,0,0,1);
-  checkAim(sensor.platformWorldPose.m,s_irads_lock_world);
-  assert(sensor.currentZoom==80&&sensor.platformWorldPose.m[12]==x&&sensor.platformWorldPose.m[13]==y);
+  update_irads_sensor_frame(1.0/60,x,y,z,0,0,0,1);
+  checkAim(sensor.platform_world_pose.m,s_irads_lock_world);
+  assert(sensor.current_zoom==80&&sensor.platform_world_pose.m[12]==x&&sensor.platform_world_pose.m[13]==y);
   // Another native update between EFM and rendering cannot reintroduce aim lag.
-  laggingNative(&sensor,.01);sensor.platformLastUpdateTime=900.0;IRADSGetCamera(nullptr);checkAim(renderedPose,s_irads_lock_world);assert(sensor.platformLastUpdateTime==900.0);
+  laggingNative(&sensor,.01);sensor.platform_last_update_time=900.0;irads_get_camera(nullptr);checkAim(renderedPose,s_irads_lock_world);assert(sensor.platform_last_update_time==900.0);
  }
  double vertical[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};double t[3]={0,-1000,0};
- assert(AimPoseAtWorldPoint(vertical,t));checkAim(vertical,t);
+ assert(aim_pose_at_world_point(vertical,t));checkAim(vertical,t);
  double before[16];std::memcpy(before,vertical,sizeof(before));t[0]=std::numeric_limits<double>::quiet_NaN();
- assert(!AimPoseAtWorldPoint(vertical,t)&&std::memcmp(before,vertical,sizeof(before))==0);
- s_irads_lock_valid=false;UpdateIRADSSensorFrame(.01,0,3000,0,0,0,0,1);
- assert(sensor.platformWorldPose.m[0]==.99); // free slew stays native
- s_irads_terrain_pending=true;s_irads_terrain_wait=.995;UpdateIRADSSensorFrame(.01,0,3000,0,0,0,0,1);assert(!s_irads_terrain_pending);
+ assert(!aim_pose_at_world_point(vertical,t)&&std::memcmp(before,vertical,sizeof(before))==0);
+ s_irads_lock_valid=false;update_irads_sensor_frame(.01,0,3000,0,0,0,0,1);
+ assert(sensor.platform_world_pose.m[0]==.99); // free slew stays native
+ s_irads_terrain_pending=true;s_irads_terrain_wait=.995;update_irads_sensor_frame(.01,0,3000,0,0,0,0,1);assert(!s_irads_terrain_pending);
  puts("PASS: actual update/render lock holds fixed-world LOS over 3600 moving frames despite native lag; orthonormal pose, vertical target, invalid input, zoom/origin and unlocked native slew preserved");
 }
 '''

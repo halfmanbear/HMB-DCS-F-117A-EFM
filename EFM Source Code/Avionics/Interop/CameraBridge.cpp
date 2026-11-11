@@ -6,29 +6,29 @@
 #include <cstring>
 #include <limits>
 
-namespace CockpitInterop
+namespace Cockpit_interop
 {
-static constexpr int kMaxContextDepth = 8;
-static constexpr size_t kVtableSlotCount = 128;
+static constexpr int max_context_depth = 8;
+static constexpr size_t vtable_slot_count = 128;
 
 // Native camera object layout: eye position and forward vector (float triples).
-static constexpr size_t kCameraEyeOffset = 0x260;
-static constexpr size_t kCameraForwardOffset = 0x230;
+static constexpr size_t camera_eye_offset = 0x260;
+static constexpr size_t camera_forward_offset = 0x230;
 
 // Render-aim diagnostics: log the first frame, then every kRenderLogInterval-th, up to a cap.
-static constexpr unsigned kRenderLogLimit = 120;
-static constexpr unsigned kRenderLogInterval = 120;
+static constexpr unsigned render_log_limit = 120;
+static constexpr unsigned render_log_interval = 120;
 
-using IndicatorGetCamera = void*(__fastcall*)(void*);
-static IndicatorGetCamera s_original_get_camera = nullptr;
-using SensorFillCamera = void(__fastcall*)(void*, void*);
-static SensorFillCamera s_sensor_fill_camera = nullptr;
+using Indicator_get_camera = void*(__fastcall*)(void*);
+static Indicator_get_camera s_original_get_camera = nullptr;
+using Sensor_fill_camera = void(__fastcall*)(void*, void*);
+static Sensor_fill_camera s_sensor_fill_camera = nullptr;
 static void* s_camera_bridge_indicator = nullptr;
 
 // -- Indicator search ------------------------------------------------------
 
 // The DLIR camera render target is the indicator of type 0 with render target 0.
-static void* camera_indicator_in(const CcCockpitContextLayout* context)
+static void* camera_indicator_in(const Cc_cockpit_context_layout* context)
 {
     void** begin = context->indicators.begin;
     void** end = context->indicators.end;
@@ -39,8 +39,8 @@ static void* camera_indicator_in(const CcCockpitContextLayout* context)
             void* indicator = *p;
             if (indicator)
             {
-                const CcIndicatorLayout* view = AsIndicator(indicator);
-                if (view->indicatorType == 0 && static_cast<int32_t>(view->renderTargetId) == 0)
+                const Cc_indicator_layout* view = as_indicator(indicator);
+                if (view->indicator_type == 0 && static_cast<int32_t>(view->render_target_id) == 0)
                     return indicator;
             }
         }
@@ -49,34 +49,34 @@ static void* camera_indicator_in(const CcCockpitContextLayout* context)
 }
 
 // Depth-first, pre-order walk of the context tree, bounded by kMaxContextDepth.
-static void* find_camera_indicator(CcCockpitContextLayout* root, int* out_depth)
+static void* find_camera_indicator(Cc_cockpit_context_layout* root, int* out_depth)
 {
     struct Frame
     {
         void** next;
         void** end;
     };
-    Frame stack[kMaxContextDepth + 1] = {};
+    Frame stack[max_context_depth + 1] = {};
     int depth = -1;
-    CcCockpitContextLayout* pending = root;
+    Cc_cockpit_context_layout* pending = root;
     for (;;)
     {
         if (pending)
         {
-            const int pendingDepth = depth + 1;
-            if (pendingDepth <= kMaxContextDepth)
+            const int pending_depth = depth + 1;
+            if (pending_depth <= max_context_depth)
             {
                 void* found = camera_indicator_in(pending);
                 if (found)
                 {
-                    *out_depth = pendingDepth;
+                    *out_depth = pending_depth;
                     return found;
                 }
-                void** begin = pending->childContexts.begin;
-                void** end = pending->childContexts.end;
-                const bool hasChildren = begin && end && end > begin;
-                depth = pendingDepth;
-                stack[depth] = {hasChildren ? begin : nullptr, hasChildren ? end : nullptr};
+                void** begin = pending->child_contexts.begin;
+                void** end = pending->child_contexts.end;
+                const bool has_children = begin && end && end > begin;
+                depth = pending_depth;
+                stack[depth] = {has_children ? begin : nullptr, has_children ? end : nullptr};
             }
             pending = nullptr;
         }
@@ -84,7 +84,7 @@ static void* find_camera_indicator(CcCockpitContextLayout* root, int* out_depth)
             --depth;
         if (depth < 0)
             return nullptr;
-        pending = AsContext(*stack[depth].next);
+        pending = as_context(*stack[depth].next);
         ++stack[depth].next;
     }
 }
@@ -92,63 +92,64 @@ static void* find_camera_indicator(CcCockpitContextLayout* root, int* out_depth)
 static void locate_camera_indicator()
 {
     static bool s_indicator_search_logged = false;
-    int foundDepth = -1;
-    CcCockpitContextLayout* globalCtx = GetGlobalContext();
-    CcCockpitContextLayout* bindingCtx = GetBindingContext();
+    int found_depth = -1;
+    Cc_cockpit_context_layout* global_ctx = get_global_context();
+    Cc_cockpit_context_layout* binding_ctx = get_binding_context();
 
-    s_our_ind = find_camera_indicator(globalCtx, &foundDepth);
+    s_our_ind = find_camera_indicator(global_ctx, &found_depth);
     if (s_our_ind)
     {
-        Log("ForceIRADSIndicatorActive: found camera render target @ %p depth=%d via global ctx", s_our_ind,
-            foundDepth);
+        log_format("ForceIRADSIndicatorActive: found camera render target @ %p depth=%d via global ctx", s_our_ind,
+                   found_depth);
         return;
     }
-    if (bindingCtx != globalCtx)
+    if (binding_ctx != global_ctx)
     {
-        s_our_ind = find_camera_indicator(bindingCtx, &foundDepth);
+        s_our_ind = find_camera_indicator(binding_ctx, &found_depth);
         if (s_our_ind)
         {
-            Log("ForceIRADSIndicatorActive: found camera render target @ %p depth=%d via binding ctx", s_our_ind,
-                foundDepth);
+            log_format("ForceIRADSIndicatorActive: found camera render target @ %p depth=%d via binding ctx", s_our_ind,
+                       found_depth);
             return;
         }
     }
     if (!s_indicator_search_logged)
     {
-        Log("ForceIRADSIndicatorActive: no indicator found yet (global=%p binding=%p)", static_cast<void*>(globalCtx),
-            static_cast<void*>(bindingCtx));
+        log_format("ForceIRADSIndicatorActive: no indicator found yet (global=%p binding=%p)",
+                   static_cast<void*>(global_ctx), static_cast<void*>(binding_ctx));
         s_indicator_search_logged = true;
     }
 }
 
 // -- Camera callback -------------------------------------------------------
 
-static void* __fastcall IRADSGetCamera(void* indicator)
+static void* __fastcall irads_get_camera(void* indicator)
 {
     void* camera = s_original_get_camera(indicator);
-    if (!camera || !g_avTVSensor_instance)
+    if (!camera || !g_av_tv_sensor_instance)
         return camera;
-    auto* sensor = AsSensor(g_avTVSensor_instance);
-    const bool locked = s_irads_lock_valid && AimPoseAtWorldPoint(sensor->platformWorldPose.m, s_irads_lock_world);
+    auto* sensor = as_sensor(g_av_tv_sensor_instance);
+    const bool locked =
+        s_irads_lock_valid && aim_pose_at_world_point(sensor->platform_world_pose.m, s_irads_lock_world);
     // The native camera normally extrapolates the pose from mount and motor
     // history between updates.
     // That overwrites our corrected pose. Suppress ONLY this render prediction
     // while building a locked camera, then restore the native update timestamp.
-    const double savedUpdateTime = sensor->platformLastUpdateTime;
+    const double saved_update_time = sensor->platform_last_update_time;
     if (locked)
-        sensor->platformLastUpdateTime = (std::numeric_limits<double>::max)();
+        sensor->platform_last_update_time = (std::numeric_limits<double>::max)();
     if (s_sensor_fill_camera)
-        s_sensor_fill_camera(g_avTVSensor_instance, camera);
+        s_sensor_fill_camera(g_av_tv_sensor_instance, camera);
     if (locked)
-        sensor->platformLastUpdateTime = savedUpdateTime;
+        sensor->platform_last_update_time = saved_update_time;
     // Snapshot the visible ray. Terrain tracing must use this optical eye,
     // not a native cached target or a newly recomputed aircraft-forward ray.
     if (s_irads_power)
     {
         float eye[3];
         float forward[3];
-        std::memcpy(eye, static_cast<char*>(camera) + kCameraEyeOffset, sizeof(eye));
-        std::memcpy(forward, static_cast<char*>(camera) + kCameraForwardOffset, sizeof(forward));
+        std::memcpy(eye, static_cast<char*>(camera) + camera_eye_offset, sizeof(eye));
+        std::memcpy(forward, static_cast<char*>(camera) + camera_forward_offset, sizeof(forward));
         s_irads_ray_valid = true;
         for (int i = 0; i < 3; ++i)
         {
@@ -160,74 +161,76 @@ static void* __fastcall IRADSGetCamera(void* indicator)
         if (s_irads_ray_valid)
             s_irads_ray_age = 0;
     }
-    static unsigned renderSamples = 0;
-    static unsigned renderFrames = 0;
-    if (locked && renderSamples < kRenderLogLimit && (++renderFrames == 1 || renderFrames % kRenderLogInterval == 0))
+    static unsigned render_samples = 0;
+    static unsigned render_frames = 0;
+    if (locked && render_samples < render_log_limit &&
+        (++render_frames == 1 || render_frames % render_log_interval == 0))
     {
         // Observe the FINAL rendered ray, not just the cached pose.
         float forward[3];
         float eye[3];
-        std::memcpy(forward, static_cast<char*>(camera) + kCameraForwardOffset, sizeof(forward));
-        std::memcpy(eye, static_cast<char*>(camera) + kCameraEyeOffset, sizeof(eye));
+        std::memcpy(forward, static_cast<char*>(camera) + camera_forward_offset, sizeof(forward));
+        std::memcpy(eye, static_cast<char*>(camera) + camera_eye_offset, sizeof(eye));
         double dot = 0;
-        double rangeSq = 0;
-        double axisSq = 0;
+        double range_sq = 0;
+        double axis_sq = 0;
         for (int i = 0; i < 3; ++i)
         {
             const double d = s_irads_lock_world[i] - eye[i];
             dot += d * forward[i];
-            rangeSq += d * d;
-            axisSq += forward[i] * forward[i];
+            range_sq += d * d;
+            axis_sq += forward[i] * forward[i];
         }
-        if (rangeSq > 1 && axisSq > 0.5)
+        if (range_sq > 1 && axis_sq > 0.5)
         {
-            double cosine = dot / std::sqrt(rangeSq * axisSq);
+            double cosine = dot / std::sqrt(range_sq * axis_sq);
             cosine = cosine > 1 ? 1 : (cosine < -1 ? -1 : cosine);
-            Log("IRADS render aim: errorDeg=%.6f range=%.1f eye=(%.2f,%.2f,%.2f) target=(%.2f,%.2f,%.2f)",
-                std::acos(cosine) * kRadToDeg, std::sqrt(rangeSq), eye[0], eye[1], eye[2], s_irads_lock_world[0],
-                s_irads_lock_world[1], s_irads_lock_world[2]);
-            ++renderSamples;
+            log_format("IRADS render aim: errorDeg=%.6f range=%.1f eye=(%.2f,%.2f,%.2f) target=(%.2f,%.2f,%.2f)",
+                       std::acos(cosine) * rad_to_deg, std::sqrt(range_sq), eye[0], eye[1], eye[2],
+                       s_irads_lock_world[0], s_irads_lock_world[1], s_irads_lock_world[2]);
+            ++render_samples;
         }
     }
     return camera;
 }
 
-static bool InstallIRADSCameraBridge(void* indicator)
+static bool install_irads_camera_bridge(void* indicator)
 {
     if (s_camera_bridge_indicator == indicator)
         return true;
-    auto nativeGetCamera = reinterpret_cast<IndicatorGetCamera>(
-        ResolveCockpitBaseExport("?get_camera@ccIndicator@cockpit@@UEAAAEBVCamera@Graphics@@XZ"));
+    auto native_get_camera = reinterpret_cast<Indicator_get_camera>(
+        resolve_cockpit_base_export("?get_camera@ccIndicator@cockpit@@UEAAAEBVCamera@Graphics@@XZ"));
     auto** vtable = *reinterpret_cast<void***>(indicator);
-    if (!nativeGetCamera || !vtable)
+    if (!native_get_camera || !vtable)
         return false;
-    s_sensor_fill_camera = reinterpret_cast<SensorFillCamera>(
-        ResolveCockpitBaseExport("?fill_camera@avTVSensor@cockpit@@UEBAXAEAVCamera@Graphics@@@Z"));
+    s_sensor_fill_camera = reinterpret_cast<Sensor_fill_camera>(
+        resolve_cockpit_base_export("?fill_camera@avTVSensor@cockpit@@UEBAXAEAVCamera@Graphics@@@Z"));
     if (!s_sensor_fill_camera)
     {
-        Log_("IRADS camera bridge: native fill_camera unavailable");
+        log_message("IRADS camera bridge: native fill_camera unavailable");
         return false;
     }
-    size_t slot = kVtableSlotCount;
-    for (size_t i = 0; i < kVtableSlotCount; ++i)
-        if (vtable[i] == reinterpret_cast<void*>(nativeGetCamera))
+    size_t slot = vtable_slot_count;
+    for (size_t i = 0; i < vtable_slot_count; ++i)
+        if (vtable[i] == reinterpret_cast<void*>(native_get_camera))
         {
             slot = i;
             break;
         }
-    if (slot == kVtableSlotCount)
+    if (slot == vtable_slot_count)
     {
-        Log_("IRADS camera bridge: get_camera slot not found; disabled");
+        log_message("IRADS camera bridge: get_camera slot not found; disabled");
         return false;
     }
     // Keep the type information entry ahead of the copied table for native RTTI.
-    auto** copy = new void*[kVtableSlotCount + 1];
-    std::memcpy(copy, vtable - 1, sizeof(void*) * (kVtableSlotCount + 1));
-    s_original_get_camera = nativeGetCamera;
-    copy[slot + 1] = reinterpret_cast<void*>(&IRADSGetCamera);
+    auto** copy = new void*[vtable_slot_count + 1];
+    std::memcpy(copy, vtable - 1, sizeof(void*) * (vtable_slot_count + 1));
+    s_original_get_camera = native_get_camera;
+    copy[slot + 1] = reinterpret_cast<void*>(&irads_get_camera);
     *reinterpret_cast<void***>(indicator) = copy + 1;
     s_camera_bridge_indicator = indicator;
-    Log("IRADS camera bridge installed: indicator=%p slot=%zu sensor=%p", indicator, slot, g_avTVSensor_instance);
+    log_format("IRADS camera bridge installed: indicator=%p slot=%zu sensor=%p", indicator, slot,
+               g_av_tv_sensor_instance);
     return true;
 }
 
@@ -235,9 +238,9 @@ static bool InstallIRADSCameraBridge(void* indicator)
 // device_init.lua) it locates the camera render-target indicator, installs the camera bridge,
 // and every frame forces screenCondition = FLIR (11) and cameraCondition = ON (1) so DCS can't
 // revert the indicator to a non-camera state.
-void ForceIRADSIndicatorActive()
+void force_irads_indicator_active()
 {
-    if (!g_avTVSensor_instance)
+    if (!g_av_tv_sensor_instance)
         return;
 
     if (!s_our_ind)
@@ -245,17 +248,17 @@ void ForceIRADSIndicatorActive()
 
     if (s_our_ind)
     {
-        if (!InstallIRADSCameraBridge(s_our_ind))
+        if (!install_irads_camera_bridge(s_our_ind))
             return;
-        CcIndicatorLayout* indicatorView = AsIndicator(s_our_ind);
-        indicatorView->screenCondition = static_cast<uint32_t>(IR_SCREEN_CONDITION_FLIR);
-        indicatorView->cameraCondition = s_irads_power ? static_cast<uint32_t>(IR_CAMERA_CONDITION_ON) : 0;
+        Cc_indicator_layout* indicator_view = as_indicator(s_our_ind);
+        indicator_view->screen_condition = static_cast<uint32_t>(ir_screen_condition_flir);
+        indicator_view->camera_condition = s_irads_power ? static_cast<uint32_t>(ir_camera_condition_on) : 0;
     }
 }
 
-void ResetCameraBridge()
+void reset_camera_bridge()
 {
     s_camera_bridge_indicator = nullptr;
     s_our_ind = nullptr;
 }
-}  // namespace CockpitInterop
+}  // namespace Cockpit_interop

@@ -39,7 +39,7 @@ code = r"""
 #include <cmath>
 #include <cstdio>
 namespace F117 {
-double DeltaTime=0,alpha_DEG=0,beta_DEG=0,totalVelocity_MPS=0,ambientDensity_KgPerM3=1.225,altitude_m=0;
+double delta_time=0,alpha_deg=0,beta_deg=0,total_velocity_mps=0,ambient_density_kg_per_m3=1.225,altitude_m=0;
 bool weight_on_wheels=false;
 }
 """ + structs + lerx_unit + r"""
@@ -47,8 +47,8 @@ bool weight_on_wheels=false;
 const float kNoseX=10.02f,kLength=19.43f,kApexX=9.95f,kSemispan=0.418f,kTipX=-6.3f,kTeX=-7.0f;
 
 LERX_vortex fly(unsigned idx,double aoa,double v,double beta=0,double rho=1.225,double alt=0){
-    F117::alpha_DEG=aoa;F117::totalVelocity_MPS=v;F117::beta_DEG=beta;
-    F117::ambientDensity_KgPerM3=rho;F117::altitude_m=alt;F117::weight_on_wheels=false;
+    F117::alpha_deg=aoa;F117::total_velocity_mps=v;F117::beta_deg=beta;
+    F117::ambient_density_kg_per_m3=rho;F117::altitude_m=alt;F117::weight_on_wheels=false;
     LERX_vortex o;assert(ed_fm_LERX_vortex_update(idx,o));return o;
 }
 // x of the point explosion_start metres along the undisturbed spline. Points
@@ -67,7 +67,7 @@ float burst_x(const LERX_vortex& o){
 int main(){
     LERX_vortex o;
     assert(!ed_fm_LERX_vortex_update(2,o));
-    F117::weight_on_wheels=true;F117::totalVelocity_MPS=150;F117::alpha_DEG=15;
+    F117::weight_on_wheels=true;F117::total_velocity_mps=150;F117::alpha_deg=15;
     assert(ed_fm_LERX_vortex_update(0,o)&&o.spline==nullptr);
     assert(fly(0,2,150).spline==nullptr);                  // no vortex at low AoA
     assert(fly(0,12,150,0,0.41,10500).spline==nullptr);   // too high to condense

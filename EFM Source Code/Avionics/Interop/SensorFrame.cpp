@@ -4,13 +4,13 @@
 #include <cmath>
 #include <cstring>
 
-namespace CockpitInterop
+namespace Cockpit_interop
 {
 static bool s_pose_seed_logged = false;
 static bool s_carrier_link_disabled_logged = false;
 
-static void BuildWorldPoseFromAircraft(double out_mat[16], double aircraft_x, double aircraft_y, double aircraft_z,
-                                       double quat_x, double quat_y, double quat_z, double quat_w)
+static void build_world_pose_from_aircraft(double out_mat[16], double aircraft_x, double aircraft_y, double aircraft_z,
+                                           double quat_x, double quat_y, double quat_z, double quat_w)
 {
     const double norm = std::sqrt(quat_x * quat_x + quat_y * quat_y + quat_z * quat_z + quat_w * quat_w);
     const double qx = (norm > 1.0e-9) ? (quat_x / norm) : 0.0;
@@ -42,30 +42,30 @@ static void BuildWorldPoseFromAircraft(double out_mat[16], double aircraft_x, do
     out_mat[10] = 1.0 - 2.0 * (xx + yy);
     out_mat[11] = 0.0;
 
-    out_mat[12] = aircraft_x + IRADS_POS_X * out_mat[0] + IRADS_POS_Y * out_mat[4] + IRADS_POS_Z * out_mat[8];
-    out_mat[13] = aircraft_y + IRADS_POS_X * out_mat[1] + IRADS_POS_Y * out_mat[5] + IRADS_POS_Z * out_mat[9];
-    out_mat[14] = aircraft_z + IRADS_POS_X * out_mat[2] + IRADS_POS_Y * out_mat[6] + IRADS_POS_Z * out_mat[10];
+    out_mat[12] = aircraft_x + irads_pos_x * out_mat[0] + irads_pos_y * out_mat[4] + irads_pos_z * out_mat[8];
+    out_mat[13] = aircraft_y + irads_pos_x * out_mat[1] + irads_pos_y * out_mat[5] + irads_pos_z * out_mat[9];
+    out_mat[14] = aircraft_z + irads_pos_x * out_mat[2] + irads_pos_y * out_mat[6] + irads_pos_z * out_mat[10];
     out_mat[15] = 1.0;
 }
 
-static void SeedInjectedSensorPose(double aircraft_x, double aircraft_y, double aircraft_z, double quat_x,
-                                   double quat_y, double quat_z, double quat_w)
+static void seed_injected_sensor_pose(double aircraft_x, double aircraft_y, double aircraft_z, double quat_x,
+                                      double quat_y, double quat_z, double quat_w)
 {
-    if (!g_avTVSensor_instance)
+    if (!g_av_tv_sensor_instance)
         return;
 
-    AvTVSensorLayout* sensor = AsSensor(g_avTVSensor_instance);
-    AvPlatformLayout* root = AsPlatform(sensor->platformRoot ? sensor->platformRoot : g_avTVSensor_instance);
+    Av_tv_sensor_layout* sensor = as_sensor(g_av_tv_sensor_instance);
+    Av_platform_layout* root = as_platform(sensor->platform_root ? sensor->platform_root : g_av_tv_sensor_instance);
     double world_pose[16] = {};
 
-    BuildWorldPoseFromAircraft(world_pose, aircraft_x, aircraft_y, aircraft_z, quat_x, quat_y, quat_z, quat_w);
+    build_world_pose_from_aircraft(world_pose, aircraft_x, aircraft_y, aircraft_z, quat_x, quat_y, quat_z, quat_w);
 
-    std::memcpy(sensor->platformWorldPose.m, world_pose, sizeof(world_pose));
-    std::memcpy(sensor->platformInitialWorldPose.m, world_pose, sizeof(world_pose));
+    std::memcpy(sensor->platform_world_pose.m, world_pose, sizeof(world_pose));
+    std::memcpy(sensor->platform_initial_world_pose.m, world_pose, sizeof(world_pose));
     if (root)
     {
-        std::memcpy(root->platformWorldPose.m, world_pose, sizeof(world_pose));
-        std::memcpy(root->platformInitialWorldPose.m, world_pose, sizeof(world_pose));
+        std::memcpy(root->platform_world_pose.m, world_pose, sizeof(world_pose));
+        std::memcpy(root->platform_initial_world_pose.m, world_pose, sizeof(world_pose));
     }
 
     s_last_aircraft_pos[0] = aircraft_x;
@@ -74,8 +74,8 @@ static void SeedInjectedSensorPose(double aircraft_x, double aircraft_y, double 
 
     if (!s_pose_seed_logged)
     {
-        Log("SeedInjectedSensorPose: aircraft=(%.2f, %.2f, %.2f) sensor=(%.2f, %.2f, %.2f)", aircraft_x, aircraft_y,
-            aircraft_z, world_pose[12], world_pose[13], world_pose[14]);
+        log_format("SeedInjectedSensorPose: aircraft=(%.2f, %.2f, %.2f) sensor=(%.2f, %.2f, %.2f)", aircraft_x,
+                   aircraft_y, aircraft_z, world_pose[12], world_pose[13], world_pose[14]);
         s_pose_seed_logged = true;
     }
 }
@@ -83,47 +83,47 @@ static void SeedInjectedSensorPose(double aircraft_x, double aircraft_y, double 
 // DCS pose axes are forward X, up Y, right Z. Preserve the native camera's
 // roll while making its final rendered LOS pass through the saved world point.
 // Native slave_to_point is rate limited and otherwise leaves a visible lag.
-bool AimPoseAtWorldPoint(double pose[16], const double target[3])
+bool aim_pose_at_world_point(double pose[16], const double target[3])
 {
     double forward[3];
     double up[3];
     double right[3];
-    double lengthSq = 0.0;
+    double length_sq = 0.0;
     for (int i = 0; i < 3; ++i)
     {
         if (!std::isfinite(target[i]) || !std::isfinite(pose[12 + i]) || !std::isfinite(pose[4 + i]))
             return false;
         forward[i] = target[i] - pose[12 + i];
-        lengthSq += forward[i] * forward[i];
+        length_sq += forward[i] * forward[i];
     }
-    if (!std::isfinite(lengthSq) || lengthSq < 1.0)
+    if (!std::isfinite(length_sq) || length_sq < 1.0)
         return false;
-    const double invLength = 1.0 / std::sqrt(lengthSq);
+    const double inv_length = 1.0 / std::sqrt(length_sq);
     for (int i = 0; i < 3; ++i)
-        forward[i] *= invLength;
+        forward[i] *= inv_length;
     double dot = 0.0;
     for (int i = 0; i < 3; ++i)
         dot += pose[4 + i] * forward[i];
-    lengthSq = 0.0;
+    length_sq = 0.0;
     for (int i = 0; i < 3; ++i)
     {
         up[i] = pose[4 + i] - dot * forward[i];
-        lengthSq += up[i] * up[i];
+        length_sq += up[i] * up[i];
     }
-    if (lengthSq < 1.0e-12)
+    if (length_sq < 1.0e-12)
     {
         // Near vertical LOS: choose a nonparallel reference without a singularity.
         const int axis = std::fabs(forward[1]) < 0.9 ? 1 : 2;
-        lengthSq = 0.0;
+        length_sq = 0.0;
         for (int i = 0; i < 3; ++i)
         {
             up[i] = (i == axis ? 1.0 : 0.0) - forward[axis] * forward[i];
-            lengthSq += up[i] * up[i];
+            length_sq += up[i] * up[i];
         }
     }
-    const double invUp = 1.0 / std::sqrt(lengthSq);
+    const double inv_up = 1.0 / std::sqrt(length_sq);
     for (int i = 0; i < 3; ++i)
-        up[i] *= invUp;
+        up[i] *= inv_up;
     right[0] = forward[1] * up[2] - forward[2] * up[1];
     right[1] = forward[2] * up[0] - forward[0] * up[2];
     right[2] = forward[0] * up[1] - forward[1] * up[0];
@@ -136,14 +136,14 @@ bool AimPoseAtWorldPoint(double pose[16], const double target[3])
     return true;
 }
 
-void UpdateIRADSSensorFrame(double dt, double aircraft_x, double aircraft_y, double aircraft_z, double quat_x,
-                            double quat_y, double quat_z, double quat_w)
+void update_irads_sensor_frame(double dt, double aircraft_x, double aircraft_y, double aircraft_z, double quat_x,
+                               double quat_y, double quat_z, double quat_w)
 {
     if (std::isfinite(dt) && dt > 0)
         s_irads_ray_age += dt;
-    if (!g_avTVSensor_instance || !g_avTVSensor_update)
+    if (!g_av_tv_sensor_instance || !g_av_tv_sensor_update)
         return;
-    if (AsSensor(g_avTVSensor_instance)->activeFlag == 0 || !s_irads_power)
+    if (as_sensor(g_av_tv_sensor_instance)->active_flag == 0 || !s_irads_power)
         return;
 
     if (s_irads_terrain_pending)
@@ -152,17 +152,17 @@ void UpdateIRADSSensorFrame(double dt, double aircraft_x, double aircraft_y, dou
         if (s_irads_terrain_wait > 1.0)
         {
             s_irads_terrain_pending = false;
-            Log_("IRADS terrain request timed out; no lock");
+            log_message("IRADS terrain request timed out; no lock");
         }
     }
-    SeedInjectedSensorPose(aircraft_x, aircraft_y, aircraft_z, quat_x, quat_y, quat_z, quat_w);
+    seed_injected_sensor_pose(aircraft_x, aircraft_y, aircraft_z, quat_x, quat_y, quat_z, quat_w);
     // Do not call set_carrier for the injected sensor: it leads to an unsafe
     // carrier chain during the sensor update and crashed DCS. Keeping
     // platformRoot self-referential preserves the native update path without
     // entering that chain.
     if (!s_carrier_link_disabled_logged)
     {
-        Log_("UpdateIRADSSensorFrame: native carrier link disabled for injected sensor");
+        log_message("UpdateIRADSSensorFrame: native carrier link disabled for injected sensor");
         s_carrier_link_disabled_logged = true;
     }
 
@@ -174,32 +174,32 @@ void UpdateIRADSSensorFrame(double dt, double aircraft_x, double aircraft_y, dou
     // and applies their angles to the world pose. No direct pose write needed.
     if (s_irads_lock_valid)
     {
-        using SlaveToPoint = void(__fastcall*)(void*, const double*);
-        static auto slave = reinterpret_cast<SlaveToPoint>(
-            ResolveCockpitBaseExport("?slave_to_point@avTVSensor@cockpit@@UEAAXAEBVVec3d@osg@@@Z"));
+        using Slave_to_point = void(__fastcall*)(void*, const double*);
+        static auto slave = reinterpret_cast<Slave_to_point>(
+            resolve_cockpit_base_export("?slave_to_point@avTVSensor@cockpit@@UEAAXAEBVVec3d@osg@@@Z"));
         if (slave)
-            slave(g_avTVSensor_instance, s_irads_lock_world);
+            slave(g_av_tv_sensor_instance, s_irads_lock_world);
     }
-    g_avTVSensor_update(g_avTVSensor_instance, dt);
-    if (g_avTVSensor_update_frame)
-        g_avTVSensor_update_frame(g_avTVSensor_instance);
+    g_av_tv_sensor_update(g_av_tv_sensor_instance, dt);
+    if (g_av_tv_sensor_update_frame)
+        g_av_tv_sensor_update_frame(g_av_tv_sensor_instance);
     // Apply after all native motor/frame work. Do not change the initial mount,
     // target coordinate, optical zoom or free-slew state.
     if (s_irads_lock_valid)
-        AimPoseAtWorldPoint(AsSensor(g_avTVSensor_instance)->platformWorldPose.m, s_irads_lock_world);
+        aim_pose_at_world_point(as_sensor(g_av_tv_sensor_instance)->platform_world_pose.m, s_irads_lock_world);
 
-    static double diagnosticTime = 0;
-    static unsigned int diagnosticCount = 0;
-    diagnosticTime += dt;
-    if (diagnosticTime >= 2.0 && diagnosticCount < 60)
+    static double diagnostic_time = 0;
+    static unsigned int diagnostic_count = 0;
+    diagnostic_time += dt;
+    if (diagnostic_time >= 2.0 && diagnostic_count < 60)
     {
-        diagnosticTime = 0;
-        ++diagnosticCount;
-        const auto* sensor = AsSensor(g_avTVSensor_instance);
-        Log("IRADS camera state: bridged=%d zoom=%.3f targetZoom=%.3f LOS=(%.4f,%.4f,%.4f) axes=(%.3f,%.3f)",
-            s_our_ind != nullptr, sensor->currentZoom, sensor->targetZoom, sensor->platformWorldPose.m[0],
-            sensor->platformWorldPose.m[1], sensor->platformWorldPose.m[2], s_irads_horizontal_axis,
-            s_irads_vertical_axis);
+        diagnostic_time = 0;
+        ++diagnostic_count;
+        const auto* sensor = as_sensor(g_av_tv_sensor_instance);
+        log_format("IRADS camera state: bridged=%d zoom=%.3f targetZoom=%.3f LOS=(%.4f,%.4f,%.4f) axes=(%.3f,%.3f)",
+                   s_our_ind != nullptr, sensor->current_zoom, sensor->target_zoom, sensor->platform_world_pose.m[0],
+                   sensor->platform_world_pose.m[1], sensor->platform_world_pose.m[2], s_irads_horizontal_axis,
+                   s_irads_vertical_axis);
     }
 }
-}  // namespace CockpitInterop
+}  // namespace Cockpit_interop

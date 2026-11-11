@@ -11,7 +11,7 @@ void update_autopilot_hold_state();
 
 // Runs the pitch, roll and yaw control laws and the pitch/roll mixer. `controlDegradation` is the
 // 0..1 pilot-input scale from cockpit damage.
-void update_flight_control_commands(double dt, double controlDegradation);
+void update_flight_control_commands(double dt, double control_degradation);
 
 // Drives the surface, gear, hook and bay actuators. Returns the tail integrity (0..1), which the
 // propulsion update also needs.

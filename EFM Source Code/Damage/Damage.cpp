@@ -10,60 +10,60 @@
 
 namespace
 {
-constexpr double kLuaDamageDose = 0.25;
-constexpr double kWingDamageDoseScale = 0.6;
-constexpr double kEngineDamageDoseScale = 0.4;
-constexpr double kTailDamageDoseScale = 0.3;
-constexpr double kCockpitDamageDoseScale = 0.2;
-constexpr double kFireDamageThreshold = 0.35;
-constexpr int kDamageElementNose = 0;
-constexpr int kDamageElementCockpit = 3;
-constexpr int kDamageElementNoseGear = 8;
-constexpr int kDamageElementFuselageLeft = 9;
-constexpr int kDamageElementFuselageRight = 10;  // Also DCS "MAIN".
-constexpr int kDamageElementEngineLeft = 11;
-constexpr int kDamageElementEngineRight = 12;
-constexpr int kDamageElementLeftGear = 15;
-constexpr int kDamageElementRightGear = 16;
-constexpr int kDamageElementWingOuterLeft = 23;
-constexpr int kDamageElementWingOuterRight = 24;
-constexpr int kDamageElementWingInnerLeft = 35;
-constexpr int kDamageElementWingInnerRight = 36;
-constexpr int kDamageElementTailLeft = 56;
-constexpr int kDamageElementTailRight = 57;
-constexpr int kDamageElementBelly = 82;
-constexpr int kDamageElementNoseWheel = 83;
-constexpr int kDamageElementLeftWheel = 84;
-constexpr int kDamageElementRightWheel = 85;
-constexpr double kDamageCellDestroyedIntegrity = 0.101;
-constexpr double kOuterWingLiftShare = 0.30;
-constexpr double kStructuralDragPenalty = 0.30;
-constexpr int kDamageElementAileronLeft = 25;
-constexpr int kDamageElementAileronRight = 26;
-constexpr int kDamageElementFlapLeft = 37;
-constexpr int kDamageElementFlapRight = 38;
-constexpr int kDamageElementRudderLeft = 53;
-constexpr int kDamageElementRudderRight = 54;
+constexpr double lua_damage_dose = 0.25;
+constexpr double wing_damage_dose_scale = 0.6;
+constexpr double engine_damage_dose_scale = 0.4;
+constexpr double tail_damage_dose_scale = 0.3;
+constexpr double cockpit_damage_dose_scale = 0.2;
+constexpr double fire_damage_threshold = 0.35;
+constexpr int damage_element_nose = 0;
+constexpr int damage_element_cockpit = 3;
+constexpr int damage_element_nose_gear = 8;
+constexpr int damage_element_fuselage_left = 9;
+constexpr int damage_element_fuselage_right = 10;  // Also DCS "MAIN".
+constexpr int damage_element_engine_left = 11;
+constexpr int damage_element_engine_right = 12;
+constexpr int damage_element_left_gear = 15;
+constexpr int damage_element_right_gear = 16;
+constexpr int damage_element_wing_outer_left = 23;
+constexpr int damage_element_wing_outer_right = 24;
+constexpr int damage_element_wing_inner_left = 35;
+constexpr int damage_element_wing_inner_right = 36;
+constexpr int damage_element_tail_left = 56;
+constexpr int damage_element_tail_right = 57;
+constexpr int damage_element_belly = 82;
+constexpr int damage_element_nose_wheel = 83;
+constexpr int damage_element_left_wheel = 84;
+constexpr int damage_element_right_wheel = 85;
+constexpr double damage_cell_destroyed_integrity = 0.101;
+constexpr double outer_wing_lift_share = 0.30;
+constexpr double structural_drag_penalty = 0.30;
+constexpr int damage_element_aileron_left = 25;
+constexpr int damage_element_aileron_right = 26;
+constexpr int damage_element_flap_left = 37;
+constexpr int damage_element_flap_right = 38;
+constexpr int damage_element_rudder_left = 53;
+constexpr int damage_element_rudder_right = 54;
 
-LogFile g_damageLog;
-double g_damageLogTimer = 0.0;
+Log_file g_damage_log;
+double g_damage_log_timer = 0.0;
 
 bool try_open_damage_log_path(const char* path)
 {
-    if (!g_damageLog.open(path, false))
+    if (!g_damage_log.open(path, false))
     {
         return false;
     }
 
-    g_damageLog.write("=== F-117 Damage Debug Log (DCS-owned visuals v2) ===\n");
-    g_damageLog.write("Log opened at: %s\n", path);
-    g_damageLog.write("invincible_value at init: %d\n\n", static_cast<int>(F117::param_class.invincible_value));
+    g_damage_log.write("=== F-117 Damage Debug Log (DCS-owned visuals v2) ===\n");
+    g_damage_log.write("Log opened at: %s\n", path);
+    g_damage_log.write("invincible_value at init: %d\n\n", static_cast<int>(F117::param_class.invincible_value));
     return true;
 }
 
-void initDamageLog()
+void init_damage_log()
 {
-    if (g_damageLog.is_open())
+    if (g_damage_log.is_open())
         return;
 
     const std::string paths[] = {build_saved_games_dcs_path("DCS", "Logs\\F117_Damage_Debug.log"),
@@ -83,40 +83,40 @@ void initDamageLog()
 
 void log_damage_callback_header(int element, double element_integrity_factor)
 {
-    if (g_damageLog.is_open())
+    if (g_damage_log.is_open())
     {
-        g_damageLog.write("ed_fm_on_damage called: Element=%d, integrity=%.4f, invincible=%d\n", element,
-                          element_integrity_factor, static_cast<int>(F117::param_class.invincible_value));
+        g_damage_log.write("ed_fm_on_damage called: Element=%d, integrity=%.4f, invincible=%d\n", element,
+                           element_integrity_factor, static_cast<int>(F117::param_class.invincible_value));
     }
 }
 
 void log_damage_callback_skipped_immortal()
 {
-    if (g_damageLog.is_open())
+    if (g_damage_log.is_open())
     {
-        g_damageLog.write("  -> SKIPPED (immortal)\n");
+        g_damage_log.write("  -> SKIPPED (immortal)\n");
     }
 }
 
 double damage_integrity_from_dcs(double reported)
 {
     const double integrity = limit(reported, 0.0, 1.0);
-    return integrity <= kDamageCellDestroyedIntegrity ? 0.0 : integrity;
+    return integrity <= damage_cell_destroyed_integrity ? 0.0 : integrity;
 }
 
 // Combines both panels of one wing. A destroyed panel takes the surfaces it carries with it,
 // because DCS does not report the dependent cells to the EFM.
-void update_wing_from_sections(double& wing, double& inner, double& outer, double& innerElevon, double& outerElevon)
+void update_wing_from_sections(double& wing, double& inner, double& outer, double& inner_elevon, double& outer_elevon)
 {
-    wing = std::min(wing, inner * (1.0 - kOuterWingLiftShare + kOuterWingLiftShare * outer));
+    wing = std::min(wing, inner * (1.0 - outer_wing_lift_share + outer_wing_lift_share * outer));
     if (inner <= 0.0)
     {
         outer = 0.0;
-        innerElevon = 0.0;
+        inner_elevon = 0.0;
     }
     if (outer <= 0.0)
     {
-        outerElevon = 0.0;
+        outer_elevon = 0.0;
     }
 }
 
@@ -124,97 +124,97 @@ const char* apply_damage_for_element(int element, double integrity)
 {
     switch (element)
     {
-        case kDamageElementNose:
+        case damage_element_nose:
             g_damage.nose = std::min(g_damage.nose, integrity);
             return "nose";
-        case kDamageElementCockpit:
+        case damage_element_cockpit:
             g_damage.cockpit = std::min(g_damage.cockpit, integrity);
             return "cockpit";
-        case kDamageElementFuselageLeft:
-            g_damage.leftFuselage = std::min(g_damage.leftFuselage, integrity);
+        case damage_element_fuselage_left:
+            g_damage.left_fuselage = std::min(g_damage.left_fuselage, integrity);
             return "left fuselage";
-        case kDamageElementFuselageRight:
-            g_damage.rightFuselage = std::min(g_damage.rightFuselage, integrity);
+        case damage_element_fuselage_right:
+            g_damage.right_fuselage = std::min(g_damage.right_fuselage, integrity);
             return "right fuselage";
-        case kDamageElementBelly:
+        case damage_element_belly:
             g_damage.belly = std::min(g_damage.belly, integrity);
             return "weapon bay doors";
-        case kDamageElementEngineLeft:
-            g_damage.leftEngine = std::min(g_damage.leftEngine, integrity);
-            if (g_damage.leftEngine < kFireDamageThreshold)
-                pushFireEvent(8, -4.45, 0.08, -1.7);
+        case damage_element_engine_left:
+            g_damage.left_engine = std::min(g_damage.left_engine, integrity);
+            if (g_damage.left_engine < fire_damage_threshold)
+                push_fire_event(8, -4.45, 0.08, -1.7);
             return "left engine";
-        case kDamageElementEngineRight:
-            g_damage.rightEngine = std::min(g_damage.rightEngine, integrity);
-            if (g_damage.rightEngine < kFireDamageThreshold)
-                pushFireEvent(7, -4.45, 0.08, 1.7);
+        case damage_element_engine_right:
+            g_damage.right_engine = std::min(g_damage.right_engine, integrity);
+            if (g_damage.right_engine < fire_damage_threshold)
+                push_fire_event(7, -4.45, 0.08, 1.7);
             return "right engine";
-        case kDamageElementTailLeft:
-            g_damage.leftTailStructure = std::min(g_damage.leftTailStructure, integrity);
-            if (g_damage.leftTailStructure <= 0.0)
-                g_damage.leftTail = 0.0;
+        case damage_element_tail_left:
+            g_damage.left_tail_structure = std::min(g_damage.left_tail_structure, integrity);
+            if (g_damage.left_tail_structure <= 0.0)
+                g_damage.left_tail = 0.0;
             return "left tail structure";
-        case kDamageElementTailRight:
-            g_damage.rightTailStructure = std::min(g_damage.rightTailStructure, integrity);
-            if (g_damage.rightTailStructure <= 0.0)
-                g_damage.rightTail = 0.0;
+        case damage_element_tail_right:
+            g_damage.right_tail_structure = std::min(g_damage.right_tail_structure, integrity);
+            if (g_damage.right_tail_structure <= 0.0)
+                g_damage.right_tail = 0.0;
             return "right tail structure";
-        case kDamageElementWingInnerLeft:
-            g_damage.leftWingInner = std::min(g_damage.leftWingInner, integrity);
-            update_wing_from_sections(g_damage.leftWing, g_damage.leftWingInner, g_damage.leftWingOuter,
-                                      g_damage.leftInnerElevon, g_damage.leftOuterElevon);
+        case damage_element_wing_inner_left:
+            g_damage.left_wing_inner = std::min(g_damage.left_wing_inner, integrity);
+            update_wing_from_sections(g_damage.left_wing, g_damage.left_wing_inner, g_damage.left_wing_outer,
+                                      g_damage.left_inner_elevon, g_damage.left_outer_elevon);
             return "left inner wing";
-        case kDamageElementWingInnerRight:
-            g_damage.rightWingInner = std::min(g_damage.rightWingInner, integrity);
-            update_wing_from_sections(g_damage.rightWing, g_damage.rightWingInner, g_damage.rightWingOuter,
-                                      g_damage.rightInnerElevon, g_damage.rightOuterElevon);
+        case damage_element_wing_inner_right:
+            g_damage.right_wing_inner = std::min(g_damage.right_wing_inner, integrity);
+            update_wing_from_sections(g_damage.right_wing, g_damage.right_wing_inner, g_damage.right_wing_outer,
+                                      g_damage.right_inner_elevon, g_damage.right_outer_elevon);
             return "right inner wing";
-        case kDamageElementWingOuterLeft:
-            g_damage.leftWingOuter = std::min(g_damage.leftWingOuter, integrity);
-            update_wing_from_sections(g_damage.leftWing, g_damage.leftWingInner, g_damage.leftWingOuter,
-                                      g_damage.leftInnerElevon, g_damage.leftOuterElevon);
+        case damage_element_wing_outer_left:
+            g_damage.left_wing_outer = std::min(g_damage.left_wing_outer, integrity);
+            update_wing_from_sections(g_damage.left_wing, g_damage.left_wing_inner, g_damage.left_wing_outer,
+                                      g_damage.left_inner_elevon, g_damage.left_outer_elevon);
             return "left outer wing";
-        case kDamageElementWingOuterRight:
-            g_damage.rightWingOuter = std::min(g_damage.rightWingOuter, integrity);
-            update_wing_from_sections(g_damage.rightWing, g_damage.rightWingInner, g_damage.rightWingOuter,
-                                      g_damage.rightInnerElevon, g_damage.rightOuterElevon);
+        case damage_element_wing_outer_right:
+            g_damage.right_wing_outer = std::min(g_damage.right_wing_outer, integrity);
+            update_wing_from_sections(g_damage.right_wing, g_damage.right_wing_inner, g_damage.right_wing_outer,
+                                      g_damage.right_inner_elevon, g_damage.right_outer_elevon);
             return "right outer wing";
-        case kDamageElementNoseGear:
-            g_damage.noseGear = std::min(g_damage.noseGear, integrity);
+        case damage_element_nose_gear:
+            g_damage.nose_gear = std::min(g_damage.nose_gear, integrity);
             return "nose gear bay";
-        case kDamageElementLeftGear:
-            g_damage.leftGear = std::min(g_damage.leftGear, integrity);
+        case damage_element_left_gear:
+            g_damage.left_gear = std::min(g_damage.left_gear, integrity);
             return "left gear bay";
-        case kDamageElementRightGear:
-            g_damage.rightGear = std::min(g_damage.rightGear, integrity);
+        case damage_element_right_gear:
+            g_damage.right_gear = std::min(g_damage.right_gear, integrity);
             return "right gear bay";
         // DCS applies wheel damage through each suspension's damage_element.
-        case kDamageElementNoseWheel:
-            g_damage.noseWheel = std::min(g_damage.noseWheel, integrity);
+        case damage_element_nose_wheel:
+            g_damage.nose_wheel = std::min(g_damage.nose_wheel, integrity);
             return "nose wheel";
-        case kDamageElementLeftWheel:
-            g_damage.leftWheel = std::min(g_damage.leftWheel, integrity);
+        case damage_element_left_wheel:
+            g_damage.left_wheel = std::min(g_damage.left_wheel, integrity);
             return "left wheel";
-        case kDamageElementRightWheel:
-            g_damage.rightWheel = std::min(g_damage.rightWheel, integrity);
+        case damage_element_right_wheel:
+            g_damage.right_wheel = std::min(g_damage.right_wheel, integrity);
             return "right wheel";
-        case kDamageElementAileronLeft:
-            g_damage.leftOuterElevon = std::min(g_damage.leftOuterElevon, integrity);
+        case damage_element_aileron_left:
+            g_damage.left_outer_elevon = std::min(g_damage.left_outer_elevon, integrity);
             return "left outer elevon";
-        case kDamageElementAileronRight:
-            g_damage.rightOuterElevon = std::min(g_damage.rightOuterElevon, integrity);
+        case damage_element_aileron_right:
+            g_damage.right_outer_elevon = std::min(g_damage.right_outer_elevon, integrity);
             return "right outer elevon";
-        case kDamageElementFlapLeft:
-            g_damage.leftInnerElevon = std::min(g_damage.leftInnerElevon, integrity);
+        case damage_element_flap_left:
+            g_damage.left_inner_elevon = std::min(g_damage.left_inner_elevon, integrity);
             return "left inner elevon";
-        case kDamageElementFlapRight:
-            g_damage.rightInnerElevon = std::min(g_damage.rightInnerElevon, integrity);
+        case damage_element_flap_right:
+            g_damage.right_inner_elevon = std::min(g_damage.right_inner_elevon, integrity);
             return "right inner elevon";
-        case kDamageElementRudderLeft:
-            g_damage.leftTail = std::min(g_damage.leftTail, integrity);
+        case damage_element_rudder_left:
+            g_damage.left_tail = std::min(g_damage.left_tail, integrity);
             return "left ruddervator";
-        case kDamageElementRudderRight:
-            g_damage.rightTail = std::min(g_damage.rightTail, integrity);
+        case damage_element_rudder_right:
+            g_damage.right_tail = std::min(g_damage.right_tail, integrity);
             return "right ruddervator";
         default:
             return "IGNORED(unhandled)";
@@ -223,19 +223,19 @@ const char* apply_damage_for_element(int element, double integrity)
 
 void log_damage_mapping_result(const char* mapped)
 {
-    if (g_damageLog.is_open())
+    if (g_damage_log.is_open())
     {
-        g_damageLog.write("  -> mapped to: %s | State: LW=%.2f RW=%.2f LE=%.2f RE=%.2f LT=%.2f RT=%.2f CP=%.2f\n",
-                          mapped, g_damage.leftWing, g_damage.rightWing, g_damage.leftEngine, g_damage.rightEngine,
-                          g_damage.leftTail, g_damage.rightTail, g_damage.cockpit);
+        g_damage_log.write("  -> mapped to: %s | State: LW=%.2f RW=%.2f LE=%.2f RE=%.2f LT=%.2f RT=%.2f CP=%.2f\n",
+                           mapped, g_damage.left_wing, g_damage.right_wing, g_damage.left_engine, g_damage.right_engine,
+                           g_damage.left_tail, g_damage.right_tail, g_damage.cockpit);
     }
 }
 
 void clear_pending_sim_events()
 {
-    while (!g_simEvents.empty())
+    while (!g_sim_events.empty())
     {
-        g_simEvents.pop();
+        g_sim_events.pop();
     }
 }
 }  // namespace
@@ -243,11 +243,11 @@ void clear_pending_sim_events()
 // Push a fire event into the simulation event queue
 // API layout (wHumanCustomPhysicsAPI.h):
 //   [0] = handle, [1-3] = position XYZ, [4-6] = direction XYZ, [7] = speed, [8] = scale
-void pushFireEvent(int handle, double x, double y, double z)
+void push_fire_event(int handle, double x, double y, double z)
 {
-    if (handle < 0 || handle >= 9 || g_damage.fireActive[handle])
+    if (handle < 0 || handle >= 9 || g_damage.fire_active[handle])
         return;
-    g_damage.fireActive[handle] = true;
+    g_damage.fire_active[handle] = true;
     ed_fm_simulation_event evt = {};
     evt.event_type = ED_FM_EVENT_FIRE;
     evt.event_params[0] = static_cast<float>(handle);  // fire control handle
@@ -259,7 +259,7 @@ void pushFireEvent(int handle, double x, double y, double z)
     evt.event_params[6] = 0.0f;                        // emitter direction Z
     evt.event_params[7] = 5.0f;                        // particle speed
     evt.event_params[8] = 1.0f;                        // scale (>0 = fire on, <=0 = fire off)
-    g_simEvents.push(evt);
+    g_sim_events.push(evt);
 }
 
 void apply_lua_damage_hit()
@@ -269,56 +269,56 @@ void apply_lua_damage_hit()
         return;
     }
 
-    g_damage.leftWing = std::max(0.0, g_damage.leftWing - kLuaDamageDose * kWingDamageDoseScale);
-    g_damage.rightWing = std::max(0.0, g_damage.rightWing - kLuaDamageDose * kWingDamageDoseScale);
-    g_damage.leftEngine = std::max(0.0, g_damage.leftEngine - kLuaDamageDose * kEngineDamageDoseScale);
-    g_damage.rightEngine = std::max(0.0, g_damage.rightEngine - kLuaDamageDose * kEngineDamageDoseScale);
-    g_damage.leftTail = std::max(0.0, g_damage.leftTail - kLuaDamageDose * kTailDamageDoseScale);
-    g_damage.rightTail = std::max(0.0, g_damage.rightTail - kLuaDamageDose * kTailDamageDoseScale);
-    g_damage.cockpit = std::max(0.0, g_damage.cockpit - kLuaDamageDose * kCockpitDamageDoseScale);
+    g_damage.left_wing = std::max(0.0, g_damage.left_wing - lua_damage_dose * wing_damage_dose_scale);
+    g_damage.right_wing = std::max(0.0, g_damage.right_wing - lua_damage_dose * wing_damage_dose_scale);
+    g_damage.left_engine = std::max(0.0, g_damage.left_engine - lua_damage_dose * engine_damage_dose_scale);
+    g_damage.right_engine = std::max(0.0, g_damage.right_engine - lua_damage_dose * engine_damage_dose_scale);
+    g_damage.left_tail = std::max(0.0, g_damage.left_tail - lua_damage_dose * tail_damage_dose_scale);
+    g_damage.right_tail = std::max(0.0, g_damage.right_tail - lua_damage_dose * tail_damage_dose_scale);
+    g_damage.cockpit = std::max(0.0, g_damage.cockpit - lua_damage_dose * cockpit_damage_dose_scale);
 
-    if (g_damage.leftEngine < kFireDamageThreshold)
+    if (g_damage.left_engine < fire_damage_threshold)
     {
-        pushFireEvent(8, -4.45, 0.08, -1.7);
+        push_fire_event(8, -4.45, 0.08, -1.7);
     }
-    if (g_damage.rightEngine < kFireDamageThreshold)
+    if (g_damage.right_engine < fire_damage_threshold)
     {
-        pushFireEvent(7, -4.45, 0.08, 1.7);
+        push_fire_event(7, -4.45, 0.08, 1.7);
     }
 
-    initDamageLog();
-    if (g_damageLog.is_open())
+    init_damage_log();
+    if (g_damage_log.is_open())
     {
-        g_damageLog.write(
+        g_damage_log.write(
             "[LUA_DMG] Hit received! dose=%.2f | LW=%.2f RW=%.2f LE=%.2f RE=%.2f LT=%.2f RT=%.2f CP=%.2f\n",
-            kLuaDamageDose, g_damage.leftWing, g_damage.rightWing, g_damage.leftEngine, g_damage.rightEngine,
-            g_damage.leftTail, g_damage.rightTail, g_damage.cockpit);
+            lua_damage_dose, g_damage.left_wing, g_damage.right_wing, g_damage.left_engine, g_damage.right_engine,
+            g_damage.left_tail, g_damage.right_tail, g_damage.cockpit);
     }
 }
 
 void update_derived_damage_values()
 {
-    g_damage.wingAsymmetry = g_damage.leftWing - g_damage.rightWing;
-    g_damage.totalWingLoss = 1.0 - (g_damage.leftWing + g_damage.rightWing) / 2.0;
-    g_damage.totalTailLoss = 1.0 - (g_damage.leftTail + g_damage.rightTail) / 2.0;
-    g_damage.engineAsymmetry = g_damage.leftEngine - g_damage.rightEngine;
-    const double structuralIntegrity =
-        (g_damage.nose + g_damage.leftFuselage + g_damage.rightFuselage + g_damage.belly + g_damage.leftTailStructure +
-         g_damage.rightTailStructure + g_damage.leftWingInner + g_damage.rightWingInner + g_damage.leftWingOuter +
-         g_damage.rightWingOuter) /
+    g_damage.wing_asymmetry = g_damage.left_wing - g_damage.right_wing;
+    g_damage.total_wing_loss = 1.0 - (g_damage.left_wing + g_damage.right_wing) / 2.0;
+    g_damage.total_tail_loss = 1.0 - (g_damage.left_tail + g_damage.right_tail) / 2.0;
+    g_damage.engine_asymmetry = g_damage.left_engine - g_damage.right_engine;
+    const double structural_integrity =
+        (g_damage.nose + g_damage.left_fuselage + g_damage.right_fuselage + g_damage.belly +
+         g_damage.left_tail_structure + g_damage.right_tail_structure + g_damage.left_wing_inner +
+         g_damage.right_wing_inner + g_damage.left_wing_outer + g_damage.right_wing_outer) /
         10.0;
-    g_damage.structuralDragFactor = 1.0 + kStructuralDragPenalty * (1.0 - structuralIntegrity);
+    g_damage.structural_drag_factor = 1.0 + structural_drag_penalty * (1.0 - structural_integrity);
 }
 
 double get_control_degradation()
 {
-    double controlDegradation = 1.0;
+    double control_degradation = 1.0;
     if (g_damage.cockpit < 0.7)
     {
-        controlDegradation = g_damage.cockpit / 0.7;
+        control_degradation = g_damage.cockpit / 0.7;
     }
 
-    return controlDegradation;
+    return control_degradation;
 }
 
 void reset_damage_and_events()
@@ -327,44 +327,44 @@ void reset_damage_and_events()
     // Explicitly stop existing emitters when DCS repairs/reinitializes the aircraft.
     for (int handle = 0; handle < 9; ++handle)
     {
-        if (g_damage.fireActive[handle])
+        if (g_damage.fire_active[handle])
         {
             ed_fm_simulation_event event = {};
             event.event_type = ED_FM_EVENT_FIRE;
             event.event_params[0] = static_cast<float>(handle);
             event.event_params[8] = 0.0f;
-            g_simEvents.push(event);
+            g_sim_events.push(event);
         }
     }
-    g_damage = F117::DamageState();
+    g_damage = F117::Damage_state();
 }
 
 void log_damage_lifecycle_event(const char* label)
 {
-    initDamageLog();
-    if (g_damageLog.is_open())
+    init_damage_log();
+    if (g_damage_log.is_open())
     {
-        g_damageLog.write("\n*** %s called ***\n", label);
+        g_damage_log.write("\n*** %s called ***\n", label);
     }
 }
 
 void log_simulation_frame(double dt, double acceleration_mps2)
 {
-    static int simFrameCount = 0;
-    simFrameCount++;
-    initDamageLog();
-    if (g_damageLog.is_open())
+    static int sim_frame_count = 0;
+    sim_frame_count++;
+    init_damage_log();
+    if (g_damage_log.is_open())
     {
-        g_damageLogTimer += dt;
-        if (simFrameCount <= 500 || g_damageLogTimer >= 2.0)
+        g_damage_log_timer += dt;
+        if (sim_frame_count <= 500 || g_damage_log_timer >= 2.0)
         {
-            g_damageLogTimer = 0.0;
-            g_damageLog.write(
+            g_damage_log_timer = 0.0;
+            g_damage_log.write(
                 "[SIM] frame=%d invincible=%d | LW=%.2f RW=%.2f LE=%.2f RE=%.2f LT=%.2f RT=%.2f CP=%.2f | "
                 "accel=%.1f events=%d WoW=%d\n",
-                simFrameCount, static_cast<int>(F117::param_class.invincible_value), g_damage.leftWing,
-                g_damage.rightWing, g_damage.leftEngine, g_damage.rightEngine, g_damage.leftTail, g_damage.rightTail,
-                g_damage.cockpit, acceleration_mps2, static_cast<int>(g_simEvents.size()),
+                sim_frame_count, static_cast<int>(F117::param_class.invincible_value), g_damage.left_wing,
+                g_damage.right_wing, g_damage.left_engine, g_damage.right_engine, g_damage.left_tail,
+                g_damage.right_tail, g_damage.cockpit, acceleration_mps2, static_cast<int>(g_sim_events.size()),
                 static_cast<int>(F117::weight_on_wheels));
         }
     }
@@ -373,13 +373,13 @@ void log_simulation_frame(double dt, double acceleration_mps2)
 // DCS calls this to dequeue simulation events (fire, smoke, failures)
 bool ed_fm_pop_simulation_event(ed_fm_simulation_event& out)
 {
-    if (g_simEvents.empty())
+    if (g_sim_events.empty())
         return false;
-    out = g_simEvents.front();
-    g_simEvents.pop();
-    if (g_damageLog.is_open())
+    out = g_sim_events.front();
+    g_sim_events.pop();
+    if (g_damage_log.is_open())
     {
-        g_damageLog.write(
+        g_damage_log.write(
             "ed_fm_pop_simulation_event: type=%u handle=%.0f pos=(%.1f,%.1f,%.1f) dir=(%.1f,%.1f,%.1f) speed=%.1f "
             "scale=%.1f\n",
             out.event_type, out.event_params[0], out.event_params[1], out.event_params[2], out.event_params[3],
@@ -388,18 +388,18 @@ bool ed_fm_pop_simulation_event(ed_fm_simulation_event& out)
     return true;
 }
 
-void ed_fm_on_damage(int element, double remainingIntegrity)
+void ed_fm_on_damage(int element, double remaining_integrity)
 {
-    initDamageLog();
-    log_damage_callback_header(element, remainingIntegrity);
+    init_damage_log();
+    log_damage_callback_header(element, remaining_integrity);
     if (!F117::param_class.invincible_value)
     {
         log_damage_callback_skipped_immortal();
         return;
     }
-    if (!std::isfinite(remainingIntegrity))
+    if (!std::isfinite(remaining_integrity))
         return;
-    const double normalized = damage_integrity_from_dcs(remainingIntegrity);
+    const double normalized = damage_integrity_from_dcs(remaining_integrity);
     log_damage_mapping_result(apply_damage_for_element(element, normalized));
 }
 
@@ -411,24 +411,25 @@ void ed_fm_repair()
 void ed_fm_set_immortal(bool enabled)
 {
     F117::param_class.set_immortal(enabled);
-    initDamageLog();
-    if (g_damageLog.is_open())
+    init_damage_log();
+    if (g_damage_log.is_open())
     {
-        g_damageLog.write("ed_fm_set_immortal called: value=%d -> invincible_value=%d\n", static_cast<int>(enabled),
-                          static_cast<int>(F117::param_class.invincible_value));
+        g_damage_log.write("ed_fm_set_immortal called: value=%d -> invincible_value=%d\n", static_cast<int>(enabled),
+                           static_cast<int>(F117::param_class.invincible_value));
     }
 }
 
 // Returns true when any component has taken damage, triggering the repair process
 bool ed_fm_need_to_be_repaired()
 {
-    return g_damage.leftWing < 1.0 || g_damage.rightWing < 1.0 || g_damage.leftEngine < 1.0 ||
-           g_damage.rightEngine < 1.0 || g_damage.leftTail < 1.0 || g_damage.rightTail < 1.0 ||
-           g_damage.cockpit < 1.0 || g_damage.leftOuterElevon < 1.0 || g_damage.rightOuterElevon < 1.0 ||
-           g_damage.leftInnerElevon < 1.0 || g_damage.rightInnerElevon < 1.0 || g_damage.nose < 1.0 ||
-           g_damage.leftFuselage < 1.0 || g_damage.rightFuselage < 1.0 || g_damage.belly < 1.0 ||
-           g_damage.leftTailStructure < 1.0 || g_damage.rightTailStructure < 1.0 || g_damage.leftWingInner < 1.0 ||
-           g_damage.rightWingInner < 1.0 || g_damage.leftWingOuter < 1.0 || g_damage.rightWingOuter < 1.0 ||
-           g_damage.noseGear < 1.0 || g_damage.leftGear < 1.0 || g_damage.rightGear < 1.0 || g_damage.noseWheel < 1.0 ||
-           g_damage.leftWheel < 1.0 || g_damage.rightWheel < 1.0;
+    return g_damage.left_wing < 1.0 || g_damage.right_wing < 1.0 || g_damage.left_engine < 1.0 ||
+           g_damage.right_engine < 1.0 || g_damage.left_tail < 1.0 || g_damage.right_tail < 1.0 ||
+           g_damage.cockpit < 1.0 || g_damage.left_outer_elevon < 1.0 || g_damage.right_outer_elevon < 1.0 ||
+           g_damage.left_inner_elevon < 1.0 || g_damage.right_inner_elevon < 1.0 || g_damage.nose < 1.0 ||
+           g_damage.left_fuselage < 1.0 || g_damage.right_fuselage < 1.0 || g_damage.belly < 1.0 ||
+           g_damage.left_tail_structure < 1.0 || g_damage.right_tail_structure < 1.0 ||
+           g_damage.left_wing_inner < 1.0 || g_damage.right_wing_inner < 1.0 || g_damage.left_wing_outer < 1.0 ||
+           g_damage.right_wing_outer < 1.0 || g_damage.nose_gear < 1.0 || g_damage.left_gear < 1.0 ||
+           g_damage.right_gear < 1.0 || g_damage.nose_wheel < 1.0 || g_damage.left_wheel < 1.0 ||
+           g_damage.right_wheel < 1.0;
 }

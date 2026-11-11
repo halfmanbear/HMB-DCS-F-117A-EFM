@@ -4,13 +4,13 @@
 #include <cstdarg>
 #include <cstddef>
 
-class LogFile
+class Log_file
 {
 public:
-    LogFile() = default;
-    LogFile(const LogFile&) = delete;
-    LogFile& operator=(const LogFile&) = delete;
-    ~LogFile();
+    Log_file() = default;
+    Log_file(const Log_file&) = delete;
+    Log_file& operator=(const Log_file&) = delete;
+    ~Log_file();
 
     // Opens `path` for appending or truncating. Returns false when the file cannot be opened.
     bool open(const char* path, bool append);

@@ -3,11 +3,11 @@
 // Small math helpers shared by the flight model.
 
 // Standard gravity, m/s^2.
-inline constexpr double kStandardGravity_MPS2 = 9.81;
+inline constexpr double standard_gravity_mps2 = 9.81;
 
 struct Vec3
 {
-    Vec3(double xIn = 0.0, double yIn = 0.0, double zIn = 0.0) : x(xIn), y(yIn), z(zIn)
+    Vec3(double x_in = 0.0, double y_in = 0.0, double z_in = 0.0) : x(x_in), y(y_in), z(z_in)
     {
     }
 

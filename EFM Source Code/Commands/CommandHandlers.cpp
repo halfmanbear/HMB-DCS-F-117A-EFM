@@ -14,119 +14,119 @@
 
 bool handle_roll_command(int command, float value)
 {
-    if (command == trimLeft || command == trimRight)
+    if (command == trim_left || command == trim_right)
     {
-        F117::rollTrim += command == trimLeft ? kRollTrimStep : -kRollTrimStep;
+        F117::roll_trim += command == trim_left ? roll_trim_step : -roll_trim_step;
         return true;
     }
     double demand;
-    if (command == JoystickRoll)
+    if (command == joystick_roll)
         demand = limit(value, -1.0, 1.0);
-    else if (command == RollLeft || command == RollRight)
-        demand = (-value + (command == RollLeft ? -0.025 : 0.025)) / 2.0 * 100.0;
-    else if (command == RollLeftStop || command == RollRightStop)
+    else if (command == roll_left || command == roll_right)
+        demand = (-value + (command == roll_left ? -0.025 : 0.025)) / 2.0 * 100.0;
+    else if (command == roll_left_stop || command == roll_right_stop)
     {
-        F117::FLIGHTCONTROLS::latStickInput = 0;
+        F117::Flight_controls::lat_stick_input = 0;
         return true;
     }
     else
         return false;
     F117::roll_cmd = demand;
-    F117::FLIGHTCONTROLS::latStickInput = demand;
+    F117::Flight_controls::lat_stick_input = demand;
     return true;
 }
 
 bool handle_pitch_command(int command, float value)
 {
-    if (command == trimUp || command == trimDown)
+    if (command == trim_up || command == trim_down)
     {
-        F117::pitchTrim += command == trimUp ? -kPitchTrimStep : kPitchTrimStep;
+        F117::pitch_trim += command == trim_up ? -pitch_trim_step : pitch_trim_step;
         return true;
     }
     double demand;
-    if (command == JoystickPitch)
+    if (command == joystick_pitch)
         demand = limit(-value, -1.0, 1.0);
-    else if (command == PitchUp || command == PitchDown)
-        demand = command == PitchUp ? -1.0 : 1.0;
-    else if (command == PitchUpStop || command == PitchDownStop)
+    else if (command == pitch_up || command == pitch_down)
+        demand = command == pitch_up ? -1.0 : 1.0;
+    else if (command == pitch_up_stop || command == pitch_down_stop)
         demand = 0.0;
     else
         return false;
-    F117::FLIGHTCONTROLS::longStickInput = demand;
+    F117::Flight_controls::long_stick_input = demand;
     return true;
 }
 
 bool handle_yaw_command(int command, float value)
 {
-    if (command == NwsAuthorityOn || command == NwsAuthorityOff)
+    if (command == nws_authority_on || command == nws_authority_off)
     {
-        F117::nwsAuthorityHeld = command == NwsAuthorityOn;
+        F117::nws_authority_held = command == nws_authority_on;
         return true;
     }
-    if (command == ruddertrimLeft || command == ruddertrimRight)
+    if (command == ruddertrim_left || command == ruddertrim_right)
     {
-        F117::yawTrim += command == ruddertrimLeft ? kYawTrimStep : -kYawTrimStep;
+        F117::yaw_trim += command == ruddertrim_left ? yaw_trim_step : -yaw_trim_step;
         return true;
     }
     double demand;
-    if (command == JoystickYaw)
-        demand = -value * (501.0 / (F117::beta_DEG * F117::beta_DEG + 500.0));
+    if (command == joystick_yaw)
+        demand = -value * (501.0 / (F117::beta_deg * F117::beta_deg + 500.0));
     else if (command == rudderleft || command == rudderright)
     {
-        const double magnitude = value + 101.0 / (F117::beta_DEG * F117::beta_DEG + 100.0);
+        const double magnitude = value + 101.0 / (F117::beta_deg * F117::beta_deg + 100.0);
         demand = command == rudderleft ? magnitude : -magnitude;
     }
     else if (command == rudderleftend || command == rudderrightend)
         demand = 0.0;
     else
         return false;
-    F117::pedInput = limit(demand, -1.0, 1.0);
+    F117::ped_input = limit(demand, -1.0, 1.0);
     return true;
 }
 
 bool handle_engine_and_throttle_command(int command, float value)
 {
-    if (command == EnginesOff || command == LeftEngineOff || command == RightEngineOff)
+    if (command == engines_off || command == left_engine_off || command == right_engine_off)
     {
-        if (command != RightEngineOff)
-            g_engineStarts.request_stop(F117::ENGINE_START::LEFT);
-        if (command != LeftEngineOff)
-            g_engineStarts.request_stop(F117::ENGINE_START::RIGHT);
-        F117::engineswitch = g_engineStarts.any_running();
+        if (command != right_engine_off)
+            g_engine_starts.request_stop(F117::Engine_start::left);
+        if (command != left_engine_off)
+            g_engine_starts.request_stop(F117::Engine_start::right);
+        F117::engineswitch = g_engine_starts.any_running();
         if (!F117::engineswitch)
-            F117::throttleInput = 0.0;
+            F117::throttle_input = 0.0;
         return true;
     }
-    if (command == EnginesOn)
+    if (command == engines_on)
     {
-        const double cores[] = {F117::engines[F117::ENGINE_START::LEFT].N2,
-                                F117::engines[F117::ENGINE_START::RIGHT].N2};
-        g_engineStarts.request_both(cores, external_start_air());
+        const double cores[] = {F117::engines[F117::Engine_start::left].n2,
+                                F117::engines[F117::Engine_start::right].n2};
+        g_engine_starts.request_both(cores, external_start_air());
         return true;
     }
-    if (command == LeftEngineOn || command == RightEngineOn)
+    if (command == left_engine_on || command == right_engine_on)
     {
-        const int side = command == LeftEngineOn ? F117::ENGINE_START::LEFT : F117::ENGINE_START::RIGHT;
-        g_engineStarts.request_start(side, F117::engines[side].N2, external_start_air());
+        const int side = command == left_engine_on ? F117::Engine_start::left : F117::Engine_start::right;
+        g_engine_starts.request_start(side, F117::engines[side].n2, external_start_air());
         return true;
     }
-    if (command == JoystickThrottle)
+    if (command == joystick_throttle)
     {
         if (F117::engineswitch)
         {
             const double percent = limit(((-value + 1.0) * 0.5) * 100.0, 0.0, 100.0);
             if (g_autothrottle.accept_axis(percent))
-                F117::throttleInput = percent;
+                F117::throttle_input = percent;
         }
         return true;
     }
-    if (command != ThrottleIncrease && command != ThrottleDecrease)
+    if (command != throttle_increase && command != throttle_decrease)
         return false;
-    if (F117::engineswitch && (command == ThrottleDecrease || F117::internal_fuel >= 5.0))
+    if (F117::engineswitch && (command == throttle_decrease || F117::internal_fuel >= 5.0))
     {
         g_autothrottle.pilot_throttle_step();
-        const double step = command == ThrottleIncrease ? kThrottleStep : -kThrottleStep;
-        F117::throttleInput = limit(F117::throttleInput + step, 0.0, 100.0);
+        const double step = command == throttle_increase ? throttle_step : -throttle_step;
+        F117::throttle_input = limit(F117::throttle_input + step, 0.0, 100.0);
     }
     return true;
 }
@@ -136,92 +136,92 @@ bool handle_actuator_toggle_command(int command)
     switch (command)
     {
         case tailhook:
-            if (F117::ACTUATORS::tailhook.position < kToggleLowThreshold)
+            if (F117::Actuators::tailhook.position < toggle_low_threshold)
             {
                 F117::tailhook_command = 1.0;
             }
-            else if (F117::ACTUATORS::tailhook.position > kToggleHighThreshold)
+            else if (F117::Actuators::tailhook.position > toggle_high_threshold)
             {
                 F117::tailhook_command = 0.0;
             }
             return true;
-        case dragChute:
-            if (F117::ACTUATORS::dragChute.position < kToggleLowThreshold)
+        case drag_chute:
+            if (F117::Actuators::drag_chute.position < toggle_low_threshold)
             {
                 F117::dragchute_command = 1.0;
             }
-            else if (F117::ACTUATORS::dragChute.position > kToggleHighThreshold)
+            else if (F117::Actuators::drag_chute.position > toggle_high_threshold)
             {
                 F117::dragchute_command = 0.0;
             }
             return true;
         case geardown:
-            set_gear_command(kGearCommandDown);
+            set_gear_command(gear_command_down);
             return true;
         case gearup:
-            set_gear_command(kGearCommandUp);
+            set_gear_command(gear_command_up);
             return true;
         case geartoggle:
-            if (F117::ACTUATORS::gear.position > kGearToggleThreshold)
+            if (F117::Actuators::gear.position > gear_toggle_threshold)
             {
-                set_gear_command(kGearCommandUp);
+                set_gear_command(gear_command_up);
             }
-            else if (F117::ACTUATORS::gear.position < kGearToggleThreshold)
+            else if (F117::Actuators::gear.position < gear_toggle_threshold)
             {
-                set_gear_command(kGearCommandDown);
+                set_gear_command(gear_command_down);
             }
             return true;
-        case WheelBrakeOn:
-            F117::rolling_friction = kWheelBrakeOnFriction;
+        case wheel_brake_on:
+            F117::rolling_friction = wheel_brake_on_friction;
             return true;
-        case WheelBrakeOff:
-            F117::rolling_friction = kWheelBrakeOffFriction;
+        case wheel_brake_off:
+            F117::rolling_friction = wheel_brake_off_friction;
             return true;
-        case AirRefuel:
-            F117::airRefuelDoorOpen = !F117::airRefuelDoorOpen;
+        case air_refuel:
+            F117::air_refuel_door_open = !F117::air_refuel_door_open;
             return true;
         case bombay:
-            weapons::reset_weapon_release_sequence();
-            weapons::toggle_all_weapon_bays();
+            Weapons::reset_weapon_release_sequence();
+            Weapons::toggle_all_weapon_bays();
             return true;
-        case bombayOpen:
-            weapons::reset_weapon_release_sequence();
-            for (int bay = 0; bay < F117::kWeaponBayCount; ++bay)
-                weapons::command_weapon_bay_open(bay);
+        case bombay_open:
+            Weapons::reset_weapon_release_sequence();
+            for (int bay = 0; bay < F117::weapon_bay_count; ++bay)
+                Weapons::command_weapon_bay_open(bay);
             return true;
-        case bombayClose:
-            weapons::reset_weapon_release_sequence();
-            for (int bay = 0; bay < F117::kWeaponBayCount; ++bay)
-                weapons::command_weapon_bay_close(bay);
+        case bombay_close:
+            Weapons::reset_weapon_release_sequence();
+            for (int bay = 0; bay < F117::weapon_bay_count; ++bay)
+                Weapons::command_weapon_bay_close(bay);
             return true;
-        case bombaySelected:
-            weapons::reset_weapon_release_sequence();
-            weapons::toggle_weapon_bay(weapons::selected_weapon_bay());
+        case bombay_selected:
+            Weapons::reset_weapon_release_sequence();
+            Weapons::toggle_weapon_bay(Weapons::selected_weapon_bay());
             return true;
-        case bombayLeft:
-            weapons::reset_weapon_release_sequence();
-            weapons::toggle_weapon_bay(0);
+        case bombay_left:
+            Weapons::reset_weapon_release_sequence();
+            Weapons::toggle_weapon_bay(0);
             return true;
-        case bombayRight:
-            weapons::reset_weapon_release_sequence();
-            weapons::toggle_weapon_bay(1);
+        case bombay_right:
+            Weapons::reset_weapon_release_sequence();
+            Weapons::toggle_weapon_bay(1);
             return true;
-        case pickleOn:
-        case weaponReleaseHoldOn:
-            weapons::handle_weapon_release_pressed();
+        case pickle_on:
+        case weapon_release_hold_on:
+            Weapons::handle_weapon_release_pressed();
             return true;
-        case pickleOff:
-        case weaponReleaseHoldOff:
-            weapons::handle_weapon_release_released();
+        case pickle_off:
+        case weapon_release_hold_off:
+            Weapons::handle_weapon_release_released();
             return true;
-        case MasterArmToggle:
+        case master_arm_toggle:
             F117::master_armed = !F117::master_armed;
-            weapons::reset_weapon_release_sequence();  // require fresh consent after changing arm state
+            Weapons::reset_weapon_release_sequence();  // require fresh consent after changing arm state
             return true;
-        case IRADSLaserArmToggle:
+        case irads_laser_arm_toggle:
             F117::laser_armed = !F117::laser_armed;
             return true;
-        case luaDamageHit:
+        case lua_damage_hit:
             apply_lua_damage_hit();
             return true;
     }
@@ -249,7 +249,7 @@ bool handle_autopilot_command(int command)
     {
         g_autothrottle.disconnect_button();
         g_paars.disengage();
-        g_paarsEngagedAutothrottle = false;
+        g_paars_engaged_autothrottle = false;
     }
     return true;
 }
@@ -264,20 +264,20 @@ bool handle_autothrottle_command(int command)
 {
     switch (command)
     {
-        case AutothrottleEngage:  // A/T engage switch
-            g_paarsEngagedAutothrottle = false;
+        case autothrottle_engage:  // A/T engage switch
+            g_paars_engaged_autothrottle = false;
             if (g_autothrottle.engaged())
             {
                 g_autothrottle.disengage();
             }
             else
             {
-                g_autothrottle.engage(F117::calibratedAirspeed_KT, F117::throttleInput, !F117::weight_on_wheels,
+                g_autothrottle.engage(F117::calibrated_airspeed_kt, F117::throttle_input, !F117::weight_on_wheels,
                                       engines_running());
             }
             return true;
-        case AutothrottleDisconnect:  // inboard throttle disengage button
-            g_paarsEngagedAutothrottle = false;
+        case autothrottle_disconnect:  // inboard throttle disengage button
+            g_paars_engaged_autothrottle = false;
             g_autothrottle.disconnect_button();
             return true;
     }
@@ -290,16 +290,16 @@ bool handle_autothrottle_command(int command)
 void release_paars()
 {
     g_paars.disengage();
-    if (g_paarsEngagedAutothrottle)
+    if (g_paars_engaged_autothrottle)
     {
         g_autothrottle.disengage();
-        g_paarsEngagedAutothrottle = false;
+        g_paars_engaged_autothrottle = false;
     }
 }
 
 bool handle_paars_command(int command)
 {
-    if (command != PaarsToggle)  // stick ARS switch
+    if (command != paars_toggle)  // stick ARS switch
     {
         return false;
     }
@@ -307,11 +307,11 @@ bool handle_paars_command(int command)
     {
         release_paars();
     }
-    else if (g_paars.engage(F117::pitch_angle, F117::roll_angle, F117::weight_on_wheels, F117::airRefuelDoorOpen) &&
+    else if (g_paars.engage(F117::pitch_angle, F117::roll_angle, F117::weight_on_wheels, F117::air_refuel_door_open) &&
              !g_autothrottle.engaged())
     {
-        g_paarsEngagedAutothrottle = g_autothrottle.engage(F117::calibratedAirspeed_KT, F117::throttleInput,
-                                                           !F117::weight_on_wheels, engines_running());
+        g_paars_engaged_autothrottle = g_autothrottle.engage(F117::calibrated_airspeed_kt, F117::throttle_input,
+                                                             !F117::weight_on_wheels, engines_running());
     }
     return true;
 }
@@ -319,52 +319,53 @@ bool handle_paars_command(int command)
 void update_paars()
 {
     Paars::Command command{};
-    const bool active = g_paars.update(F117::pitch_angle, F117::roll_angle, F117::rollRate_RPS * F117::radiansToDegrees,
-                                       F117::pitchRate_RPS * F117::radiansToDegrees, F117::gearDown > 0.5,
-                                       F117::weight_on_wheels, F117::airRefuelDoorOpen, &command);
-    if (!active && g_paarsEngagedAutothrottle)
+    const bool active =
+        g_paars.update(F117::pitch_angle, F117::roll_angle, F117::roll_rate_rps * F117::radians_to_degrees,
+                       F117::pitch_rate_rps * F117::radians_to_degrees, F117::gear_down > 0.5, F117::weight_on_wheels,
+                       F117::air_refuel_door_open, &command);
+    if (!active && g_paars_engaged_autothrottle)
     {
         release_paars();
     }
-    F117::FLIGHTCONTROLS::set_recovery_nz_command(active, command.nz);
-    g_paarsRollRateDegS = active ? command.rollRateDegS : 0.0;
+    F117::Flight_controls::set_recovery_nz_command(active, command.nz);
+    g_paars_roll_rate_deg_s = active ? command.roll_rate_deg_s : 0.0;
 
-    double pulloutFt = 0.0;
+    double pullout_ft = 0.0;
     if (active)
     {
         const double speed = sqrt(vx_world * vx_world + vy_world * vy_world + vz_world * vz_world);
-        const double flightPathDeg =
-            speed > 1.0 ? asin(limit(vy_world / speed, -1.0, 1.0)) * F117::radiansToDegrees : 0.0;
-        pulloutFt = Paars::displayed_pullout_altitude_ft(Paars::minimum_pullout_altitude_ft(
-            F117::altitude_m * 3.28084, F117::totalVelocity_MPS, flightPathDeg, F117::roll_angle));
+        const double flight_path_deg =
+            speed > 1.0 ? asin(limit(vy_world / speed, -1.0, 1.0)) * F117::radians_to_degrees : 0.0;
+        pullout_ft = Paars::displayed_pullout_altitude_ft(Paars::minimum_pullout_altitude_ft(
+            F117::altitude_m * 3.28084, F117::total_velocity_mps, flight_path_deg, F117::roll_angle));
     }
-    static void* s_activeParam = nullptr;
-    static void* s_pulloutParam = nullptr;
-    publish_named_param(s_activeParam, "F117_ARS_ACTIVE", active ? 1.0 : 0.0);
-    publish_named_param(s_pulloutParam, "F117_ARS_MIN_ALT", pulloutFt);
+    static void* s_active_param = nullptr;
+    static void* s_pullout_param = nullptr;
+    publish_named_param(s_active_param, "F117_ARS_ACTIVE", active ? 1.0 : 0.0);
+    publish_named_param(s_pullout_param, "F117_ARS_MIN_ALT", pullout_ft);
 }
 
 void update_autothrottle(double dt)
 {
-    F117::calibratedAirspeed_KT = Autothrottle::calibrated_airspeed_kt(
-        F117::totalVelocity_MPS, F117::ambientTemperature_DegK, F117::ambientPressure_PA);
+    F117::calibrated_airspeed_kt = Autothrottle::calibrated_airspeed_kt(
+        F117::total_velocity_mps, F117::ambient_temperature_deg_k, F117::ambient_pressure_pa);
 
     // Air data for the cockpit displays. With wind set, DCS's own true airspeed reads ground speed and its
     // indicated airspeed reads high, so the HUD and gauges use the airspeed this model flies on instead.
-    static void* s_airDataValidParam = nullptr;
-    static void* s_casParam = nullptr;
-    static void* s_tasParam = nullptr;
-    const bool airDataValid = std::isfinite(F117::calibratedAirspeed_KT) && std::isfinite(F117::totalVelocity_MPS);
-    publish_named_param(s_casParam, "F117_CAS_MPS", airDataValid ? F117::calibratedAirspeed_KT / 1.943844 : 0.0);
-    publish_named_param(s_tasParam, "F117_TAS_MPS", airDataValid ? F117::totalVelocity_MPS : 0.0);
-    publish_named_param(s_airDataValidParam, "F117_AIR_DATA_VALID", airDataValid ? 1.0 : 0.0);
-    F117::throttleInput = g_autothrottle.update(dt, F117::calibratedAirspeed_KT, F117::throttleInput,
-                                                !F117::weight_on_wheels, engines_running());
+    static void* s_air_data_valid_param = nullptr;
+    static void* s_cas_param = nullptr;
+    static void* s_tas_param = nullptr;
+    const bool air_data_valid = std::isfinite(F117::calibrated_airspeed_kt) && std::isfinite(F117::total_velocity_mps);
+    publish_named_param(s_cas_param, "F117_CAS_MPS", air_data_valid ? F117::calibrated_airspeed_kt / 1.943844 : 0.0);
+    publish_named_param(s_tas_param, "F117_TAS_MPS", air_data_valid ? F117::total_velocity_mps : 0.0);
+    publish_named_param(s_air_data_valid_param, "F117_AIR_DATA_VALID", air_data_valid ? 1.0 : 0.0);
+    F117::throttle_input = g_autothrottle.update(dt, F117::calibrated_airspeed_kt, F117::throttle_input,
+                                                 !F117::weight_on_wheels, engines_running());
 
-    static void* s_engagedParam = nullptr;
-    static void* s_discParam = nullptr;
-    static void* s_casCommandParam = nullptr;
-    publish_named_param(s_engagedParam, "F117_AT_ENGAGED", g_autothrottle.engaged() ? 1.0 : 0.0);
-    publish_named_param(s_discParam, "F117_AT_DISC", g_autothrottle.disconnect_light() ? 1.0 : 0.0);
-    publish_named_param(s_casCommandParam, "F117_AT_CAS_COMMAND", g_autothrottle.target_cas_kt());
+    static void* s_engaged_param = nullptr;
+    static void* s_disc_param = nullptr;
+    static void* s_cas_command_param = nullptr;
+    publish_named_param(s_engaged_param, "F117_AT_ENGAGED", g_autothrottle.engaged() ? 1.0 : 0.0);
+    publish_named_param(s_disc_param, "F117_AT_DISC", g_autothrottle.disconnect_light() ? 1.0 : 0.0);
+    publish_named_param(s_cas_command_param, "F117_AT_CAS_COMMAND", g_autothrottle.target_cas_kt());
 }

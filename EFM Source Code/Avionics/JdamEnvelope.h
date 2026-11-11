@@ -4,7 +4,7 @@
 // CoreMods/aircraft/AircraftWeaponPack/JDAM.lua. Profiles 0, 1 and 2 are the
 // GBU-31(V)1/B, GBU-31(V)3/B and GBU-32(V)2/B. tests/jdam_envelope_regression.py
 // fails if this copy stops matching the installed DCS definitions.
-namespace JdamEnvelope
+namespace Jdam_envelope
 {
 // clang-format off
 constexpr double speeds[10] = {100, 150, 200, 250, 300, 350, 400, 450, 500, 550};
@@ -153,9 +153,9 @@ constexpr double minimum[3][21][10] = {
 },
 };
 // clang-format on
-inline bool lookup(int profile, double height, double speed, double* outMin, double* outMax)
+inline bool lookup(int profile, double height, double speed, double* out_min, double* out_max)
 {
-    if (!outMin || !outMax || profile < 0 || profile > 2 || !std::isfinite(height) || !std::isfinite(speed) ||
+    if (!out_min || !out_max || profile < 0 || profile > 2 || !std::isfinite(height) || !std::isfinite(speed) ||
         height < heights[0] || height > heights[20] || speed < speeds[0] || speed > speeds[9])
         return false;
     int h = 0;
@@ -172,17 +172,17 @@ inline bool lookup(int profile, double height, double speed, double* outMin, dou
         const double high = grid[h + 1][v] * (1 - b) + grid[h + 1][v + 1] * b;
         return low * (1 - a) + high * a;
     };
-    *outMin = sample(minimum[profile]);
-    *outMax = sample(maximum[profile]);
-    return *outMin > 0.0 && *outMax >= *outMin;
+    *out_min = sample(minimum[profile]);
+    *out_max = sample(maximum[profile]);
+    return *out_min > 0.0 && *out_max >= *out_min;
 }
-}  // namespace JdamEnvelope
+}  // namespace Jdam_envelope
 
 // JSOW release ranges copied from the stock AGM-154A and AGM-154B definitions in
 // CoreMods/aircraft/AircraftWeaponPack/glide_bombs.lua. Table 0 is the AGM-154A, which
 // the AGM-154C shares because it has the same airframe; table 1 is the AGM-154B.
 // tests/jdam_envelope_regression.py fails if this copy stops matching DCS.
-namespace GlideEnvelope
+namespace Glide_envelope
 {
 constexpr double speeds[10] = {100, 150, 200, 250, 300, 350, 400, 450, 500, 550};
 constexpr double heights[18] = {300,  500,  700,  1000,  2000,  3000,  4000,  5000,  6000,
@@ -260,9 +260,9 @@ constexpr double minimum[2][18][10] = {{{0, 0, 7800, 8300, 8800, 9200, 9500, 115
                                         {14000, 15000, 15000, 16000, 16000, 16000, 16000, 16000, 16000, 16000},
                                         {15000, 15000, 15000, 16000, 16000, 16000, 16000, 16000, 16000, 16000},
                                         {15000, 16000, 16000, 16000, 16000, 16000, 16000, 17000, 17000, 18000}}};
-inline bool lookup(int table, double height, double speed, double* outMin, double* outMax)
+inline bool lookup(int table, double height, double speed, double* out_min, double* out_max)
 {
-    if (!outMin || !outMax || table < 0 || table > 1 || !std::isfinite(height) || !std::isfinite(speed) ||
+    if (!out_min || !out_max || table < 0 || table > 1 || !std::isfinite(height) || !std::isfinite(speed) ||
         height < heights[0] || height > heights[17] || speed < speeds[0] || speed > speeds[9])
         return false;
     int h = 0;
@@ -282,8 +282,8 @@ inline bool lookup(int table, double height, double speed, double* outMin, doubl
         const double high = grid[h + 1][v] * (1 - b) + grid[h + 1][v + 1] * b;
         return low * (1 - a) + high * a;
     };
-    *outMin = sample(minimum[table]);
-    *outMax = sample(maximum[table]);
-    return *outMin > 0.0 && *outMax >= *outMin;
+    *out_min = sample(minimum[table]);
+    *out_max = sample(maximum[table]);
+    return *out_min > 0.0 && *out_max >= *out_min;
 }
-}  // namespace GlideEnvelope
+}  // namespace Glide_envelope

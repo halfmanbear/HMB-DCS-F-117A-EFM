@@ -9,19 +9,19 @@
 // entered on the DEP, which is not implemented, so only CAS hold is reachable here.
 namespace Autothrottle
 {
-constexpr double kKnotsPerMps = 1.0 / 0.514444;
-constexpr double kCasMinKt = 140.0;  // DEP keypad entry limits, Figure FO-3
-constexpr double kCasMaxKt = 525.0;
+constexpr double knots_per_mps = 1.0 / 0.514444;
+constexpr double cas_min_kt = 140.0;  // DEP keypad entry limits, Figure FO-3
+constexpr double cas_max_kt = 525.0;
 
 // Simulator choices; the manual gives no values for these.
-constexpr double kServoRatePctPerS = 15.0;  // power lever servo rate
-constexpr double kAxisOverridePct = 5.0;    // axis travel that overpowers an engaged A/T
-constexpr double kAxisPickupPct = 2.0;      // axis travel that takes back a held lever
-constexpr double kProportionalPctPerKt = 2.0;
-constexpr double kIntegralPctPerKtS = 0.25;
-constexpr double kAccelDampingPctPerKtS = 6.0;
-constexpr double kAccelFilterTauS = 0.5;
-constexpr double kIntegrateBandKt = 5.0;  // integrate only near the target speed
+constexpr double servo_rate_pct_per_s = 15.0;  // power lever servo rate
+constexpr double axis_override_pct = 5.0;      // axis travel that overpowers an engaged A/T
+constexpr double axis_pickup_pct = 2.0;        // axis travel that takes back a held lever
+constexpr double proportional_pct_per_kt = 2.0;
+constexpr double integral_pct_per_kt_s = 0.25;
+constexpr double accel_damping_pct_per_kt_s = 6.0;
+constexpr double accel_filter_tau_s = 0.5;
+constexpr double integrate_band_kt = 5.0;  // integrate only near the target speed
 
 // Local clamp so this header needs no <algorithm>.
 inline double clamp_value(double value, double low, double high)
@@ -30,21 +30,22 @@ inline double clamp_value(double value, double low, double high)
 }
 
 // Subsonic pitot relation: CAS from true airspeed and static conditions.
-inline double calibrated_airspeed_kt(double tasMps, double temperatureK, double staticPressurePa)
+inline double calibrated_airspeed_kt(double tas_mps, double temperature_k, double static_pressure_pa)
 {
-    constexpr double kGamma = 1.4;
-    constexpr double kGasConstant = 287.058;
-    constexpr double kSeaLevelPressurePa = 101325.0;
-    constexpr double kSeaLevelSoundMps = 340.294;
-    if (!(tasMps > 0.0) || !(temperatureK > 0.0) || !(staticPressurePa > 0.0))
+    constexpr double gamma = 1.4;
+    constexpr double gas_constant_value = 287.058;
+    constexpr double sea_level_pressure_pa = 101325.0;
+    constexpr double sea_level_sound_mps = 340.294;
+    if (!(tas_mps > 0.0) || !(temperature_k > 0.0) || !(static_pressure_pa > 0.0))
     {
         return 0.0;
     }
-    const double mach = tasMps / std::sqrt(kGamma * kGasConstant * temperatureK);
-    const double impactPressurePa = staticPressurePa * (std::pow(1.0 + 0.2 * mach * mach, 3.5) - 1.0);
-    const double casMps =
-        kSeaLevelSoundMps * std::sqrt(5.0 * (std::pow(impactPressurePa / kSeaLevelPressurePa + 1.0, 2.0 / 7.0) - 1.0));
-    return casMps * kKnotsPerMps;
+    const double mach = tas_mps / std::sqrt(gamma * gas_constant_value * temperature_k);
+    const double impact_pressure_pa = static_pressure_pa * (std::pow(1.0 + 0.2 * mach * mach, 3.5) - 1.0);
+    const double cas_mps =
+        sea_level_sound_mps *
+        std::sqrt(5.0 * (std::pow(impact_pressure_pa / sea_level_pressure_pa + 1.0, 2.0 / 7.0) - 1.0));
+    return cas_mps * knots_per_mps;
 }
 
 class Controller
@@ -56,36 +57,36 @@ public:
     }
     bool disconnect_light() const
     {
-        return disconnectLight_;
+        return disconnect_light_;
     }
     double target_cas_kt() const
     {
-        return targetCasKt_;
+        return target_cas_kt_;
     }
 
     // A/T engage switch. It springs back (returns false) on the ground or with engines stopped.
-    bool engage(double casKt, double throttlePct, bool airborne, bool engineRunning)
+    bool engage(double cas_kt, double throttle_pct, bool airborne, bool engine_running)
     {
-        if (engaged_ || !airborne || !engineRunning || !std::isfinite(casKt) || !std::isfinite(throttlePct))
+        if (engaged_ || !airborne || !engine_running || !std::isfinite(cas_kt) || !std::isfinite(throttle_pct))
         {
             return false;
         }
         engaged_ = true;
-        disconnectLight_ = false;
+        disconnect_light_ = false;
         holding_ = false;
-        targetCasKt_ = clamp_value(casKt, kCasMinKt, kCasMaxKt);
-        leverPct_ = clamp_value(throttlePct, 0.0, 100.0);
-        integralPct_ = leverPct_;
-        accelKtS_ = 0.0;
-        havePreviousCas_ = false;
+        target_cas_kt_ = clamp_value(cas_kt, cas_min_kt, cas_max_kt);
+        lever_pct_ = clamp_value(throttle_pct, 0.0, 100.0);
+        integral_pct_ = lever_pct_;
+        accel_kt_s_ = 0.0;
+        have_previous_cas_ = false;
         return true;
     }
 
-    void select_cas(double casKt)
+    void select_cas(double cas_kt)
     {
-        if (std::isfinite(casKt))
+        if (std::isfinite(cas_kt))
         {
-            targetCasKt_ = clamp_value(casKt, kCasMinKt, kCasMaxKt);
+            target_cas_kt_ = clamp_value(cas_kt, cas_min_kt, cas_max_kt);
         }
     }
 
@@ -95,7 +96,7 @@ public:
         if (engaged_)
         {
             engaged_ = false;
-            disconnectLight_ = true;
+            disconnect_light_ = true;
             holding_ = true;
         }
     }
@@ -110,38 +111,38 @@ public:
         }
         else
         {
-            disconnectLight_ = false;
+            disconnect_light_ = false;
         }
     }
 
     // Physical throttle axis. Returns true when the axis should set the throttle.
     // A fixed axis cannot be driven by the servo, so deliberate travel overpowers
     // an engaged A/T, and a lever held after disengagement waits for axis movement.
-    bool accept_axis(double axisPct)
+    bool accept_axis(double axis_pct)
     {
-        if (!std::isfinite(axisPct))
+        if (!std::isfinite(axis_pct))
         {
             return false;
         }
-        if (!std::isfinite(axisReferencePct_))
+        if (!std::isfinite(axis_reference_pct_))
         {
-            axisReferencePct_ = axisPct;
+            axis_reference_pct_ = axis_pct;
             return !engaged_ && !holding_;
         }
         if (engaged_)
         {
-            if (std::fabs(axisPct - axisReferencePct_) <= kAxisOverridePct)
+            if (std::fabs(axis_pct - axis_reference_pct_) <= axis_override_pct)
             {
                 return false;
             }
             disengage();
         }
-        else if (holding_ && std::fabs(axisPct - axisReferencePct_) <= kAxisPickupPct)
+        else if (holding_ && std::fabs(axis_pct - axis_reference_pct_) <= axis_pickup_pct)
         {
             return false;
         }
         holding_ = false;
-        axisReferencePct_ = axisPct;
+        axis_reference_pct_ = axis_pct;
         return true;
     }
 
@@ -153,44 +154,44 @@ public:
     }
 
     // Returns the throttle command; unchanged when not engaged.
-    double update(double dt, double casKt, double throttlePct, bool airborne, bool engineRunning)
+    double update(double dt, double cas_kt, double throttle_pct, bool airborne, bool engine_running)
     {
         if (!engaged_)
         {
-            return throttlePct;
+            return throttle_pct;
         }
-        if (!airborne || !engineRunning || !std::isfinite(casKt))
+        if (!airborne || !engine_running || !std::isfinite(cas_kt))
         {
             disengage();
-            return throttlePct;
+            return throttle_pct;
         }
         if (!(dt > 0.0))
         {
-            return leverPct_;
+            return lever_pct_;
         }
 
-        if (havePreviousCas_)
+        if (have_previous_cas_)
         {
-            const double rawAccel = (casKt - previousCasKt_) / dt;
-            accelKtS_ += (rawAccel - accelKtS_) * (1.0 - std::exp(-dt / kAccelFilterTauS));
+            const double raw_accel = (cas_kt - previous_cas_kt_) / dt;
+            accel_kt_s_ += (raw_accel - accel_kt_s_) * (1.0 - std::exp(-dt / accel_filter_tau_s));
         }
-        previousCasKt_ = casKt;
-        havePreviousCas_ = true;
+        previous_cas_kt_ = cas_kt;
+        have_previous_cas_ = true;
 
-        const double errorKt = targetCasKt_ - casKt;
-        const double feedbackPct = kProportionalPctPerKt * errorKt - kAccelDampingPctPerKtS * accelKtS_;
-        const double unclampedPct = integralPct_ + feedbackPct;
-        const bool pushingHigh = unclampedPct >= 100.0 && errorKt > 0.0;
-        const bool pushingLow = unclampedPct <= 0.0 && errorKt < 0.0;
-        if (!pushingHigh && !pushingLow && std::fabs(errorKt) < kIntegrateBandKt)
+        const double error_kt = target_cas_kt_ - cas_kt;
+        const double feedback_pct = proportional_pct_per_kt * error_kt - accel_damping_pct_per_kt_s * accel_kt_s_;
+        const double unclamped_pct = integral_pct_ + feedback_pct;
+        const bool pushing_high = unclamped_pct >= 100.0 && error_kt > 0.0;
+        const bool pushing_low = unclamped_pct <= 0.0 && error_kt < 0.0;
+        if (!pushing_high && !pushing_low && std::fabs(error_kt) < integrate_band_kt)
         {
-            integralPct_ = clamp_value(integralPct_ + kIntegralPctPerKtS * errorKt * dt, 0.0, 100.0);
+            integral_pct_ = clamp_value(integral_pct_ + integral_pct_per_kt_s * error_kt * dt, 0.0, 100.0);
         }
 
-        const double desiredPct = clamp_value(integralPct_ + feedbackPct, 0.0, 100.0);
-        const double stepPct = kServoRatePctPerS * dt;
-        leverPct_ = clamp_value(desiredPct, leverPct_ - stepPct, leverPct_ + stepPct);
-        return leverPct_;
+        const double desired_pct = clamp_value(integral_pct_ + feedback_pct, 0.0, 100.0);
+        const double step_pct = servo_rate_pct_per_s * dt;
+        lever_pct_ = clamp_value(desired_pct, lever_pct_ - step_pct, lever_pct_ + step_pct);
+        return lever_pct_;
     }
 
     void reset()
@@ -200,14 +201,14 @@ public:
 
 private:
     bool engaged_ = false;
-    bool disconnectLight_ = false;
+    bool disconnect_light_ = false;
     bool holding_ = false;
-    bool havePreviousCas_ = false;
-    double targetCasKt_ = 0.0;
-    double leverPct_ = 0.0;
-    double integralPct_ = 0.0;
-    double accelKtS_ = 0.0;
-    double previousCasKt_ = 0.0;
-    double axisReferencePct_ = std::numeric_limits<double>::quiet_NaN();
+    bool have_previous_cas_ = false;
+    double target_cas_kt_ = 0.0;
+    double lever_pct_ = 0.0;
+    double integral_pct_ = 0.0;
+    double accel_kt_s_ = 0.0;
+    double previous_cas_kt_ = 0.0;
+    double axis_reference_pct_ = std::numeric_limits<double>::quiet_NaN();
 };
 }  // namespace Autothrottle

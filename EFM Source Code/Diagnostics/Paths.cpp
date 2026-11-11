@@ -8,14 +8,14 @@
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Ole32.lib")
 
-static constexpr size_t kEnvironmentValueBytes = 4096;
+static constexpr size_t environment_value_bytes = 4096;
 
 namespace
 {
 // Value of an environment variable, or an empty string when it is unset or empty.
 std::string read_environment_variable(const char* name)
 {
-    char buffer[kEnvironmentValueBytes];
+    char buffer[environment_value_bytes];
     const DWORD length = GetEnvironmentVariableA(name, buffer, sizeof(buffer));
     if (length == 0 || length >= sizeof(buffer))
     {
@@ -25,15 +25,15 @@ std::string read_environment_variable(const char* name)
 }
 }  // namespace
 
-std::string build_saved_games_dcs_path(const char* dcsFolderName, const char* relativePath)
+std::string build_saved_games_dcs_path(const char* dcs_folder_name, const char* relative_path)
 {
-    const std::string userProfile = read_environment_variable("USERPROFILE");
-    if (userProfile.empty())
+    const std::string user_profile = read_environment_variable("USERPROFILE");
+    if (user_profile.empty())
     {
         return std::string();
     }
 
-    return userProfile + "\\Saved Games\\" + dcsFolderName + "\\" + relativePath;
+    return user_profile + "\\Saved Games\\" + dcs_folder_name + "\\" + relative_path;
 }
 
 namespace
@@ -45,54 +45,54 @@ std::string narrow_from_wide(const std::wstring& wide)
         return std::string();
     }
 
-    const int requiredChars = WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    if (requiredChars <= 1)
+    const int required_chars = WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (required_chars <= 1)
     {
         return std::string();
     }
 
-    std::vector<char> buffer(requiredChars);
-    WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, buffer.data(), requiredChars, nullptr, nullptr);
+    std::vector<char> buffer(required_chars);
+    WideCharToMultiByte(CP_ACP, 0, wide.c_str(), -1, buffer.data(), required_chars, nullptr, nullptr);
     return std::string(buffer.data());
 }
 
 std::string get_saved_games_root_path()
 {
-    const std::string logRootOverride = read_environment_variable("F117_LOG_ROOT");
-    if (!logRootOverride.empty())
+    const std::string log_root_override = read_environment_variable("F117_LOG_ROOT");
+    if (!log_root_override.empty())
     {
-        return logRootOverride;
+        return log_root_override;
     }
 
-    PWSTR savedGamesPath = nullptr;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_SavedGames, KF_FLAG_DEFAULT, nullptr, &savedGamesPath)))
+    PWSTR saved_games_path = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_SavedGames, KF_FLAG_DEFAULT, nullptr, &saved_games_path)))
     {
-        const std::wstring widePath(savedGamesPath);
-        CoTaskMemFree(savedGamesPath);
-        const std::string narrowPath = narrow_from_wide(widePath);
-        if (!narrowPath.empty())
+        const std::wstring wide_path(saved_games_path);
+        CoTaskMemFree(saved_games_path);
+        const std::string narrow_path = narrow_from_wide(wide_path);
+        if (!narrow_path.empty())
         {
-            return narrowPath;
+            return narrow_path;
         }
     }
 
-    const std::string userProfile = read_environment_variable("USERPROFILE");
-    if (!userProfile.empty())
+    const std::string user_profile = read_environment_variable("USERPROFILE");
+    if (!user_profile.empty())
     {
-        return userProfile + "\\Saved Games";
+        return user_profile + "\\Saved Games";
     }
 
     return std::string();
 }
 }  // namespace
 
-std::string build_saved_games_dcs_log_path(const char* dcsFolderName, const char* fileName)
+std::string build_saved_games_dcs_log_path(const char* dcs_folder_name, const char* file_name)
 {
-    const std::string savedGamesRoot = get_saved_games_root_path();
-    if (savedGamesRoot.empty())
+    const std::string saved_games_root = get_saved_games_root_path();
+    if (saved_games_root.empty())
     {
         return std::string();
     }
 
-    return savedGamesRoot + "\\" + dcsFolderName + "\\Logs\\" + fileName;
+    return saved_games_root + "\\" + dcs_folder_name + "\\Logs\\" + file_name;
 }

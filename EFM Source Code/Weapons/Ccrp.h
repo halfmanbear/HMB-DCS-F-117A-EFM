@@ -7,7 +7,7 @@
 
 #include "../EfmMath.h"
 
-namespace weapons
+namespace Weapons
 {
 // How a store decides it is in its release zone.
 //  Jdam      GPS bomb, stock DCS min/max release range table
@@ -16,31 +16,31 @@ namespace weapons
 //  Wcmd      wind-corrected dispenser, wide window around the ballistic impact
 //  Glide     glide weapon (JSOW), stock DCS min/max release range table
 //  Missile*  powered missile, slant range and seeker cone
-enum class StoreKind
+enum class Store_kind
 {
-    Jdam,
-    Lgb,
-    Unguided,
-    Wcmd,
-    Glide,
-    MissileIr,
-    MissileLaser
+    jdam,
+    lgb,
+    unguided,
+    wcmd,
+    glide,
+    missile_ir,
+    missile_laser
 };
 
-struct CcrpStoreModel
+struct Ccrp_store_model
 {
     const char* name;
-    double massKg;
-    double dragCd;
-    double referenceAreaM2;
-    double releaseWindowMeters;
-    double minSpeedMPS;
-    double minDropMeters;
-    StoreKind kind;
-    int envelope;               // JdamEnvelope / GlideEnvelope table, or -1
-    double minRangeMeters;      // missiles only
-    double maxRangeMeters;      // missiles only
-    double seekerHalfAngleRad;  // missiles only
+    double mass_kg;
+    double drag_cd;
+    double reference_area_m2;
+    double release_window_meters;
+    double min_speed_mps;
+    double min_drop_meters;
+    Store_kind kind;
+    int envelope;                  // JdamEnvelope / GlideEnvelope table, or -1
+    double min_range_meters;       // missiles only
+    double max_range_meters;       // missiles only
+    double seeker_half_angle_rad;  // missiles only
 };
 
 // Index = F117_CCRP_PROFILE, set by Cockpit/Scripts/Systems/Weapons.lua classify().
@@ -49,81 +49,81 @@ struct CcrpStoreModel
 // ranges and seeker cones come from the stock AGM-65 definitions. The MK-82 and
 // MK-84 drag coefficients are fitted to impacts measured in DCS from 4500 m at
 // 218 m/s (tools/missions/store_drop_test.py in the mod repo).
-constexpr CcrpStoreModel kCcrpStoreModels[] = {
-    {"GBU-31(V)1/B", 934.0, 0.00264, 0.45, 75.0, 30.0, 10.0, StoreKind::Jdam, 0, 0.0, 0.0, 0.0},
-    {"GBU-31(V)3/B", 981.0, 0.00170, 0.45, 90.0, 30.0, 10.0, StoreKind::Jdam, 1, 0.0, 0.0, 0.0},
-    {"GBU-32(V)2/B", 467.0, 0.00035, 0.30, 65.0, 30.0, 10.0, StoreKind::Jdam, 2, 0.0, 0.0, 0.0},
-    {"GBU-12", 277.0, 0.000413, 0.22, 55.0, 30.0, 10.0, StoreKind::Lgb, -1, 0.0, 0.0, 0.0},
-    {"GBU-27", 991.0, 0.00071, 0.45, 80.0, 30.0, 10.0, StoreKind::Lgb, -1, 0.0, 0.0, 0.0},
-    {"GBU-10", 959.0, 0.00071, 0.45, 80.0, 30.0, 10.0, StoreKind::Lgb, -1, 0.0, 0.0, 0.0},
-    {"MK-82", 228.0, 0.151, 0.0585, 15.0, 30.0, 10.0, StoreKind::Unguided, -1, 0.0, 0.0, 0.0},
-    {"MK-84", 908.0, 0.256, 0.164, 20.0, 30.0, 10.0, StoreKind::Unguided, -1, 0.0, 0.0, 0.0},
-    {"CBU-105", 420.0, 0.55, 0.1233, 150.0, 30.0, 300.0, StoreKind::Wcmd, -1, 0.0, 0.0, 0.0},
-    {"AGM-154A", 485.0, 0.0018, 0.1257, 0.0, 30.0, 300.0, StoreKind::Glide, 0, 0.0, 0.0, 0.0},
-    {"AGM-154B", 485.0, 0.0018, 0.1257, 0.0, 30.0, 300.0, StoreKind::Glide, 1, 0.0, 0.0, 0.0},
-    {"AGM-154C", 484.0, 0.0018, 0.1257, 0.0, 30.0, 300.0, StoreKind::Glide, 0, 0.0, 0.0, 0.0},
-    {"AGM-65D", 218.0, 0.0, 0.073, 0.0, 30.0, 10.0, StoreKind::MissileIr, -1, 500.0, 12964.0, 0.5},
-    {"AGM-65E", 293.0, 0.0, 0.073, 0.0, 30.0, 10.0, StoreKind::MissileLaser, -1, 1000.0, 11112.0, 0.5},
+constexpr Ccrp_store_model ccrp_store_models[] = {
+    {"GBU-31(V)1/B", 934.0, 0.00264, 0.45, 75.0, 30.0, 10.0, Store_kind::jdam, 0, 0.0, 0.0, 0.0},
+    {"GBU-31(V)3/B", 981.0, 0.00170, 0.45, 90.0, 30.0, 10.0, Store_kind::jdam, 1, 0.0, 0.0, 0.0},
+    {"GBU-32(V)2/B", 467.0, 0.00035, 0.30, 65.0, 30.0, 10.0, Store_kind::jdam, 2, 0.0, 0.0, 0.0},
+    {"GBU-12", 277.0, 0.000413, 0.22, 55.0, 30.0, 10.0, Store_kind::lgb, -1, 0.0, 0.0, 0.0},
+    {"GBU-27", 991.0, 0.00071, 0.45, 80.0, 30.0, 10.0, Store_kind::lgb, -1, 0.0, 0.0, 0.0},
+    {"GBU-10", 959.0, 0.00071, 0.45, 80.0, 30.0, 10.0, Store_kind::lgb, -1, 0.0, 0.0, 0.0},
+    {"MK-82", 228.0, 0.151, 0.0585, 15.0, 30.0, 10.0, Store_kind::unguided, -1, 0.0, 0.0, 0.0},
+    {"MK-84", 908.0, 0.256, 0.164, 20.0, 30.0, 10.0, Store_kind::unguided, -1, 0.0, 0.0, 0.0},
+    {"CBU-105", 420.0, 0.55, 0.1233, 150.0, 30.0, 300.0, Store_kind::wcmd, -1, 0.0, 0.0, 0.0},
+    {"AGM-154A", 485.0, 0.0018, 0.1257, 0.0, 30.0, 300.0, Store_kind::glide, 0, 0.0, 0.0, 0.0},
+    {"AGM-154B", 485.0, 0.0018, 0.1257, 0.0, 30.0, 300.0, Store_kind::glide, 1, 0.0, 0.0, 0.0},
+    {"AGM-154C", 484.0, 0.0018, 0.1257, 0.0, 30.0, 300.0, Store_kind::glide, 0, 0.0, 0.0, 0.0},
+    {"AGM-65D", 218.0, 0.0, 0.073, 0.0, 30.0, 10.0, Store_kind::missile_ir, -1, 500.0, 12964.0, 0.5},
+    {"AGM-65E", 293.0, 0.0, 0.073, 0.0, 30.0, 10.0, Store_kind::missile_laser, -1, 1000.0, 11112.0, 0.5},
 };
-constexpr int kCcrpStoreCount = static_cast<int>(sizeof(kCcrpStoreModels) / sizeof(kCcrpStoreModels[0]));
+constexpr int ccrp_store_count = static_cast<int>(sizeof(ccrp_store_models) / sizeof(ccrp_store_models[0]));
 
-constexpr bool store_needs_laser(StoreKind kind)
+constexpr bool store_needs_laser(Store_kind kind)
 {
-    return kind == StoreKind::Lgb || kind == StoreKind::MissileLaser;
+    return kind == Store_kind::lgb || kind == Store_kind::missile_laser;
 }
-constexpr bool store_is_missile(StoreKind kind)
+constexpr bool store_is_missile(Store_kind kind)
 {
-    return kind == StoreKind::MissileIr || kind == StoreKind::MissileLaser;
+    return kind == Store_kind::missile_ir || kind == Store_kind::missile_laser;
 }
 // Bombs whose impact point comes from the ballistic integration below.
-constexpr bool store_falls_ballistic(StoreKind kind)
+constexpr bool store_falls_ballistic(Store_kind kind)
 {
-    return kind != StoreKind::Glide && !store_is_missile(kind);
+    return kind != Store_kind::glide && !store_is_missile(kind);
 }
 
-constexpr double kGravity_MPS2 = 9.81;
-constexpr double kReleaseCueMinSpeedMPS = 30.0;
-constexpr double kReleaseCueMinDropMeters = 10.0;
-constexpr double kAtmosphereScaleHeight_M = 8500.0;
-constexpr double kReleaseIntegrationStepSeconds = 0.02;
-constexpr double kReleaseIntegrationMaxSeconds = 180.0;
-constexpr double kUnguidedMaxCrossTrackMeters = 30.0;  // farther off the line misses the target
-constexpr double kGlideWeaponSpeedMPS = 200.0;         // JSOW mid-glide speed, for the laser/flight timer
-constexpr double kMissileAverageSpeedMPS = 300.0;      // AGM-65 average speed, for the laser/flight timer
+constexpr double gravity_mps2 = 9.81;
+constexpr double release_cue_min_speed_mps = 30.0;
+constexpr double release_cue_min_drop_meters = 10.0;
+constexpr double atmosphere_scale_height_m = 8500.0;
+constexpr double release_integration_step_seconds = 0.02;
+constexpr double release_integration_max_seconds = 180.0;
+constexpr double unguided_max_cross_track_meters = 30.0;  // farther off the line misses the target
+constexpr double glide_weapon_speed_mps = 200.0;          // JSOW mid-glide speed, for the laser/flight timer
+constexpr double missile_average_speed_mps = 300.0;       // AGM-65 average speed, for the laser/flight timer
 
-constexpr double kWeaponBayOpenThreshold = 0.995;
-constexpr double kWeaponBayClosedThreshold = 0.005;
-constexpr double kWeaponBayHoldAfterReleaseSeconds = 1.0;
-constexpr double kWeaponReleaseGateMinHoldSeconds =
-    0.25;                                     // Long enough for cockpit Lua update rates to sample the gate.
-constexpr double kLaserOverrunSeconds = 4.0;  // keep lasing this long past predicted impact
-constexpr char kEfmLaunchActiveParamName[] = "F117_EFM_LAUNCH_ACTIVE";
-constexpr char kLaserArmedParamName[] = "F117_LASER_ARMED";
-constexpr char kLaserFiringParamName[] = "F117_LASER_FIRING";
-constexpr char kWeaponReleaseGateParamName[] = "F117_WEAPON_RELEASE_GATE";
-constexpr char kIRADSLockValidParamName[] = "F117_IRADS_LOCK_VALID";
-constexpr char kIRADSLockWorldXParamName[] = "F117_IRADS_LOCK_X";
-constexpr char kIRADSLockWorldYParamName[] = "F117_IRADS_LOCK_Y";
-constexpr char kIRADSLockWorldZParamName[] = "F117_IRADS_LOCK_Z";
-constexpr char kIRADSLockRangeParamName[] = "F117_IRADS_LOCK_RANGE";
-constexpr char kIRADSLockAzimuthParamName[] = "F117_IRADS_LOCK_AZ";
-constexpr char kIRADSLockElevationParamName[] = "F117_IRADS_LOCK_EL";
-constexpr char kReleaseCueValidParamName[] = "F117_RELEASE_CUE_VALID";
-constexpr char kReleaseCueErrorParamName[] = "F117_RELEASE_CUE_ERROR";
-constexpr char kReleaseCueTimeToGoParamName[] = "F117_RELEASE_CUE_TTG";
-constexpr char kReleaseCueRangeParamName[] = "F117_RELEASE_CUE_RANGE";
-constexpr char kReleaseCueInZoneParamName[] = "F117_RELEASE_CUE_IN_ZONE";
-constexpr char kCcrpProfileParamName[] = "F117_CCRP_PROFILE";
+constexpr double weapon_bay_open_threshold = 0.995;
+constexpr double weapon_bay_closed_threshold = 0.005;
+constexpr double weapon_bay_hold_after_release_seconds = 1.0;
+constexpr double weapon_release_gate_min_hold_seconds =
+    0.25;                                      // Long enough for cockpit Lua update rates to sample the gate.
+constexpr double laser_overrun_seconds = 4.0;  // keep lasing this long past predicted impact
+constexpr char efm_launch_active_param_name[] = "F117_EFM_LAUNCH_ACTIVE";
+constexpr char laser_armed_param_name[] = "F117_LASER_ARMED";
+constexpr char laser_firing_param_name[] = "F117_LASER_FIRING";
+constexpr char weapon_release_gate_param_name[] = "F117_WEAPON_RELEASE_GATE";
+constexpr char irads_lock_valid_param_name[] = "F117_IRADS_LOCK_VALID";
+constexpr char irads_lock_world_x_param_name[] = "F117_IRADS_LOCK_X";
+constexpr char irads_lock_world_y_param_name[] = "F117_IRADS_LOCK_Y";
+constexpr char irads_lock_world_z_param_name[] = "F117_IRADS_LOCK_Z";
+constexpr char irads_lock_range_param_name[] = "F117_IRADS_LOCK_RANGE";
+constexpr char irads_lock_azimuth_param_name[] = "F117_IRADS_LOCK_AZ";
+constexpr char irads_lock_elevation_param_name[] = "F117_IRADS_LOCK_EL";
+constexpr char release_cue_valid_param_name[] = "F117_RELEASE_CUE_VALID";
+constexpr char release_cue_error_param_name[] = "F117_RELEASE_CUE_ERROR";
+constexpr char release_cue_time_to_go_param_name[] = "F117_RELEASE_CUE_TTG";
+constexpr char release_cue_range_param_name[] = "F117_RELEASE_CUE_RANGE";
+constexpr char release_cue_in_zone_param_name[] = "F117_RELEASE_CUE_IN_ZONE";
+constexpr char ccrp_profile_param_name[] = "F117_CCRP_PROFILE";
 
 // Release alignment from the last solution, read by the release sequence.
-extern bool g_releaseAlignmentValid;
-extern double g_releaseMinRange, g_releaseMaxRange;
+extern bool g_release_alignment_valid;
+extern double g_release_min_range, g_release_max_range;
 
 void publish_weapon_release_gate_param();
 int get_ccrp_profile_index();
-const CcrpStoreModel& get_ccrp_profile();
-bool compute_release_solution(double* outErrorMeters, double* outTimeToGoSeconds, double* outRangeMeters,
-                              bool* outInZone);
+const Ccrp_store_model& get_ccrp_profile();
+bool compute_release_solution(double* out_error_meters, double* out_time_to_go_seconds, double* out_range_meters,
+                              bool* out_in_zone);
 void publish_release_cue_params();
 void publish_irads_lock_params();
-}  // namespace weapons
+}  // namespace Weapons

@@ -10,9 +10,9 @@ inputs=dict((name,int(value)) for name,value in re.findall(r'^\s*constexpr int (
 lua=LuaRuntime(); lua.execute((mod/'Cockpit/Scripts/command_defs.lua').read_text(encoding="utf-8-sig"))
 k=lua.globals().Keys; f=lua.globals().f117_commands; h=lua.globals().hotas_commands; fov=lua.globals().irads_fov_commands
 for name,want in [('PanelLight',10140),('BcnLgt',10146),('IRADSZoomIn',10008),('IRADSZoomOut',10009),('MFDOverlayToggle',10010)]: assert k[name]==want,(name,k[name])
-for lua_name,cpp_name in [('WEAPON_RELEASE_ON','weaponReleaseHoldOn'),('WEAPON_RELEASE_OFF','weaponReleaseHoldOff'),('IRADS_DESIGNATION_CLEAR','IRADSDesignationClear'),('IRADS_LASER_ARM_TOGGLE','IRADSLaserArmToggle'),('IRADS_SLEW_HORIZONTAL','IRADSSlewHorizontalAxis'),('IRADS_SLEW_VERTICAL','IRADSSlewVerticalAxis'),('IRADS_ZOOM_AXIS','IRADSZoomAxis')]: assert f[lua_name]==inputs[cpp_name]
-for suffix,cpp_name in [('UP','IRADSSlewUp'),('DOWN','IRADSSlewDown'),('LEFT','IRADSSlewLeft'),('RIGHT','IRADSSlewRight'),('DEPRESS','IRADSSlewStop')]: assert h['THROTTLE_DESIGNATOR_CONTROLLER_'+suffix]==inputs[cpp_name]
-assert k.IRADSZoomIn==inputs['IRADSZoomIn'] and k.IRADSZoomOut==inputs['IRADSZoomOut']
+for lua_name,cpp_name in [('WEAPON_RELEASE_ON','weapon_release_hold_on'),('WEAPON_RELEASE_OFF','weapon_release_hold_off'),('IRADS_DESIGNATION_CLEAR','irads_designation_clear'),('IRADS_LASER_ARM_TOGGLE','irads_laser_arm_toggle'),('IRADS_SLEW_HORIZONTAL','irads_slew_horizontal_axis'),('IRADS_SLEW_VERTICAL','irads_slew_vertical_axis'),('IRADS_ZOOM_AXIS','irads_zoom_axis')]: assert f[lua_name]==inputs[cpp_name]
+for suffix,cpp_name in [('UP','irads_slew_up'),('DOWN','irads_slew_down'),('LEFT','irads_slew_left'),('RIGHT','irads_slew_right'),('DEPRESS','irads_slew_stop')]: assert h['THROTTLE_DESIGNATOR_CONTROLLER_'+suffix]==inputs[cpp_name]
+assert k.IRADSZoomIn==inputs['irads_zoom_in'] and k.IRADSZoomOut==inputs['irads_zoom_out']
 profile_signatures = {}
 for device in ['keyboard','joystick']:
     vm=LuaRuntime(); vm.globals().folder=str(mod/f'Input/F-117-NightHawk/{device}').replace('\\','/')+'/'
@@ -113,12 +113,12 @@ text=load_source('Avionics')
 def function(name):
     return extract(text,name)
 handler=unit_body('Avionics/Interop/InputHandler.cpp')
-reset=function('void ResetIRADSSession(')
-camera=function('bool AimPoseAtWorldPoint(')+'\n'+function('static void* __fastcall IRADSGetCamera(')
-resolver=function('FARPROC ResolveCockpitBaseExport(')
-assert 'GetProcAddress(g_hDLL' not in text, 'Native exports must not be resolved from the EFM module'
+reset=function('void reset_irads_session(')
+camera=function('bool aim_pose_at_world_point(')+'\n'+function('static void* __fastcall irads_get_camera(')
+resolver=function('FARPROC resolve_cockpit_base_export(')
+assert 'GetProcAddress(g_h_dll' not in text, 'Native exports must not be resolved from the EFM module'
 for export in ['set_platform@avPlatform', 'get_camera@ccIndicator', 'fill_camera@avTVSensor']:
-    assert re.search(r'ResolveCockpitBaseExport\(\s*"\?'+re.escape(export), text), export
+    assert re.search(r'resolve_cockpit_base_export\(\s*"\?'+re.escape(export), text), export
 
 preamble=r"""
 #include <cassert>
@@ -136,8 +136,8 @@ void nativeSentinel(){}
 HMODULE GetModuleHandleA(const char* name){assert(std::strcmp(name,"CockpitBase.dll")==0); ++moduleLookups; return cockpitLoaded? &nativeModule:nullptr;}
 FARPROC GetProcAddress(HMODULE module,const char* name){assert(module==&nativeModule); assert(std::strcmp(name,"native-test-export")==0); ++exportLookups; return nativeSentinel;}
 #include "LAYOUT_HEADER"
-using namespace CockpitInterop;
-AvTVSensorLayout* AsSensor(void* p){return static_cast<AvTVSensorLayout*>(p);}
+using namespace Cockpit_interop;
+Av_tv_sensor_layout* as_sensor(void* p){return static_cast<Av_tv_sensor_layout*>(p);}
 #include "INPUT_HEADER"
 alignas(16) static unsigned char sensor[2048]{};
 static unsigned char cameraStorage[0x400]{};
@@ -150,7 +150,7 @@ static void* s_camera_bridge_indicator=nullptr;
 static bool s_irads_power=true;
 static bool s_irads_lock_valid=false;
 bool s_irads_ray_valid=false,s_irads_terrain_pending=false;double s_irads_render_ray[6]{},s_irads_request_ray[6]{};unsigned s_irads_terrain_sequence=0;double s_irads_terrain_wait=0,s_irads_ray_age=1e9;
-static void* g_avTVSensor_instance=sensor;
+static void* g_av_tv_sensor_instance=sensor;
 static float s_irads_horizontal_axis=0, s_irads_vertical_axis=0;
 static float s_irads_analog_horizontal=0, s_irads_analog_vertical=0;
 static float s_irads_keyboard_horizontal=0, s_irads_keyboard_vertical=0;
@@ -158,9 +158,9 @@ static int s_irads_zoom_level=1;
 static bool s_added=true;
 static void* s_our_ind=sensor;
 static double s_irads_lock_world[3]{};
-constexpr size_t kCameraEyeOffset=0x260,kCameraForwardOffset=0x230,kSensorCagedByteOffset=938;
-constexpr unsigned kRenderLogLimit=120,kRenderLogInterval=120;constexpr double kRadToDeg=57.295779513;
-void ResetCameraBridge(){s_camera_bridge_indicator=nullptr;s_our_ind=nullptr;}
+constexpr size_t camera_eye_offset=0x260,camera_forward_offset=0x230,sensor_caged_byte_offset=938;
+constexpr unsigned render_log_limit=120,render_log_interval=120;constexpr double rad_to_deg=57.295779513;
+void reset_camera_bridge(){s_camera_bridge_indicator=nullptr;s_our_ind=nullptr;}
 static int inCalls=0,outCalls=0,stops=0,designations=0,clears=0;
 static double horizontal=0,vertical=0,lastNativeRate=0;
 void left(void*,double v){lastNativeRate=v;horizontal=-v/60.0;}
@@ -170,90 +170,90 @@ void down(void*,double v){lastNativeRate=v;vertical=-v/60.0;}
 void stop(void*){++stops;horizontal=vertical=0;}
 void zoomIn(void*){++inCalls;}
 void zoomOut(void*){++outCalls;}
-void (*g_avTVSensor_slew_left)(void*,double)=left;
-void (*g_avTVSensor_slew_right)(void*,double)=right;
-void (*g_avTVSensor_slew_up)(void*,double)=up;
-void (*g_avTVSensor_slew_down)(void*,double)=down;
-void (*g_avTVSensor_slew_stop)(void*)=stop;
-void (*g_avTVSensor_zoom_in)(void*)=zoomIn;
-void (*g_avTVSensor_zoom_out)(void*)=zoomOut;
-bool (*g_avTVSensor_move_horizontal_abs)(void*,float,float,double)=nullptr;
-bool (*g_avTVSensor_move_vertical_abs)(void*,float,float,double)=nullptr;
-void Log(const char*,...){}
-void Log_(const char*){}
-bool GroundStabilizeIRADS(){++designations;return true;}
-void ClearIRADSLock(){++clears;s_irads_lock_valid=false;s_irads_terrain_pending=false;}
-void (*g_avTVSensor_set_external_designation)(void*,char,char)=nullptr;
+void (*g_av_tv_sensor_slew_left)(void*,double)=left;
+void (*g_av_tv_sensor_slew_right)(void*,double)=right;
+void (*g_av_tv_sensor_slew_up)(void*,double)=up;
+void (*g_av_tv_sensor_slew_down)(void*,double)=down;
+void (*g_av_tv_sensor_slew_stop)(void*)=stop;
+void (*g_av_tv_sensor_zoom_in)(void*)=zoomIn;
+void (*g_av_tv_sensor_zoom_out)(void*)=zoomOut;
+bool (*g_av_tv_sensor_move_horizontal_abs)(void*,float,float,double)=nullptr;
+bool (*g_av_tv_sensor_move_vertical_abs)(void*,float,float,double)=nullptr;
+void log_format(const char*,...){}
+void log_message(const char*){}
+bool ground_stabilize_irads(){++designations;return true;}
+void clear_irads_lock(){++clears;s_irads_lock_valid=false;s_irads_terrain_pending=false;}
+void (*g_av_tv_sensor_set_external_designation)(void*,char,char)=nullptr;
 """
 main=r"""
 int main(){
- assert(ResolveCockpitBaseExport("native-test-export")==nativeSentinel);
- cockpitLoaded=false; assert(ResolveCockpitBaseExport("native-test-export")==nullptr);
+ assert(resolve_cockpit_base_export("native-test-export")==nativeSentinel);
+ cockpitLoaded=false; assert(resolve_cockpit_base_export("native-test-export")==nullptr);
  assert(moduleLookups==2&&exportLookups==1); cockpitLoaded=true;
  puts("PASS: production native resolver uses CockpitBase.dll; missing module avoids export lookup");
- auto* optical=AsSensor(g_avTVSensor_instance); optical->baseFov=0.5235987756;
- int priorClears=clears;s_irads_terrain_pending=true;HandleIRADSCommand(IRADSSlewLeft,1);assert(!s_irads_terrain_pending&&clears==priorClears+1);HandleIRADSCommand(IRADSSlewLeft,0);clears=priorClears;
- assert(HandleIRADSCommand(IRADSZoomIn,0)); assert(s_irads_zoom_level==2&&optical->currentZoom==10&&optical->targetZoom==10);
- HandleIRADSCommand(IRADSZoomIn,1); HandleIRADSCommand(IRADSZoomIn,1);
- assert(s_irads_zoom_level==3&&optical->currentZoom==80);
- HandleIRADSCommand(IRADSZoomOut,0); assert(s_irads_zoom_level==2&&optical->currentZoom==10);
- HandleIRADSCommand(IRADSZoomAxis,-1); assert(s_irads_zoom_level==1&&optical->currentZoom==1.4);
- HandleIRADSCommand(IRADSZoomAxis,-1); assert(optical->targetZoom==1.4);
- HandleIRADSCommand(IRADSZoomAxis,0); assert(s_irads_zoom_level==2&&optical->currentZoom==10);
- HandleIRADSCommand(IRADSZoomAxis,.35f); assert(s_irads_zoom_level==2);
- HandleIRADSCommand(IRADSZoomAxis,.8f); assert(s_irads_zoom_level==3&&optical->currentZoom==80);
- HandleIRADSCommand(IRADSZoomAxis,.35f); assert(s_irads_zoom_level==3);
- HandleIRADSCommand(IRADSZoomAxis,0); assert(optical->currentZoom==10);
+ auto* optical=as_sensor(g_av_tv_sensor_instance); optical->base_fov=0.5235987756;
+ int priorClears=clears;s_irads_terrain_pending=true;handle_irads_command(irads_slew_left,1);assert(!s_irads_terrain_pending&&clears==priorClears+1);handle_irads_command(irads_slew_left,0);clears=priorClears;
+ assert(handle_irads_command(irads_zoom_in,0)); assert(s_irads_zoom_level==2&&optical->current_zoom==10&&optical->target_zoom==10);
+ handle_irads_command(irads_zoom_in,1); handle_irads_command(irads_zoom_in,1);
+ assert(s_irads_zoom_level==3&&optical->current_zoom==80);
+ handle_irads_command(irads_zoom_out,0); assert(s_irads_zoom_level==2&&optical->current_zoom==10);
+ handle_irads_command(irads_zoom_axis,-1); assert(s_irads_zoom_level==1&&optical->current_zoom==1.4);
+ handle_irads_command(irads_zoom_axis,-1); assert(optical->target_zoom==1.4);
+ handle_irads_command(irads_zoom_axis,0); assert(s_irads_zoom_level==2&&optical->current_zoom==10);
+ handle_irads_command(irads_zoom_axis,.35f); assert(s_irads_zoom_level==2);
+ handle_irads_command(irads_zoom_axis,.8f); assert(s_irads_zoom_level==3&&optical->current_zoom==80);
+ handle_irads_command(irads_zoom_axis,.35f); assert(s_irads_zoom_level==3);
+ handle_irads_command(irads_zoom_axis,0); assert(optical->current_zoom==10);
  // Execute the production rendering callback: it must bridge to native fill_camera.
- void* rendered=IRADSGetCamera(nullptr); assert(rendered==cameraStorage&&cameraFills==1);
- HandleIRADSCommand(IRADSZoomAxis,1); IRADSGetCamera(nullptr);
- assert(cameraFills==2&&optical->currentZoom==80);
+ void* rendered=irads_get_camera(nullptr); assert(rendered==cameraStorage&&cameraFills==1);
+ handle_irads_command(irads_zoom_axis,1); irads_get_camera(nullptr);
+ assert(cameraFills==2&&optical->current_zoom==80);
  // Rate follows displayed FOV, including zoom changes while the stick is held.
- HandleIRADSCommand(IRADSZoomAxis,-1);
- HandleIRADSCommand(IRADSSlewHorizontalAxis,.5f); assert(lastNativeRate==30);
- HandleIRADSCommand(IRADSZoomAxis,0); assert(std::abs(lastNativeRate-4.2)<1e-6);
- HandleIRADSCommand(IRADSZoomAxis,1); assert(std::abs(lastNativeRate-.525)<1e-6);
- HandleIRADSCommand(IRADSSlewHorizontalAxis,0);
- HandleIRADSCommand(IRADSZoomAxis,-1);
+ handle_irads_command(irads_zoom_axis,-1);
+ handle_irads_command(irads_slew_horizontal_axis,.5f); assert(lastNativeRate==30);
+ handle_irads_command(irads_zoom_axis,0); assert(std::abs(lastNativeRate-4.2)<1e-6);
+ handle_irads_command(irads_zoom_axis,1); assert(std::abs(lastNativeRate-.525)<1e-6);
+ handle_irads_command(irads_slew_horizontal_axis,0);
+ handle_irads_command(irads_zoom_axis,-1);
  // Legacy axes remain accepted while the profiles use the standard EFM axis range.
- HandleIRADSCommand(20110,.2f); assert(std::abs(horizontal-.2)<1e-6);
- HandleIRADSCommand(IRADSSlewHorizontalAxis,.2f); assert(std::abs(horizontal-.2)<1e-6);
- HandleIRADSCommand(IRADSSlewVerticalAxis,.3f); assert(std::abs(vertical-.3)<1e-6);
- HandleIRADSCommand(IRADSSlewHorizontalAxis,0); assert(horizontal==0&&std::abs(vertical-.3)<1e-6);
- HandleIRADSCommand(IRADSSlewVerticalAxis,.02f); assert(vertical==0);
- HandleIRADSCommand(IRADSSlewHorizontalAxis,-5); assert(horizontal==-1);
- HandleIRADSCommand(IRADSSlewHorizontalAxis,0);
+ handle_irads_command(20110,.2f); assert(std::abs(horizontal-.2)<1e-6);
+ handle_irads_command(irads_slew_horizontal_axis,.2f); assert(std::abs(horizontal-.2)<1e-6);
+ handle_irads_command(irads_slew_vertical_axis,.3f); assert(std::abs(vertical-.3)<1e-6);
+ handle_irads_command(irads_slew_horizontal_axis,0); assert(horizontal==0&&std::abs(vertical-.3)<1e-6);
+ handle_irads_command(irads_slew_vertical_axis,.02f); assert(vertical==0);
+ handle_irads_command(irads_slew_horizontal_axis,-5); assert(horizontal==-1);
+ handle_irads_command(irads_slew_horizontal_axis,0);
  // Native rate is FOV-scaled with proportional axis control; keyboard takes priority.
- HandleIRADSCommand(IRADSSlewHorizontalAxis,.5f); assert(horizontal==.5&&lastNativeRate==30);
- HandleIRADSCommand(IRADSSlewLeft,1); assert(horizontal==-1&&lastNativeRate==60);
- HandleIRADSCommand(IRADSSlewHorizontalAxis,0); assert(horizontal==-1); // center must not cancel key
- HandleIRADSCommand(IRADSSlewHorizontalAxis,.5f); assert(horizontal==-1);
- HandleIRADSCommand(IRADSSlewLeft,0); assert(horizontal==.5); // release returns analog control
- HandleIRADSCommand(IRADSSlewHorizontalAxis,0);
- HandleIRADSCommand(IRADSSlewVerticalAxis,-.5f); assert(vertical==-.5&&lastNativeRate==30);
- HandleIRADSCommand(IRADSSlewUp,1); assert(vertical==1&&lastNativeRate==60);
- HandleIRADSCommand(IRADSSlewVerticalAxis,0); assert(vertical==1);
- HandleIRADSCommand(IRADSSlewUp,0); assert(vertical==0);
- HandleIRADSCommand(2110,.4f); assert(std::abs(horizontal-.4)<1e-6); // prior direct axis alias
- HandleIRADSCommand(IRADSSlewHorizontalAxis,0);
- HandleIRADSCommand(IRADSSlewLeft,1); assert(horizontal==-1);
- HandleIRADSCommand(IRADSSlewUp,1); assert(vertical==1);
- HandleIRADSCommand(IRADSSlewLeft,0); assert(horizontal==0&&vertical==1);
- HandleIRADSCommand(IRADSSlewStop,1); assert(horizontal==0&&vertical==0&&designations==1);
- HandleIRADSCommand(IRADSSlewStop,0); assert(designations==1);
- HandleIRADSCommand(IRADSDesignationClear,0); assert(clears==2);
- assert(!HandleIRADSCommand(IRADSSlewHorizontalAxis,std::numeric_limits<float>::quiet_NaN()));
- assert(!HandleIRADSCommand(IRADSZoomAxis,std::numeric_limits<float>::infinity()));
- assert(!HandleIRADSCommand(10007,1)); // beacon must never operate IRADS
- assert(!HandleIRADSCommand(10010,1)); // overlay is Lua-only
- HandleIRADSCommand(87,0); assert(!s_irads_power);
- assert(!HandleIRADSCommand(IRADSSlewLeft,1));
- HandleIRADSCommand(87,0); assert(s_irads_power&&horizontal==0&&vertical==0);
+ handle_irads_command(irads_slew_horizontal_axis,.5f); assert(horizontal==.5&&lastNativeRate==30);
+ handle_irads_command(irads_slew_left,1); assert(horizontal==-1&&lastNativeRate==60);
+ handle_irads_command(irads_slew_horizontal_axis,0); assert(horizontal==-1); // center must not cancel key
+ handle_irads_command(irads_slew_horizontal_axis,.5f); assert(horizontal==-1);
+ handle_irads_command(irads_slew_left,0); assert(horizontal==.5); // release returns analog control
+ handle_irads_command(irads_slew_horizontal_axis,0);
+ handle_irads_command(irads_slew_vertical_axis,-.5f); assert(vertical==-.5&&lastNativeRate==30);
+ handle_irads_command(irads_slew_up,1); assert(vertical==1&&lastNativeRate==60);
+ handle_irads_command(irads_slew_vertical_axis,0); assert(vertical==1);
+ handle_irads_command(irads_slew_up,0); assert(vertical==0);
+ handle_irads_command(2110,.4f); assert(std::abs(horizontal-.4)<1e-6); // prior direct axis alias
+ handle_irads_command(irads_slew_horizontal_axis,0);
+ handle_irads_command(irads_slew_left,1); assert(horizontal==-1);
+ handle_irads_command(irads_slew_up,1); assert(vertical==1);
+ handle_irads_command(irads_slew_left,0); assert(horizontal==0&&vertical==1);
+ handle_irads_command(irads_slew_stop,1); assert(horizontal==0&&vertical==0&&designations==1);
+ handle_irads_command(irads_slew_stop,0); assert(designations==1);
+ handle_irads_command(irads_designation_clear,0); assert(clears==2);
+ assert(!handle_irads_command(irads_slew_horizontal_axis,std::numeric_limits<float>::quiet_NaN()));
+ assert(!handle_irads_command(irads_zoom_axis,std::numeric_limits<float>::infinity()));
+ assert(!handle_irads_command(10007,1)); // beacon must never operate IRADS
+ assert(!handle_irads_command(10010,1)); // overlay is Lua-only
+ handle_irads_command(87,0); assert(!s_irads_power);
+ assert(!handle_irads_command(irads_slew_left,1));
+ handle_irads_command(87,0); assert(s_irads_power&&horizontal==0&&vertical==0);
  s_irads_ray_valid=true;s_irads_terrain_pending=true;
- ResetIRADSSession(); assert(!s_irads_ray_valid&&!s_irads_terrain_pending); assert(s_irads_zoom_level==1&&s_irads_horizontal_axis==0&&s_irads_vertical_axis==0);
+ reset_irads_session(); assert(!s_irads_ray_valid&&!s_irads_terrain_pending); assert(s_irads_zoom_level==1&&s_irads_horizontal_axis==0&&s_irads_vertical_axis==0);
  assert(s_irads_analog_horizontal==0&&s_irads_analog_vertical==0);
  assert(s_irads_keyboard_horizontal==0&&s_irads_keyboard_vertical==0);
- assert(!HandleIRADSCommand(IRADSZoomIn,0));
+ assert(!handle_irads_command(irads_zoom_in,0));
  puts("PASS: production C++: optical current/target zoom, native render-camera delegation, analog detents/hysteresis, FOV-scaled proportional slew and held-input zoom transitions, centered-axis/keyboard arbitration, deadzone, stop/resume, designation, power, finite input and reset");
 }
 """

@@ -12,42 +12,42 @@ code = r'''
 
 ''' + engine + r'''
 // Both engines alike, sharing one state across simulations as the EFM's engines persist across ticks.
-F117::ENGINE::EngineState g_engine;
+F117::Engine::Engine_state g_engine;
 #include "AT_HEADER"
 using namespace Autothrottle;
 
 // Point-mass F-117 along the flight path; ISA atmosphere and a simple drag polar.
 struct Sim {
-    double altM, tasMps, gammaDeg = 0, throttle = 0, massKg = 23000;
+    double altM, tas_mps, gammaDeg = 0, throttle = 0, mass_kg = 23000;
     double temperature() const { return 288.15 - 0.0065 * altM; }
     double pressure() const { return 101325.0 * std::pow(temperature() / 288.15, 5.2559); }
     double density() const { return pressure() / (287.058 * temperature()); }
-    double mach() const { return tasMps / std::sqrt(1.4 * 287.058 * temperature()); }
-    double cas() const { return calibrated_airspeed_kt(tasMps, temperature(), pressure()); }
+    double mach() const { return tas_mps / std::sqrt(1.4 * 287.058 * temperature()); }
+    double cas() const { return calibrated_airspeed_kt(tas_mps, temperature(), pressure()); }
     void step(double dt) {
-        const double q = 0.5 * density() * tasMps * tasMps, area = 84.8;
-        const double cl = massKg * 9.81 * std::cos(gammaDeg * 3.14159265 / 180) / (q * area);
+        const double q = 0.5 * density() * tas_mps * tas_mps, area = 84.8;
+        const double cl = mass_kg * 9.81 * std::cos(gammaDeg * 3.14159265 / 180) / (q * area);
         const double drag = q * area * (0.020 + 0.194 * cl * cl);
-        const double thrust = 2.0 * F117::ENGINE::engine_dynamics(g_engine, throttle, mach(), altM, dt, true, false);
-        tasMps += ((thrust - drag) / massKg - 9.81 * std::sin(gammaDeg * 3.14159265 / 180)) * dt;
+        const double thrust = 2.0 * F117::Engine::engine_dynamics(g_engine, throttle, mach(), altM, dt, true, false);
+        tas_mps += ((thrust - drag) / mass_kg - 9.81 * std::sin(gammaDeg * 3.14159265 / 180)) * dt;
     }
 };
 
 // Throttle that holds a CAS without the A/T, found by bisection on the settled speed.
-double trim_throttle(double altM, double casKt) {
+double trim_throttle(double altM, double cas_kt) {
     double lo = 0, hi = 100;
     for (int i = 0; i < 40; ++i) {
         Sim s{altM, 0}; double mid = (lo + hi) / 2;
-        s.tasMps = casKt / kKnotsPerMps / std::sqrt(s.density() / 1.225); s.throttle = mid;
+        s.tas_mps = cas_kt / knots_per_mps / std::sqrt(s.density() / 1.225); s.throttle = mid;
         for (int k = 0; k < 6000; ++k) s.step(0.02);
-        (s.cas() > casKt ? hi : lo) = mid;
+        (s.cas() > cas_kt ? hi : lo) = mid;
     }
     return (lo + hi) / 2;
 }
 
-Sim trimmed(double altM, double casKt, Controller& at) {
-    Sim s{altM, 0}; s.throttle = trim_throttle(altM, casKt);
-    s.tasMps = casKt / kKnotsPerMps / std::sqrt(s.density() / 1.225);
+Sim trimmed(double altM, double cas_kt, Controller& at) {
+    Sim s{altM, 0}; s.throttle = trim_throttle(altM, cas_kt);
+    s.tas_mps = cas_kt / knots_per_mps / std::sqrt(s.density() / 1.225);
     for (int k = 0; k < 6000; ++k) s.step(0.02);
     assert(at.engage(s.cas(), s.throttle, true, true));
     return s;
@@ -68,16 +68,16 @@ Run fly(Sim& s, Controller& at, double seconds, double dt = 0.02) {
 int main() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     // CAS: equals TAS at ISA sea level; 300 KCAS is 431.5 KTAS (Mach 0.72) at 25,000 ft.
-    assert(std::fabs(calibrated_airspeed_kt(150, 288.15, 101325) - 150 * kKnotsPerMps) < 0.05);
-    Sim fl250{7620, 431.5 / kKnotsPerMps};
+    assert(std::fabs(calibrated_airspeed_kt(150, 288.15, 101325) - 150 * knots_per_mps) < 0.05);
+    Sim fl250{7620, 431.5 / knots_per_mps};
     assert(std::fabs(fl250.cas() - 300) < 0.5);
     assert(calibrated_airspeed_kt(0, 288.15, 101325) == 0 && calibrated_airspeed_kt(100, 0, 1) == 0);
 
     // Engage switch: refused on the ground or with engines stopped; CAS target clamped to keypad limits.
     Controller at;
     assert(!at.engage(300, 50, false, true) && !at.engage(300, 50, true, false) && !at.engaged());
-    assert(at.engage(100, 40, true, true) && at.target_cas_kt() == kCasMinKt);
-    at.reset(); assert(at.engage(600, 40, true, true) && at.target_cas_kt() == kCasMaxKt);
+    assert(at.engage(100, 40, true, true) && at.target_cas_kt() == cas_min_kt);
+    at.reset(); assert(at.engage(600, 40, true, true) && at.target_cas_kt() == cas_max_kt);
 
     // Disconnect button / paddle: first press disengages and lights A/T DISC, second extinguishes.
     at.disconnect_button(); assert(!at.engaged() && at.disconnect_light());
@@ -119,7 +119,7 @@ int main() {
             alt, upKt, up.maxCas, up.finalCas, down.minCas, down.finalCas, std::max(up.maxLeverRate, down.maxLeverRate));
         assert(up.maxCas < upKt + 5 && std::fabs(up.finalCas - upKt) < 2);
         assert(down.minCas > 265 && std::fabs(down.finalCas - 270) < 2);
-        assert(std::max(up.maxLeverRate, down.maxLeverRate) <= kServoRatePctPerS + 1e-6);
+        assert(std::max(up.maxLeverRate, down.maxLeverRate) <= servo_rate_pct_per_s + 1e-6);
 
         // Unreachable target saturates at MIL without wind-up, and comes off promptly.
         at.select_cas(525); fly(s, at, 60); assert(s.throttle == 100);

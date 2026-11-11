@@ -27,29 +27,38 @@ The flight performance bench lives in the companion aircraft mod repository at `
 
 | Folder | Contents |
 |---|---|
-| `F_117_NightHawk.cpp`, `dllmain.cpp` | ED callback glue and the per-frame sequence. |
-| `FlightModel/` | `State.h`, the shared flight-model state, and `Forces.h` for force and moment accumulation. |
+| `F_117_NightHawk.cpp`, `dllmain.cpp` | The `ed_fm_*` exports (ED callback glue) and the per-frame sequence. |
+| `FlightModel/` | `State.h` (shared flight-model state), `Forces.h`, `AirData` (airspeed, Mach, dynamic pressure) and `ControlLaws` (control-law drive, mixer, actuators, autopilot holds). |
 | `Aero/`, `Aerodynamics/`, `Atmosphere/` | Coefficient assembly, the component aero model and air data. |
 | `Engine/`, `Systems/` | Engine model and start logic; fuel, engine indications, propulsion effectiveness and gear rules. |
-| `FlightControls/`, `Actuators/` | Control laws and surface servos. |
+| `FlightControls/` | Pitch (`Pitch.cpp`), roll (`Roll.cpp`) and yaw (`Yaw.cpp`) laws, tuning constants in `Config.h`, shared state in `Internal.h`, pitch debug CSV in `PitchLog`. |
+| `Actuators/` | Surface, gear and bay servos. |
 | `Commands/` | Pilot command handlers and the autopilot, A/T and PAARS updates. |
 | `Weapons/` | CCRP release model and the bay, pickle and laser sequence. |
 | `Damage/` | Component damage, fire events and the damage debug log. |
 | `Effects/` | Leading-edge vortex visual effect. |
-| `Cockpit/`, `Avionics/` | Named cockpit parameters; IRADS and weapon interop with the DCS cockpit. |
-| `Diagnostics/` | Saved Games path helper. |
+| `Cockpit/` | Named cockpit parameters. |
+| `Avionics/` | Autothrottle, PAARS, JDAM envelope and the weapon interop with the DCS cockpit. |
+| `Avionics/Interop/` | IRADS sensor injection: `Loader` (native exports), `SensorInjection` (start-up), `SensorFrame` (per-frame update), `InputHandler` (pilot input), `LockAndTerrain` (designation), `CameraBridge` (render hook), `Session`, `Log`; shared state in `IradsInternal.h`. |
+| `Diagnostics/` | Saved Games paths, `LogFile` (the only C stdio user) and the engine debug CSV. |
 | `include/` | ED SDK headers, unchanged. |
 
 New source files are registered with `python tools/add_project_file.py "<filter>" <path>...`.
+
+## Code style
+
+The code follows the JSF AV C++ rules in `docs/JSF-AV-rules.pdf`; `docs/JSF-deviations.md` lists the rules it does not follow.
+
+- Format with `.clang-format` (120 columns, no tabs, Allman braces). The SDK headers under `include/` are not formatted.
+- Names follow AV 45-52: functions, variables, constants and enumerators are `lower_snake_case`, types and namespaces are `Capitalized_snake_case`. Exports (`ed_fm_*`, `DllMain`) and the SDK keep their own names. Private data members end with `_`.
 
 ## Checks
 
 ```powershell
 python tests/run_all.py build/tests      # all regression tests; set F117_MOD_DIR for the four mod-dependent ones
-python tools/check_jsf.py --files        # JSF AV rule counts
+python tools/check_jsf.py --files        # greppable JSF AV rules (casts, stdio, tabs, line length, ...)
 pwsh tools/check_exports.ps1             # ed_fm_* exports against build/refactor-baseline/exports.txt
+python tools/make_compile_commands.py    # then: clang-tidy -p build --header-filter="EFM Source Code" <file>  (naming check)
 ```
-
-`docs/JSF-deviations.md` lists the JSF AV rules the project does not follow and why.
 
 See `LICENSE` for the current licensing status and the retained historical notice.

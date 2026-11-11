@@ -5,120 +5,120 @@
 #include <cstring>
 #include <malloc.h>
 
-namespace CockpitInterop
+namespace Cockpit_interop
 {
 // Native call position used by the sensor bridge.
-static constexpr size_t kVtableSlotSetPos = 4;  // sets the sensor's local mount position
+static constexpr size_t vtable_slot_set_pos = 4;  // sets the sensor's local mount position
 
 // Zoom presets are 1.4 / 10 / 80; the sensor starts at the widest.
-static constexpr double kInitialZoom = 1.4;
+static constexpr double initial_zoom = 1.4;
 
 // Set the standalone sensor mount through avPlatform.
-static void SetCameraPosition(void* sensor)
+static void set_camera_position(void* sensor)
 {
     double mat[16] = {1.0,         0.0,         0.0,         0.0,  // right axis (body X)
                       0.0,         1.0,         0.0,         0.0,  // up axis    (body Y)
                       0.0,         0.0,         1.0,         0.0,  // fwd axis   (body Z)
-                      IRADS_POS_X, IRADS_POS_Y, IRADS_POS_Z, 1.0};
+                      irads_pos_x, irads_pos_y, irads_pos_z, 1.0};
 
-    using SetPosFn = void(__fastcall*)(void*, double*);
+    using Set_pos_fn = void(__fastcall*)(void*, double*);
     uintptr_t* vtbl = *reinterpret_cast<uintptr_t**>(sensor);
-    auto fn = reinterpret_cast<SetPosFn>(vtbl[kVtableSlotSetPos]);
+    auto fn = reinterpret_cast<Set_pos_fn>(vtbl[vtable_slot_set_pos]);
     fn(sensor, mat);
 
-    Log("SetCameraPosition: vtable[4] called, pos=(%.2f, %.2f, %.2f)", IRADS_POS_X, IRADS_POS_Y, IRADS_POS_Z);
+    log_format("SetCameraPosition: vtable[4] called, pos=(%.2f, %.2f, %.2f)", irads_pos_x, irads_pos_y, irads_pos_z);
 }
 
 // -- Phase A ---------------------------------------------------------------
 
-bool InjectIRADSSensor_Early()
+bool inject_irads_sensor_early()
 {
-    Log_("InjectIRADSSensor_Early: called");
+    log_message("InjectIRADSSensor_Early: called");
     if (s_added)
     {
-        Log_("InjectIRADSSensor_Early: already done.");
+        log_message("InjectIRADSSensor_Early: already done.");
         return true;
     }
-    if (!Initialize())
+    if (!initialize())
         return false;
 
-    CcCockpitContextLayout* ctx = AsContext(*g_contexts_ptr_addr);
-    Log("InjectIRADSSensor_Early: contexts_ptr value = %p", static_cast<void*>(ctx));
+    Cc_cockpit_context_layout* ctx = as_context(*g_contexts_ptr_addr);
+    log_format("InjectIRADSSensor_Early: contexts_ptr value = %p", static_cast<void*>(ctx));
     if (!ctx)
     {
-        Log_("InjectIRADSSensor_Early: context NULL - too early, will retry in Late.");
+        log_message("InjectIRADSSensor_Early: context NULL - too early, will retry in Late.");
         return false;
     }
 
     // -- Construct avTVSensor ----------------------------------------------
-    if (!g_avTVSensor_instance)
+    if (!g_av_tv_sensor_instance)
     {
-        void* mem = _aligned_malloc(AVTVSENSOR_ALLOC_SIZE, 16);
+        void* mem = _aligned_malloc(avtvsensor_alloc_size, 16);
         if (!mem)
         {
-            Log_("InjectIRADSSensor_Early: alloc failed.");
+            log_message("InjectIRADSSensor_Early: alloc failed.");
             return false;
         }
-        memset(mem, 0, AVTVSENSOR_ALLOC_SIZE);
+        memset(mem, 0, avtvsensor_alloc_size);
 
-        void* result = g_avTVSensor_ctor(mem);
+        void* result = g_av_tv_sensor_ctor(mem);
         if (!result)
         {
-            Log_("InjectIRADSSensor_Early: ctor returned null.");
+            log_message("InjectIRADSSensor_Early: ctor returned null.");
             _aligned_free(mem);
             return false;
         }
 
-        using SetPlatform = void(__fastcall*)(void*, void*);
-        const auto setPlatform =
-            reinterpret_cast<SetPlatform>(ResolveCockpitBaseExport("?set_platform@avPlatform@cockpit@@UEAAXPEAV12@@Z"));
-        if (!setPlatform)
+        using Set_platform = void(__fastcall*)(void*, void*);
+        const auto set_platform = reinterpret_cast<Set_platform>(
+            resolve_cockpit_base_export("?set_platform@avPlatform@cockpit@@UEAAXPEAV12@@Z"));
+        if (!set_platform)
         {
-            Log_("IRADS: set_platform missing; initialization stopped");
+            log_message("IRADS: set_platform missing; initialization stopped");
             return false;
         }
-        setPlatform(mem, nullptr);  // native null-parent path establishes root=self
-        g_avTVSensor_instance = mem;
-        Log("InjectIRADSSensor_Early: avTVSensor constructed @ %p", mem);
+        set_platform(mem, nullptr);  // native null-parent path establishes root=self
+        g_av_tv_sensor_instance = mem;
+        log_format("InjectIRADSSensor_Early: avTVSensor constructed @ %p", mem);
     }
 
     s_added = true;
-    Log_("InjectIRADSSensor_Early: done.");
+    log_message("InjectIRADSSensor_Early: done.");
     return true;
 }
 
 // -- Phase B ---------------------------------------------------------------
 
-static double displayed_fov_deg(const AvTVSensorLayout* sensor)
+static double displayed_fov_deg(const Av_tv_sensor_layout* sensor)
 {
-    return (sensor->currentZoom > 0.001 ? sensor->baseFov / sensor->currentZoom : 0.0) * kRadToDeg;
+    return (sensor->current_zoom > 0.001 ? sensor->base_fov / sensor->current_zoom : 0.0) * rad_to_deg;
 }
 
 // This is a standalone avBasicSensor; initialize it directly, never through avDevice::start
 // or the cockpit device keeper.
-static void initialize_standalone_sensor(AvTVSensorLayout* sensor)
+static void initialize_standalone_sensor(Av_tv_sensor_layout* sensor)
 {
-    uint8_t activeFlag = sensor->activeFlag;
-    Log("InjectIRADSSensor_Late: sensor+%zu (active flag) = %d", offsetof(AvTVSensorLayout, activeFlag),
-        static_cast<int>(activeFlag));
+    uint8_t active_flag = sensor->active_flag;
+    log_format("InjectIRADSSensor_Late: sensor+%zu (active flag) = %d", offsetof(Av_tv_sensor_layout, active_flag),
+               static_cast<int>(active_flag));
 
-    if (activeFlag != 0)
+    if (active_flag != 0)
     {
-        Log_("InjectIRADSSensor_Late: standalone sensor already initialized.");
+        log_message("InjectIRADSSensor_Late: standalone sensor already initialized.");
         return;
     }
-    if (!g_avTVSensor_initialize)
+    if (!g_av_tv_sensor_initialize)
     {
-        Log_("InjectIRADSSensor_Late: native initialize export missing; sensor unavailable");
+        log_message("InjectIRADSSensor_Late: native initialize export missing; sensor unavailable");
         return;
     }
-    Log_("InjectIRADSSensor_Late: initializing standalone sensor.");
-    g_avTVSensor_initialize(g_avTVSensor_instance);
-    activeFlag = sensor->activeFlag;
-    Log("InjectIRADSSensor_Late: after explicit initialize(), active flag = %d", static_cast<int>(activeFlag));
-    if (activeFlag == 0)
-        Log_("InjectIRADSSensor_Late: WARNING - initialize() ran but flag still 0 "
-             "(SearchTimer alloc may have failed inside initialize)");
+    log_message("InjectIRADSSensor_Late: initializing standalone sensor.");
+    g_av_tv_sensor_initialize(g_av_tv_sensor_instance);
+    active_flag = sensor->active_flag;
+    log_format("InjectIRADSSensor_Late: after explicit initialize(), active flag = %d", static_cast<int>(active_flag));
+    if (active_flag == 0)
+        log_message("InjectIRADSSensor_Late: WARNING - initialize() ran but flag still 0 "
+                    "(SearchTimer alloc may have failed inside initialize)");
 }
 
 // cockpit::avTVSensor::preffered_IR_effect is an exported static, so resolve it by name so it
@@ -127,34 +127,35 @@ static void initialize_standalone_sensor(AvTVSensorLayout* sensor)
 // indicator draw call.
 static void select_flir_render_pass()
 {
-    int* effect = reinterpret_cast<int*>(ResolveCockpitBaseExport("?preffered_IR_effect@avTVSensor@cockpit@@2HA"));
+    int* effect = reinterpret_cast<int*>(resolve_cockpit_base_export("?preffered_IR_effect@avTVSensor@cockpit@@2HA"));
     if (!effect)
     {
-        Log_("InjectIRADSSensor_Late: WARNING - preffered_IR_effect export not found; skipping FLIR static write");
+        log_message(
+            "InjectIRADSSensor_Late: WARNING - preffered_IR_effect export not found; skipping FLIR static write");
         return;
     }
-    *effect = IR_SCREEN_CONDITION_FLIR;
-    Log("InjectIRADSSensor_Late: preffered_IR_effect@%p set to %d", static_cast<void*>(effect),
-        IR_SCREEN_CONDITION_FLIR);
+    *effect = ir_screen_condition_flir;
+    log_format("InjectIRADSSensor_Late: preffered_IR_effect@%p set to %d", static_cast<void*>(effect),
+               ir_screen_condition_flir);
 }
 
 // Zoom is motor-driven and has its own preset list. Initialize the native zoom motor, then
 // the caller sets both current and target for the 1.4/10/80 presets.
-static void initialize_zoom(AvTVSensorLayout* sensor)
+static void initialize_zoom(Av_tv_sensor_layout* sensor)
 {
-    Log("InjectIRADSSensor_Late: camera params before fix: "
-        "fov_base=%.4f zoom=%.4f aspect=%.4f  (displayed_fov=%.1f deg)",
-        sensor->baseFov, sensor->currentZoom, sensor->aspectRatio, displayed_fov_deg(sensor));
-    if (g_avTVSensor_initZoom)
+    log_format("InjectIRADSSensor_Late: camera params before fix: "
+               "fov_base=%.4f zoom=%.4f aspect=%.4f  (displayed_fov=%.1f deg)",
+               sensor->base_fov, sensor->current_zoom, sensor->aspect_ratio, displayed_fov_deg(sensor));
+    if (g_av_tv_sensor_init_zoom)
     {
-        g_avTVSensor_initZoom(g_avTVSensor_instance);
-        Log("InjectIRADSSensor_Late: initZoom() ran -> displayed FOV = %.1f deg", displayed_fov_deg(sensor));
+        g_av_tv_sensor_init_zoom(g_av_tv_sensor_instance);
+        log_format("InjectIRADSSensor_Late: initZoom() ran -> displayed FOV = %.1f deg", displayed_fov_deg(sensor));
     }
     else
     {
-        sensor->currentZoom = 1.0;
-        Log("InjectIRADSSensor_Late: initZoom missing, fallback zoom reset to 1.0 -> displayed FOV = %.1f deg",
-            sensor->baseFov * kRadToDeg);
+        sensor->current_zoom = 1.0;
+        log_format("InjectIRADSSensor_Late: initZoom missing, fallback zoom reset to 1.0 -> displayed FOV = %.1f deg",
+                   sensor->base_fov * rad_to_deg);
     }
 }
 
@@ -164,77 +165,78 @@ static size_t pointer_span(void** begin, void** end)
 }
 
 // Logs the indicator state that decides whether the DLIR camera feed renders.
-static void log_context_indicators(const char* label, CcCockpitContextLayout* context)
+static void log_context_indicators(const char* label, Cc_cockpit_context_layout* context)
 {
     if (!context)
     {
-        Log("InjectIRADSSensor_Late: %s ctx is NULL", label);
+        log_format("InjectIRADSSensor_Late: %s ctx is NULL", label);
         return;
     }
-    Log("InjectIRADSSensor_Late: %s ctx=%p indicators [%p .. %p] count=%zu children=%zu", label,
-        static_cast<void*>(context), static_cast<void*>(context->indicators.begin),
-        static_cast<void*>(context->indicators.end), pointer_span(context->indicators.begin, context->indicators.end),
-        pointer_span(context->childContexts.begin, context->childContexts.end));
+    log_format("InjectIRADSSensor_Late: %s ctx=%p indicators [%p .. %p] count=%zu children=%zu", label,
+               static_cast<void*>(context), static_cast<void*>(context->indicators.begin),
+               static_cast<void*>(context->indicators.end),
+               pointer_span(context->indicators.begin, context->indicators.end),
+               pointer_span(context->child_contexts.begin, context->child_contexts.end));
 }
 
-bool InjectIRADSSensor_Late()
+bool inject_irads_sensor_late()
 {
-    Log_("InjectIRADSSensor_Late: called");
-    if (!Initialize())
+    log_message("InjectIRADSSensor_Late: called");
+    if (!initialize())
         return false;
 
     // Retry Early if DllMain ran before the cockpit context existed.
     if (!s_added)
     {
-        Log_("InjectIRADSSensor_Late: Early not done - retrying now.");
-        if (!InjectIRADSSensor_Early())
+        log_message("InjectIRADSSensor_Late: Early not done - retrying now.");
+        if (!inject_irads_sensor_early())
         {
-            Log_("InjectIRADSSensor_Late: Early retry failed - cannot proceed.");
+            log_message("InjectIRADSSensor_Late: Early retry failed - cannot proceed.");
             return false;
         }
     }
 
-    CcCockpitContextLayout* ctx = GetGlobalContext();
-    CcCockpitContextLayout* bindingCtx = GetBindingContext();
-    Log("InjectIRADSSensor_Late: global ctx=%p  binding ctx=%p", static_cast<void*>(ctx),
-        static_cast<void*>(bindingCtx));
-    if (!ctx && !bindingCtx)
+    Cc_cockpit_context_layout* ctx = get_global_context();
+    Cc_cockpit_context_layout* binding_ctx = get_binding_context();
+    log_format("InjectIRADSSensor_Late: global ctx=%p  binding ctx=%p", static_cast<void*>(ctx),
+               static_cast<void*>(binding_ctx));
+    if (!ctx && !binding_ctx)
     {
-        Log_("InjectIRADSSensor_Late: no cockpit context.");
+        log_message("InjectIRADSSensor_Late: no cockpit context.");
         return false;
     }
     if (!ctx)
-        ctx = bindingCtx;
+        ctx = binding_ctx;
 
-    if (!g_avTVSensor_instance)
+    if (!g_av_tv_sensor_instance)
     {
-        Log_("InjectIRADSSensor_Late: no sensor instance!");
+        log_message("InjectIRADSSensor_Late: no sensor instance!");
         return false;
     }
-    AvTVSensorLayout* sensor = AsSensor(g_avTVSensor_instance);
+    Av_tv_sensor_layout* sensor = as_sensor(g_av_tv_sensor_instance);
 
     initialize_standalone_sensor(sensor);
 
     // initialize() leaves the sensor caged; clear it so manual gimbal control is available
     // from mission start.
     uncage_sensor();
-    Log_("InjectIRADSSensor_Late: sensor uncaged (cage flag cleared)");
+    log_message("InjectIRADSSensor_Late: sensor uncaged (cage flag cleared)");
 
     // initialize() has no modelled position for this sensor station, so it uses a default.
     // Override with the F-117A DLIR belly position. Safe to repeat: it overwrites the result.
-    Log_("InjectIRADSSensor_Late: setting IRADS camera mount position.");
-    SetCameraPosition(g_avTVSensor_instance);
+    log_message("InjectIRADSSensor_Late: setting IRADS camera mount position.");
+    set_camera_position(g_av_tv_sensor_instance);
 
     select_flir_render_pass();
     initialize_zoom(sensor);
 
     log_context_indicators("global", ctx);
-    if (bindingCtx != ctx)
-        log_context_indicators("binding", bindingCtx);
+    if (binding_ctx != ctx)
+        log_context_indicators("binding", binding_ctx);
 
-    sensor->currentZoom = kInitialZoom;
-    sensor->targetZoom = kInitialZoom;
-    Log_("InjectIRADSSensor_Late: done.");
+    sensor->current_zoom = initial_zoom;
+    sensor->target_zoom = initial_zoom;
+    log_message("InjectIRADSSensor_Late: done.");
     return true;
 }
-}  // namespace CockpitInterop
+}  // namespace Cockpit_interop

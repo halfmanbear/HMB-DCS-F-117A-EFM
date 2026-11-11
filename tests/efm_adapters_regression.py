@@ -41,15 +41,15 @@ code = r'''
 
 Vec3 common_force, common_moment, center_of_gravity, inertia, wind_world_cs;
 namespace F117 {
-double weight_N=0, internal_fuel=0, fuel_mass_in_dcs=0;
-double altitude_m=0, ambientPressure_PA=0, ambientDensity_KgPerM3=0, ambientTemperature_DegK=0;
+double weight_n=0, internal_fuel=0, fuel_mass_in_dcs=0;
+double altitude_m=0, ambient_pressure_pa=0, ambient_density_kg_per_m3=0, ambient_temperature_deg_k=0;
 bool altitude_valid=false;
 int alt_hold=0,horiz_hold=0,altroll_hold=0;
 }
 using namespace F117;
 struct Throttle { int disconnects=0; void disconnect_button(){++disconnects;} } g_autothrottle;
 struct Recovery { int disconnects=0; void disengage(){++disconnects;} } g_paars;
-bool g_paarsEngagedAutothrottle=true;
+bool g_paars_engaged_autothrottle=true;
 '''
 for name in ['void add_local_force(', 'void add_local_moment(', 'void ed_fm_add_local_force(',
              'void ed_fm_add_local_moment(', 'void ed_fm_add_global_force(', 'void ed_fm_add_global_moment(',
@@ -75,16 +75,16 @@ static bool readString(const void*,char* buffer,unsigned capacity){
 }
 int main() {
     // Command values form a wire contract with saved input bindings.
-    static_assert(JoystickPitch==2001 && JoystickRoll==2002 && JoystickYaw==2003 && throttleAxis==2004, "axes");
-    static_assert(bombay==10100 && weaponReleaseHoldOn==10103 && weaponReleaseHoldOff==10104, "delivery");
-    static_assert(bombaySelected==10130 && bombayLeft==10131 && bombayRight==10132, "individual bays");
-    static_assert(IRADSZoomIn==10008 && IRADSZoomOut==10009 && IRADSZoomAxis==10121, "IRADS");
-    static_assert(AutothrottleEngage==10125 && NwsAuthorityOff==10129, "automatic controls");
+    static_assert(joystick_pitch==2001 && joystick_roll==2002 && joystick_yaw==2003 && throttle_axis==2004, "axes");
+    static_assert(bombay==10100 && weapon_release_hold_on==10103 && weapon_release_hold_off==10104, "delivery");
+    static_assert(bombay_selected==10130 && bombay_left==10131 && bombay_right==10132, "individual bays");
+    static_assert(irads_zoom_in==10008 && irads_zoom_out==10009 && irads_zoom_axis==10121, "IRADS");
+    static_assert(autothrottle_engage==10125 && nws_authority_off==10129, "automatic controls");
 
     ed_fm_set_current_mass_state(20000,1,2,3,40000,260000,225000);
     assert(center_of_gravity.x==1 && center_of_gravity.y==2 && center_of_gravity.z==3);
     assert(inertia.x==40000 && inertia.y==260000 && inertia.z==225000);
-    assert(weight_N==20000*9.98665002864);
+    assert(weight_n==20000*9.98665002864);
     add_local_force({10,20,30});add_local_force({-1,2,-3});
     add_local_moment({4,5,6});add_local_moment({1,-2,3});
     double x,y,z,px,py,pz;
@@ -95,11 +95,11 @@ int main() {
     x=y=z=99;ed_fm_add_global_moment(x,y,z);assert(x==0&&y==0&&z==0);
 
     ed_fm_set_atmosphere(1000,280,335,1.1,90000,10,-2,3);
-    assert(altitude_valid&&altitude_m==1000&&ambientTemperature_DegK==280&&ambientDensity_KgPerM3==1.1);
-    assert(ambientPressure_PA==90000&&wind_world_cs.x==10&&wind_world_cs.y==-2&&wind_world_cs.z==3);
+    assert(altitude_valid&&altitude_m==1000&&ambient_temperature_deg_k==280&&ambient_density_kg_per_m3==1.1);
+    assert(ambient_pressure_pa==90000&&wind_world_cs.x==10&&wind_world_cs.y==-2&&wind_world_cs.z==3);
     ed_fm_set_atmosphere(std::numeric_limits<double>::quiet_NaN(),280,335,1.1,90000,0,0,0);
     assert(!altitude_valid);
-    double air[2];ATMOS::atmos(288.15,1.225,200,air);
+    double air[2];Atmos::atmos(288.15,1.225,200,air);
     assert(std::abs(air[0]-24500)<1e-9&&std::abs(air[1]-200/std::sqrt(1.4*287.058*288.15))<1e-12);
 
     ed_fm_set_internal_fuel(123);assert(ed_fm_get_internal_fuel()==123);
@@ -116,9 +116,9 @@ int main() {
     assert(handle_autopilot_command(autopilot_horiz)&&horiz_hold==1&&!alt_hold);
     assert(handle_autopilot_command(autopilot_alt_roll)&&altroll_hold==1&&!horiz_hold);
     assert(handle_autopilot_command(autopilot_reset)&&!alt_hold&&!horiz_hold&&!altroll_hold);
-    assert(g_autothrottle.disconnects==1&&g_paars.disconnects==1&&!g_paarsEngagedAutothrottle);
+    assert(g_autothrottle.disconnects==1&&g_paars.disconnects==1&&!g_paars_engaged_autothrottle);
 
-    param_stuff options;
+    Param_stuff options;
     assert(options.fuelvalue&&options.invincible_value);
     options.set_unlimited_fuel(true);options.set_immortal(true);
     assert(!options.fuelvalue&&!options.invincible_value);

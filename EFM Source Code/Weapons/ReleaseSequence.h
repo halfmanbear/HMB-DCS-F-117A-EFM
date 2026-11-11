@@ -2,7 +2,7 @@
 
 // Weapon bay doors, the pickle and release gate sequence, and the laser designator.
 
-namespace weapons
+namespace Weapons
 {
 void command_weapon_bay_open(int bay);
 void command_weapon_bay_close(int bay);
@@ -18,4 +18,4 @@ bool weapon_bay_valid(int bay);
 bool weapon_bay_is_open(int bay);
 bool weapon_bay_is_closed(int bay);
 void update_laser(double dt);
-}  // namespace weapons
+}  // namespace Weapons
