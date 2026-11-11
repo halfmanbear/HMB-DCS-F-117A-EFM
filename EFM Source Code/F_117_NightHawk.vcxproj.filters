@@ -15,6 +15,7 @@
     <ClCompile Include="Weapons/ReleaseSequence.cpp"><Filter>Flight model\Weapons</Filter></ClCompile>
     <ClCompile Include="Aero/AeroAssembly.cpp"><Filter>Flight model\Aero</Filter></ClCompile>
     <ClCompile Include="Systems/Propulsion.cpp"><Filter>Flight model\Systems</Filter></ClCompile>
+    <ClCompile Include="Systems/Gear.cpp"><Filter>Flight model\Systems</Filter></ClCompile>
     <ClInclude Include="Actuators/Actuators.h"><Filter>Flight model\Actuators</Filter></ClInclude>
     <ClInclude Include="Aerodynamics/AeroModel.h"><Filter>Flight model\Aerodynamics</Filter></ClInclude>
     <ClInclude Include="Atmosphere/Atmosphere.h"><Filter>Flight model\Atmosphere</Filter></ClInclude>
@@ -49,6 +50,7 @@
     <ClInclude Include="Aero/AeroAssembly.h"><Filter>Flight model\Aero</Filter></ClInclude>
     <ClInclude Include="FlightModel/Forces.h"><Filter>Flight model\State</Filter></ClInclude>
     <ClInclude Include="Systems/Propulsion.h"><Filter>Flight model\Systems</Filter></ClInclude>
+    <ClInclude Include="Systems/Gear.h"><Filter>Flight model\Systems</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Flight model"><UniqueIdentifier>{D9B8AD70-751F-576C-9EDF-491D8778187B}</UniqueIdentifier></Filter>

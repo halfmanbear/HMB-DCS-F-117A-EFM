@@ -21,6 +21,7 @@
 #include "Cockpit/ParamBridge.h" // Named cockpit parameters
 #include "Aero/AeroAssembly.h" // Aero coefficients and forces
 #include "Systems/Propulsion.h" // Fuel, engine indications, propulsion
+#include "Systems/Gear.h" // Gear command and weight on wheels
 #include "FlightModel/Forces.h" // Force and moment accumulation
 #include "Weapons/Ccrp.h" // Release solution and cues
 #include "Weapons/ReleaseSequence.h" // Bays, pickle and laser
@@ -47,10 +48,6 @@ namespace
 {
 
 
-    constexpr double kGearCommandDown = 1.0;
-    constexpr double kGearCommandUp = 0.0;
-    constexpr double kGearToggleThreshold = 0.5;
-    constexpr double kWeightOnWheelsDrawArgThreshold = 0.5;
 
     constexpr double kRollTrimStep = 0.02;
     constexpr double kPitchTrimStep = 0.05;
@@ -104,38 +101,9 @@ namespace
     constexpr double kDefaultFlowVelocity = 100.0;
 
 
-    bool gear_retraction_blocked()
-    {
-        return F117::weight_on_wheels || F117::wow_from_draw_args;
-    }
 
-    double clamp_gear_command_for_weight_on_wheels(double requestedCommand)
-    {
-        if (gear_retraction_blocked() && requestedCommand < kGearCommandDown)
-        {
-            return kGearCommandDown;
-        }
 
-        return requestedCommand;
-    }
 
-    void set_gear_command(double requestedCommand)
-    {
-        F117::GearCommand = clamp_gear_command_for_weight_on_wheels(requestedCommand);
-    }
-
-    // Weight on wheels is wheel contact only: a compressed strut reported by DCS, or the strut draw args. Lift below
-    // weight is not a test for it, because that is also true in the air with the gear down, through the whole climb
-    // after takeoff, and it held the gear handle down there.
-    void update_weight_on_wheels()
-    {
-        const bool suspensionWeightOnWheels = F117::suspension_wow[0] || F117::suspension_wow[1] || F117::suspension_wow[2];
-        F117::weight_on_wheels = F117::wow_from_draw_args || suspensionWeightOnWheels;
-        if (F117::weight_on_wheels)
-        {
-            F117::GearCommand = kGearCommandDown;
-        }
-    }
 }
 
 
