@@ -13,6 +13,8 @@ src = repo / 'EFM Source Code'
 out = Path(sys.argv[1]).resolve()
 out.mkdir(parents=True, exist_ok=True)
 source = load_source()
+lerx_unit = '\n'.join(line for line in load_source('Effects/LerxVortex.cpp').splitlines()
+                      if not line.startswith('#include'))
 api = (src / 'include/FM/wHumanCustomPhysicsAPI.h').read_text(encoding='utf-8-sig', errors='replace')
 
 
@@ -40,7 +42,7 @@ namespace F117 {
 double DeltaTime=0,alpha_DEG=0,beta_DEG=0,totalVelocity_MPS=0,ambientDensity_KgPerM3=1.225,altitude_m=0;
 bool weight_on_wheels=false;
 }
-""" + structs + extract(source, 'bool ed_fm_LERX_vortex_update(unsigned idx, LERX_vortex& out)')[:-1] + r"""
+""" + structs + lerx_unit + r"""
 
 const float kNoseX=10.02f,kLength=19.43f,kApexX=9.95f,kSemispan=0.418f,kTipX=-6.3f,kTeX=-7.0f;
 

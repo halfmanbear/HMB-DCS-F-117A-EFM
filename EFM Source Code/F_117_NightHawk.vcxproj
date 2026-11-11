@@ -80,6 +80,7 @@
     <ClCompile Include="F_117_NightHawk.cpp" />
     <ClCompile Include="FlightControls\FlightControls.cpp" />
     <ClCompile Include="stdafx.cpp"><PrecompiledHeader>Create</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Effects/LerxVortex.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Actuators/Actuators.h" />

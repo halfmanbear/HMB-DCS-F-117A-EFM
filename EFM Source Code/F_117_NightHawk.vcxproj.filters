@@ -7,6 +7,7 @@
     <ClCompile Include="F_117_NightHawk.cpp"><Filter>Flight model</Filter></ClCompile>
     <ClCompile Include="FlightControls\FlightControls.cpp"><Filter>Flight model\FlightControls</Filter></ClCompile>
     <ClCompile Include="stdafx.cpp"><Filter>Flight model</Filter></ClCompile>
+    <ClCompile Include="Effects/LerxVortex.cpp"><Filter>Flight model\Effects</Filter></ClCompile>
     <ClInclude Include="Actuators/Actuators.h"><Filter>Flight model\Actuators</Filter></ClInclude>
     <ClInclude Include="Aerodynamics/AeroModel.h"><Filter>Flight model\Aerodynamics</Filter></ClInclude>
     <ClInclude Include="Atmosphere/Atmosphere.h"><Filter>Flight model\Atmosphere</Filter></ClInclude>
@@ -47,5 +48,6 @@
     <Filter Include="SDK\include\Cockpit"><UniqueIdentifier>{4D6481AE-5678-55A9-97CD-C9BCBBD34C3B}</UniqueIdentifier></Filter>
     <Filter Include="SDK\include\FM"><UniqueIdentifier>{2BCBCC9A-D704-5227-AE92-697DC8BBC770}</UniqueIdentifier></Filter>
     <Filter Include="Flight model\State"><UniqueIdentifier>{7625FC72-8BC2-49B6-8CB6-84792D4B2D76}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Effects"><UniqueIdentifier>{849519AD-2B4F-4ABF-B1FB-8DB8EEB68B83}</UniqueIdentifier></Filter>
   </ItemGroup>
 </Project>
