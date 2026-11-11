@@ -5,6 +5,9 @@
 
 #include "../EfmMath.h"
 #include "../Engine/Engine.h"
+#include "../Avionics/Autothrottle.h"
+#include "../Avionics/Paars.h"
+#include "../Engine/EngineStart.h"
 #include "../param_functions.h"
 #include "../include/Cockpit/CockpitAPI_Declare.h"
 
@@ -149,3 +152,10 @@ inline double az_world{};
 inline double vx_world{};
 inline double vy_world{};
 inline double vz_world{};
+
+// Controllers and session flags shared across the control, propulsion and command units.
+inline Autothrottle::Controller g_autothrottle;
+inline Paars::Controller g_paars;
+inline F117::ENGINE_START::Starts g_engineStarts;
+inline bool g_paarsEngagedAutothrottle = false; // PAARS moved the power levers by engaging A/T
+inline double g_paarsRollRateDegS = 0.0;

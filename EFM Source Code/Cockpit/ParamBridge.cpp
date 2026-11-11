@@ -42,3 +42,17 @@ bool read_named_param(void*& handle, const char* name, double& value)
     value = F117::cockpitAPI.getParamNumber(handle);
     return true;
 }
+
+// Start air for the air turbine starters from the APU or an external air cart. Crossbleed from a running
+// engine is handled by ENGINE_START::Starts. The mod's Systems/Electrical.lua owns both: F117_APU_STATE 2 is
+// the APU running at normal output pressure, and F117_GROUND_AIR 1 is an air cart connected.
+bool external_start_air()
+{
+    static void* s_apuStateParam = nullptr;
+    static void* s_groundAirParam = nullptr;
+    double apu = 0.0;
+    double cart = 0.0;
+    const bool apuAir = read_named_param(s_apuStateParam, "F117_APU_STATE", apu) && apu > 1.5;
+    const bool cartAir = read_named_param(s_groundAirParam, "F117_GROUND_AIR", cart) && cart > 0.5;
+    return apuAir || cartAir;
+}
