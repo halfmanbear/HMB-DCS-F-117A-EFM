@@ -36,11 +36,34 @@ def load_source(*subdirs):
 
 
 def extract(text, signature, opener='{'):
-    """Return text from `signature` through the matching close brace."""
-    start = text.index(signature)
-    end = text.index(opener, start) + 1
+    """Return text from `signature` through the matching close brace.
+
+    A forward declaration (the signature followed by ';' before any '{') is skipped,
+    so the definition is found even when a header declares the same function.
+    """
+    pos = 0
+    while True:
+        start = text.index(signature, pos)
+        brace = text.index(opener, start)
+        semicolon = text.find(';', start)
+        if semicolon == -1 or semicolon > brace:
+            break
+        pos = start + 1
+    end = brace + 1
     depth = 1
     while depth:
         depth += (text[end] == '{') - (text[end] == '}')
         end += 1
     return text[start:end]
+
+
+def unit_body(*subdirs, keep_namespace=True):
+    """Source of the given files without #include lines (and optionally without the
+    outer 'namespace X { ... }' wrapper), for compiling a whole unit inside a test harness."""
+    import re
+    lines = load_source(*subdirs).splitlines()
+    text = '\n'.join(line for line in lines if not line.startswith('#include'))
+    if not keep_namespace:
+        text = re.sub(r'^namespace \w+\s*\{', '', text, count=1, flags=re.M)
+        text = re.sub(r'^\} // namespace \w+', '', text, count=1, flags=re.M)
+    return text

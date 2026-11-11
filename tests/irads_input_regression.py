@@ -1,7 +1,7 @@
 from pathlib import Path
 import re, subprocess, sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.sources import load_source  # noqa: E402
+from lib.sources import load_source, extract, unit_body  # noqa: E402
 from lupa.lua51 import LuaRuntime
 repo=Path(__file__).resolve().parents[1]
 src=repo/'EFM Source Code'
@@ -111,14 +111,11 @@ print('PASS: MFD Lua 5.1 syntax; deployed page parses; LAS uses EFM arm state')
 # Compile the actual production command handler with sensor-call mocks.
 text=load_source('Avionics')
 def function(name):
-    start=text.index('    '+name); brace=text.index('{',start); depth=1; end=brace+1
-    while depth:
-        depth+=(text[end]=='{')-(text[end]=='}'); end+=1
-    return text[start:end]
-handler=function('bool HandleIRADSCommand(')
+    return extract(text,name)
+handler=unit_body('Avionics/Interop/InputHandler.cpp')
 reset=function('void ResetIRADSSession(')
-camera=function('static bool AimPoseAtWorldPoint(')+'\n'+function('static void* __fastcall IRADSGetCamera(')
-resolver=function('static FARPROC ResolveCockpitBaseExport(')
+camera=function('bool AimPoseAtWorldPoint(')+'\n'+function('static void* __fastcall IRADSGetCamera(')
+resolver=function('FARPROC ResolveCockpitBaseExport(')
 assert 'GetProcAddress(g_hDLL' not in text, 'Native exports must not be resolved from the EFM module'
 for export in ['set_platform@avPlatform', 'get_camera@ccIndicator', 'fill_camera@avTVSensor']:
     assert re.search(r'ResolveCockpitBaseExport\(\s*"\?'+re.escape(export), text), export
@@ -158,9 +155,12 @@ static float s_irads_horizontal_axis=0, s_irads_vertical_axis=0;
 static float s_irads_analog_horizontal=0, s_irads_analog_vertical=0;
 static float s_irads_keyboard_horizontal=0, s_irads_keyboard_vertical=0;
 static int s_irads_zoom_level=1;
-static bool s_irads_designating=false, s_added=true, s_started=true, s_carrier_set=true;
+static bool s_added=true;
 static void* s_our_ind=sensor;
-static double s_irads_lock_world[3]{},s_irads_lock_polar[3]{};
+static double s_irads_lock_world[3]{};
+constexpr size_t kCameraEyeOffset=0x260,kCameraForwardOffset=0x230,kSensorCagedByteOffset=938;
+constexpr unsigned kRenderLogLimit=120,kRenderLogInterval=120;constexpr double kRadToDeg=57.295779513;
+void ResetCameraBridge(){s_camera_bridge_indicator=nullptr;s_our_ind=nullptr;}
 static int inCalls=0,outCalls=0,stops=0,designations=0,clears=0;
 static double horizontal=0,vertical=0,lastNativeRate=0;
 void left(void*,double v){lastNativeRate=v;horizontal=-v/60.0;}
@@ -182,9 +182,8 @@ bool (*g_avTVSensor_move_vertical_abs)(void*,float,float,double)=nullptr;
 void Log(const char*,...){}
 void Log_(const char*){}
 bool GroundStabilizeIRADS(){++designations;return true;}
-bool TryCaptureIRADSLock(){return true;}
 void ClearIRADSLock(){++clears;s_irads_lock_valid=false;s_irads_terrain_pending=false;}
-void SetExternalDesignation(bool){}
+void (*g_avTVSensor_set_external_designation)(void*,char,char)=nullptr;
 """
 main=r"""
 int main(){

@@ -1,7 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
   <ItemGroup>
-    <ClCompile Include="Avionics\CockpitBase_Interop.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
     <ClCompile Include="Avionics\Weapons_Interop.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
     <ClCompile Include="dllmain.cpp"><Filter>Flight model</Filter></ClCompile>
     <ClCompile Include="F_117_NightHawk.cpp"><Filter>Flight model</Filter></ClCompile>
@@ -17,6 +16,14 @@
     <ClCompile Include="Systems/Propulsion.cpp"><Filter>Flight model\Systems</Filter></ClCompile>
     <ClCompile Include="Systems/Gear.cpp"><Filter>Flight model\Systems</Filter></ClCompile>
     <ClCompile Include="Commands/CommandHandlers.cpp"><Filter>Flight model\Commands</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/Log.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/Loader.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/SensorInjection.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/SensorFrame.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/InputHandler.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/LockAndTerrain.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/CameraBridge.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/Session.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
     <ClInclude Include="Actuators/Actuators.h"><Filter>Flight model\Actuators</Filter></ClInclude>
     <ClInclude Include="Aerodynamics/AeroModel.h"><Filter>Flight model\Aerodynamics</Filter></ClInclude>
     <ClInclude Include="Atmosphere/Atmosphere.h"><Filter>Flight model\Atmosphere</Filter></ClInclude>
@@ -53,6 +60,7 @@
     <ClInclude Include="Systems/Propulsion.h"><Filter>Flight model\Systems</Filter></ClInclude>
     <ClInclude Include="Systems/Gear.h"><Filter>Flight model\Systems</Filter></ClInclude>
     <ClInclude Include="Commands/CommandHandlers.h"><Filter>Flight model\Commands</Filter></ClInclude>
+    <ClInclude Include="Avionics/Interop/IradsInternal.h"><Filter>Flight model\Avionics</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Flight model"><UniqueIdentifier>{D9B8AD70-751F-576C-9EDF-491D8778187B}</UniqueIdentifier></Filter>

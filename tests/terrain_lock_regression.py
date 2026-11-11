@@ -1,7 +1,7 @@
 from pathlib import Path
 import math, subprocess, sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.sources import load_source  # noqa: E402
+from lib.sources import load_source, unit_body  # noqa: E402
 from lupa.lua51 import LuaRuntime
 
 repo=Path(__file__).resolve().parents[1]
@@ -45,12 +45,9 @@ vm.globals().fail=True;params['F117_TERRAIN_REQUEST']=8;module['update']()
 assert params['F117_TERRAIN_ACK']==8 and params['F117_TERRAIN_HIT']==0
 print('PASS Lua: real terrain trace, flat/sloped/ridge terrain, both headings, no-hit/invalid input; payload before ACK, duplicate suppression and failed query clears HIT')
 
-src=load_source('Avionics')
+lock_unit=unit_body('Avionics/Interop/LockAndTerrain.cpp',keep_namespace=False)
 fm=load_source()
-def extract(text,signature):
-    start=text.index(signature);i=text.index('{',start)+1;depth=1
-    while depth:depth+=(text[i]=='{')-(text[i]=='}');i+=1
-    return text[start:i]
+from lib.sources import extract
 code=r'''
 #include <cassert>
 #include <cmath>
@@ -62,13 +59,14 @@ code=r'''
 namespace CockpitInterop {
 AvTVSensorLayout sensor{};void* g_avTVSensor_instance=&sensor;
 AvTVSensorLayout* AsSensor(void* p){return static_cast<AvTVSensorLayout*>(p);}
-bool s_irads_power=true,s_irads_ray_valid=true,s_irads_terrain_pending=false,s_irads_lock_valid=false,s_irads_designating=false,s_require_fresh_point=false;
+bool s_irads_power=true,s_irads_ray_valid=true,s_irads_terrain_pending=false,s_irads_lock_valid=false;
 double s_irads_render_ray[6]={0,1000,0,1,-1,0},s_irads_request_ray[6]{},s_irads_terrain_wait=0;
 unsigned s_irads_terrain_sequence=0;
-double s_irads_lock_world[3]{},s_irads_lock_polar[3]{},s_last_aircraft_pos[3]{};
+double s_irads_lock_world[3]{},s_last_aircraft_pos[3]{},s_irads_ray_age=1e9;
+constexpr double kIRADSRayMaxAge=0.5;
 void Log(const char*,...){}
 '''.replace('LAYOUT',(repo/'EFM Source Code/Avionics/CockpitBase_Layouts.h').as_posix())
-for name in ['static bool GroundStabilizeIRADS()','static void ClearIRADSLock()','bool GetIRADSTerrainRequest(','bool CompleteIRADSTerrainRequest(','bool HasIRADSLock()','bool GetIRADSLockWorldPoint(','bool GetIRADSLockPolar(']:code+=extract(src,name)+'\n'
+code+=lock_unit+'\n'
 code+=r'''
 }
 namespace F117 { struct API {

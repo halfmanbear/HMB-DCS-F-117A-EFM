@@ -74,7 +74,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Avionics\CockpitBase_Interop.cpp" />
     <ClCompile Include="Avionics\Weapons_Interop.cpp" />
     <ClCompile Include="dllmain.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="F_117_NightHawk.cpp" />
@@ -90,6 +89,14 @@
     <ClCompile Include="Systems/Propulsion.cpp" />
     <ClCompile Include="Systems/Gear.cpp" />
     <ClCompile Include="Commands/CommandHandlers.cpp" />
+    <ClCompile Include="Avionics/Interop/Log.cpp" />
+    <ClCompile Include="Avionics/Interop/Loader.cpp" />
+    <ClCompile Include="Avionics/Interop/SensorInjection.cpp" />
+    <ClCompile Include="Avionics/Interop/SensorFrame.cpp" />
+    <ClCompile Include="Avionics/Interop/InputHandler.cpp" />
+    <ClCompile Include="Avionics/Interop/LockAndTerrain.cpp" />
+    <ClCompile Include="Avionics/Interop/CameraBridge.cpp" />
+    <ClCompile Include="Avionics/Interop/Session.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Actuators/Actuators.h" />
@@ -128,6 +135,7 @@
     <ClInclude Include="Systems/Propulsion.h" />
     <ClInclude Include="Systems/Gear.h" />
     <ClInclude Include="Commands/CommandHandlers.h" />
+    <ClInclude Include="Avionics/Interop/IradsInternal.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

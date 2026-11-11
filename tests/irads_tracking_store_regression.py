@@ -1,7 +1,7 @@
 from pathlib import Path
 import subprocess,sys,math
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.sources import load_source  # noqa: E402
+from lib.sources import load_source, extract  # noqa: E402
 from lupa.lua51 import LuaRuntime
 repo=Path(__file__).resolve().parents[1];mod=Path(sys.argv[1]);out=Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 vm=LuaRuntime();params={}
@@ -48,10 +48,6 @@ keyboard=(mod/'Input/F-117-NightHawk/keyboard/default.lua').read_text(encoding='
 assert "combos = {{key = 'Space', reformers = {'RAlt'}}}, down = iCommandPlanePickleOn, up = iCommandPlanePickleOff" in keyboard
 print('PASS: deployed generic pickle uses RAlt+Space with separate press/release commands')
 source=load_source('Avionics')
-def extract(name):
- start=source.index(name);brace=source.index('{',start);end=brace+1;depth=1
- while depth:depth+=(source[end]=='{')-(source[end]=='}');end+=1
- return source[start:end]
 code=r'''
 #include <cassert>
 #include <cmath>
@@ -63,21 +59,21 @@ using namespace CockpitInterop;
 AvTVSensorLayout sensor{};void* g_avTVSensor_instance=&sensor;
 AvTVSensorLayout* AsSensor(void* p){return static_cast<AvTVSensorLayout*>(p);}
 CcCockpitContextLayout* AsContext(void* p){return static_cast<CcCockpitContextLayout*>(p);}
-bool s_irads_power=true,s_irads_lock_valid=true,s_irads_designating=false;
+bool s_irads_power=true,s_irads_lock_valid=true;
 bool s_irads_ray_valid=false,s_irads_terrain_pending=false;double s_irads_render_ray[6]{},s_irads_request_ray[6]{};unsigned s_irads_terrain_sequence=0;double s_irads_terrain_wait=0,s_irads_ray_age=1e9;
-bool s_carrier_link_disabled_logged=false,s_carrier_set=false;
-void** g_contexts_ptr_addr=nullptr;void* s_our_ind=nullptr;
+bool s_carrier_link_disabled_logged=false;
+void* s_our_ind=nullptr;
 double s_irads_lock_world[3]={10000,0,2000};float s_irads_horizontal_axis=0,s_irads_vertical_axis=0;
 void Log_(const char*){}template<class...T>void Log(const char*,T...){}
-bool TryCaptureIRADSLock(){return false;}
 void SeedInjectedSensorPose(double x,double y,double z,double,double,double,double){
  double m[16]={1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1};std::memcpy(sensor.platformWorldPose.m,m,sizeof(m));}
 void laggingNative(void*,double){sensor.platformWorldPose.m[0]=.99;sensor.platformWorldPose.m[1]=-.01;}
 void laggingFrame(void*){sensor.platformWorldPose.m[2]=.01;}
 void nothing(void*){}
-auto g_avTVSensor_update=laggingNative;auto g_avTVSensor_update_frame=laggingFrame;auto g_avTVSensor_uncage=nothing;
-void (*g_avPlatform_set_carrier)(void*,void*)=nullptr;
-void* GetModuleHandleA(const char*){return nullptr;}void* GetProcAddress(void*,const char*){return nullptr;}
+auto g_avTVSensor_update=laggingNative;auto g_avTVSensor_update_frame=laggingFrame;
+void uncage_sensor(){}
+void* ResolveCockpitBaseExport(const char*){return nullptr;}
+constexpr size_t kCameraEyeOffset=0x260,kCameraForwardOffset=0x230;constexpr unsigned kRenderLogLimit=120,kRenderLogInterval=120;constexpr double kRadToDeg=57.295779513;
 alignas(16) char camera[0x400]{};
 void* originalCamera(void*){return &camera;}auto s_original_get_camera=originalCamera;
 double renderedPose[16]{};
@@ -89,7 +85,7 @@ void fillCamera(void*,void*){
  std::memcpy(camera+0x230,forward,sizeof(forward));std::memcpy(camera+0x260,eye,sizeof(eye));
 }auto s_sensor_fill_camera=fillCamera;
 '''.replace('LAYOUT',str(repo/'EFM Source Code/Avionics/CockpitBase_Layouts.h').replace('\\','/'))
-code+='\n'.join(extract(n) for n in ['static bool AimPoseAtWorldPoint(','void UpdateIRADSSensorFrame(','static void* __fastcall IRADSGetCamera('])
+code+='\n'.join(extract(source,n) for n in ['bool AimPoseAtWorldPoint(','void UpdateIRADSSensorFrame(','static void* __fastcall IRADSGetCamera('])
 code+=r'''
 void checkAim(const double* p,const double* t){
  double d[3],norm=0;for(int i=0;i<3;++i){d[i]=t[i]-p[12+i];norm+=d[i]*d[i];}norm=std::sqrt(norm);
