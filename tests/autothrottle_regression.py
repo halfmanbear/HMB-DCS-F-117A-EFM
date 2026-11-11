@@ -134,6 +134,6 @@ int main() {
 code = code.replace('AT_HEADER', str(src / 'Avionics/Autothrottle.h').replace('\\', '/'))
 p = out / 'autothrottle_tests.cpp'; p.write_text(code, encoding='utf-8')
 vc = r'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat'
-cmd = f'call "{vc}" >nul && cl /nologo /EHsc /std:c++14 /W4 "{p}" /Fo"{out}/autothrottle_tests.obj" /Fe"{out}/autothrottle_tests.exe"'
+cmd = f'call "{vc}" >nul && cl /nologo /EHsc /std:c++17 /W4 "{p}" /Fo"{out}/autothrottle_tests.obj" /Fe"{out}/autothrottle_tests.exe"'
 r = subprocess.run(cmd, shell=True, capture_output=True, text=True); print(r.stdout, r.stderr); assert r.returncode == 0
 r = subprocess.run([str(out / 'autothrottle_tests.exe')], capture_output=True, text=True); print(r.stdout, r.stderr); assert r.returncode == 0

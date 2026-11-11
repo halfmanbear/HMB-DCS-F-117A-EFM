@@ -26,7 +26,9 @@
 #include "FlightModel/Forces.h" // Force and moment accumulation
 #include "Weapons/Ccrp.h" // Release solution and cues
 #include "Weapons/ReleaseSequence.h" // Bays, pickle and laser
-#include "Diagnostics/Paths.h" // Saved Games paths
+#include "Diagnostics/EngineLog.h" // Engine and yaw debug CSV
+#include "FlightModel/AirData.h" // Air-relative speed, Mach, dynamic pressure
+#include "FlightModel/ControlLaws.h" // Control-law drive and actuators
 #include "Engine/Engine.h" // Installed propulsion
 #include "Engine/EngineStart.h"
 #include "FlightControls/FlightControls.h" // Control laws
@@ -39,10 +41,6 @@
 using namespace F117;
 using namespace weapons; // Shared names used by the subsystem adapters below.
 
-
-
-static constexpr double kPitchLawCmPerDeg = 0.0105;   // Elevon pitch power the pitch law's gains were tuned with.
-static constexpr double kPitchDamperCmq = -5.0;       // Pitch damping the flight controls add, per unit of q c / 2V.
 
 
 namespace
@@ -143,307 +141,58 @@ void ed_fm_add_local_moment(double& mx, double& my, double& mz)
 
 
 
-float aoa_filter{}, aos_filter{};
-
-
-
-namespace
-{
-void begin_simulation_frame()
-{
-    common_force = Vec3();
-    common_moment = Vec3();
-}
-
-
-void update_total_velocity_from_airmass()
-{
-    Vec3 airspeed;
-    airspeed.x = velocity_world_cs.x - wind.x;
-    airspeed.y = velocity_world_cs.y - wind.y;
-    airspeed.z = velocity_world_cs.z - wind.z;
-
-    F117::totalVelocity_MPS = sqrt(airspeed.x * airspeed.x + airspeed.y * airspeed.y + airspeed.z * airspeed.z);
-    if (F117::totalVelocity_MPS < 0.003)
-    {
-        F117::totalVelocity_MPS = 0.003; // ~0.01 ft/s equivalent minimum
-    }
-}
-
-void update_atmosphere_from_total_velocity(double* airData)
-{
-    F117::ATMOS::atmos(F117::ambientTemperature_DegK, F117::ambientDensity_KgPerM3,
-        F117::totalVelocity_MPS, airData);
-    F117::dynamicPressure_PA = airData[0];
-    F117::mach = airData[1];
-}
-
-void update_autopilot_hold_state()
-{
-    if (g_damage.cockpit <= 0.7)
-    {
-        alt_hold = horiz_hold = altroll_hold = 0;
-        return;
-    }
-    if (horiz_hold)
-        pitchTrim = 2.0 * pitch_angle;
-    else if (alt_hold || altroll_hold)
-        pitchTrim = limit(vspeed, -10.0, 10.0);
-    if (horiz_hold || altroll_hold) rollTrim = 0.1 * roll_angle;
-}
-
-
-
-
-
-void update_flight_control_commands(double dt, double controlDegradation)
-{
-    aoa_filter = 1;
-
-    F117::FLIGHTCONTROLS::update_pitch_mode_auto_inputs(F117::gearDown, F117::airRefuelDoorOpen);
-    // Suspension contact only, with the gear down. The strut draw args in weight_on_wheels aren't used here.
-    F117::FLIGHTCONTROLS::update_ground_contact(
-        F117::gearDown > 0.5 && (F117::suspension_wow[0] || F117::suspension_wow[1] || F117::suspension_wow[2]), dt);
-
-    // The pitch law's gains are in degrees of an elevon giving kPitchLawCmPerDeg of pitching moment. This turns
-    // its command into the deflection that gives the same moment on this airframe at this AOA, as the roll law
-    // does with its rolling moment.
-    const double pitchLawElevonScale = limit(kPitchLawCmPerDeg / (std::max)(std::abs(F117::AERO::CmPerElevatorDeg), 1e-4), 1.0, 8.0);
-    F117::elevator_DEG_commanded = -(F117::FLIGHTCONTROLS::fcs_pitch_controller(
-        F117::FLIGHTCONTROLS::longStickInput * controlDegradation,
-        0.0,
-        F117::alpha_DEG,
-        F117::pitchRate_RPS * F117::radiansToDegrees,
-        (F117::az / 9.81),
-        0.0,
-        F117::dynamicPressure_PA,
-        dt,
-        F117::roll_angle,
-        F117::pitch_angle,
-        F117::rollRate_RPS * F117::radiansToDegrees,
-        F117::totalVelocity_MPS,
-        F117::mach,
-        F117::thrust_N,
-        F117::AERO::Cx_total)) * pitchLawElevonScale;
-    // Pitch damper. The tailless airframe has little natural pitch damping (Cmq about -2.2). The manual describes
-    // the flight controls as giving essentially dead-beat damping, so the elevons add more. Nose-up pitch rate gives trailing edge down.
-    // In a steady pull the pitch law's integrator takes up whatever the damper adds, so the elevon there is set by
-    // the airframe's own moments and the damper costs no lift.
-    {
-        const double speed = (std::max)(F117::totalVelocity_MPS, 30.0);
-        const double addedCm = kPitchDamperCmq * F117::meanChord_M / (2.0 * speed) * F117::pitchRate_RPS;
-        F117::elevator_DEG_commanded += addedCm / (std::min)(F117::AERO::CmPerElevatorDeg, -1e-4);
-    }
-    // Pitch axis: Loschke specifies -25° TEU (nose-up) to +37.5° TED (nose-down) for pitch.
-    // Physical actuator stop is ±45° — pitch authority does not reach the stop.
-    F117::elevator_DEG = limit(F117::elevator_DEG_commanded + F117::pitchTrim, -25.0, 37.5);
-
-    // What the roll law needs to know about the airframe at this flight condition. It uses the inertia DCS is flying,
-    // so changing moment_of_inertia in the mod's FM/config.lua doesn't change the loop's bandwidth.
-    const double rollMomentPerSurfaceDeg = (std::max)(std::abs(F117::AERO::ClPerAileronDeg), 0.0002);
-    const double rollInertia = inertia.x > 1.0 ? inertia.x : 40000.0;
-    const double rollAccelPerSurfaceDeg = rollMomentPerSurfaceDeg * F117::dynamicPressure_PA * F117::wingArea_M2 * F117::wingSpan_M / rollInertia * F117::radiansToDegrees;
-    const double surfacePerRollRate = std::abs(F117::AERO::Clp) * F117::wingSpan_M / (2.0 * (std::max)(F117::totalVelocity_MPS, 30.0)) / F117::radiansToDegrees / rollMomentPerSurfaceDeg;
-
-    F117::aileron_DEG_commanded = F117::FLIGHTCONTROLS::fcs_roll_controller(
-        F117::FLIGHTCONTROLS::latStickInput * controlDegradation,
-        F117::FLIGHTCONTROLS::longStickForce,
-        F117::ay / 9.81,
-        F117::pedInput,
-        F117::beta_DEG,
-        F117::roll_angle,
-        F117::rollRate_RPS * F117::radiansToDegrees,
-        g_paarsRollRateDegS, // PAARS roll-rate command, added to the pilot's
-        F117::dynamicPressure_PA,
-        rollAccelPerSurfaceDeg,
-        surfacePerRollRate,
-        F117::gearDown > 0.5,
-        F117::airRefuelDoorOpen,
-        dt);
-
-    // Real F-117 pitch/roll mixer: pitch has priority.
-    // Each elevon physical stop is ±45°. Pitch occupies elevator_DEG of that travel.
-    // Roll gets whatever remains: max roll deflection = 45° - |elevator_DEG|.
-    // This means rolling pull-outs automatically have less roll authority at high pitch demand,
-    // exactly as the real aircraft (and consistent with Loschke's mixer description).
-    const double maxRollDEG = (std::max)(0.0, 45.0 - std::abs(F117::elevator_DEG));
-    F117::aileron_DEG = limit(F117::aileron_DEG_commanded + F117::rollTrim, -maxRollDEG, maxRollDEG);
-
-    F117::dragchute = F117::ACTUATORS::drive_drag_chute(
-        F117::dragchute_command,
-        dt,
-        F117::totalVelocity_MPS,
-        F117::weight_on_wheels);
-
-    // Keep the high-beta/high-yaw-rate rudder limiter symmetric left vs right.
-    const double betaMagnitude_DEG = std::abs(beta_DEG);
-    const double yawRateMagnitude_DEG_s = std::abs(yawRate_RPS * radiansToDegrees);
-    aos_filter = static_cast<float>(1.0 + (betaMagnitude_DEG * betaMagnitude_DEG) / 7500.0 * (1.0 + yawRateMagnitude_DEG_s / 90.0));
-
-    F117::rudder_DEG_commanded = F117::FLIGHTCONTROLS::fcs_yaw_controller(
-        F117::pedInput,
-        0.0,
-        F117::beta_DEG,
-        F117::yawRate_RPS * F117::radiansToDegrees,
-        // Body yaw rate of a steady level turn at this bank and pitch: g sin(bank) cos(pitch) / V.
-        9.81 * std::sin(F117::roll_angle / F117::radiansToDegrees) * std::cos(F117::pitch_angle / F117::radiansToDegrees)
-            / (std::max)(F117::totalVelocity_MPS, 30.0) * F117::radiansToDegrees,
-        F117::rollRate_RPS * F117::radiansToDegrees,
-        F117::pitchRate_RPS * F117::radiansToDegrees,
-        F117::FLIGHTCONTROLS::alphaFiltered,
-        F117::dynamicPressure_PA,
-        F117::gearDown > 0.5,
-        dt);
-    F117::rudder_DEG = F117::yawTrim + F117::rudder_DEG_commanded;
-    // 25 deg lets full pedal reach the 8 deg of steady sideslip on TO 1F-117A-1 page 6-3 at low speed.
-    F117::rudder_DEG = limit(F117::rudder_DEG, -25.0 / aos_filter, 25.0 / aos_filter);
-}
-
-double update_airframe_actuators(double dt)
-{
-    F117::elev_pos = static_cast<float>(F117::ACTUATORS::drive(F117::ACTUATORS::elevator,
-        F117::FLIGHTCONTROLS::longStickInput / aoa_filter + (F117::pitchTrim / 15),
-        dt));
-
-    const double tailIntegrity = (g_damage.leftTail + g_damage.rightTail) / 2.0;
-    F117::rudder_pos = static_cast<float>(F117::ACTUATORS::drive(F117::ACTUATORS::rudder, F117::pedInput, dt) * tailIntegrity);
-
-    const double noseWheelRangeTarget = F117::nwsAuthorityHeld ? F117::kNoseWheelYawHigh_RAD : F117::kNoseWheelYawLow_RAD;
-    const double noseWheelRangeStep = F117::kNoseWheelYawRangeRate_RADPS * dt;
-    F117::noseWheelYawRange_RAD += limit(noseWheelRangeTarget - F117::noseWheelYawRange_RAD, -noseWheelRangeStep, noseWheelRangeStep);
-
-    F117::GearCommand = clamp_gear_command_for_weight_on_wheels(F117::GearCommand);
-    F117::gearDown = F117::ACTUATORS::drive_gear(F117::GearCommand, dt, gear_retraction_blocked());
-
-    F117::tailhook_pos = F117::ACTUATORS::drive(F117::ACTUATORS::tailhook, F117::tailhook_command, dt);
-    for (int bay = 0; bay < F117::kWeaponBayCount; ++bay)
-        F117::bay_state[bay] = static_cast<float>(F117::ACTUATORS::drive(F117::ACTUATORS::weaponBay[bay], F117::bay_cmd[bay], dt));
-
-    return tailIntegrity;
-}
-
-
-
-
-
 // Main FM update called once per DCS simulation step.
 // `dt` is the current frame step in seconds.
-}
-
 static void simulate_aircraft_frame(double dt)
 {
+    CockpitInterop::ForceIRADSIndicatorActive();
+    CockpitInterop::UpdateIRADSSensorFrame(dt,
+        position_world_cs.x, position_world_cs.y, position_world_cs.z,
+        F117::aircraftQuaternionX, F117::aircraftQuaternionY,
+        F117::aircraftQuaternionZ, F117::aircraftQuaternionW);
+    publish_irads_lock_params();
 
-	CockpitInterop::ForceIRADSIndicatorActive();
-	CockpitInterop::UpdateIRADSSensorFrame(dt,
-		position_world_cs.x, position_world_cs.y, position_world_cs.z,
-		F117::aircraftQuaternionX, F117::aircraftQuaternionY,
-		F117::aircraftQuaternionZ, F117::aircraftQuaternionW);
-	publish_irads_lock_params();
+    log_simulation_frame(dt, sqrt(ax_world * ax_world + F117::ay_world * F117::ay_world + az_world * az_world));
 
-log_simulation_frame(dt, sqrt(ax_world * ax_world + F117::ay_world * F117::ay_world + az_world * az_world));
+    // Clear the per-frame force and moment accumulators.
+    common_force = Vec3();
+    common_moment = Vec3();
+    update_derived_damage_values();
 
-// Clear the per-frame force and moment accumulators.
-begin_simulation_frame();
-update_derived_damage_values();
+    // Air-relative speed from the current wind estimate, then Mach and dynamic pressure.
+    update_air_data();
 
-// Compute air-relative speed using the current wind estimate.
-update_total_velocity_from_airmass();
+    //-----CONTROL DYNAMICS------------------------
+    //
+    // While PAARS flies the recovery the autopilot holds stay selected but do not act.
+    if (!g_paars.engaged())
+    {
+        update_autopilot_hold_state();
+    }
+    update_autothrottle(dt);
+    update_paars();
 
-// Update Mach and dynamic pressure from the atmosphere model.
-double airData[2]{};
-update_atmosphere_from_total_velocity(airData);
+    update_fuel_system(dt);
 
-//-----CONTROL DYNAMICS------------------------
-//
-// While PAARS flies the recovery the autopilot holds stay selected but do not act.
-if (!g_paars.engaged())
-{
-    update_autopilot_hold_state();
-}
-update_autothrottle(dt);
-update_paars();
+    // Cockpit damage reduces effective control input below 0.7 integrity.
+    const double controlDegradation = get_control_degradation();
 
-// Fuel system
-update_fuel_system(dt);
+    // Run the tuned pitch/roll/yaw control laws and clamp the commanded surfaces.
+    update_flight_control_commands(dt, controlDegradation);
 
-// Cockpit damage reduces effective control input below 0.7 integrity.
-double controlDegradation = get_control_degradation();
+    const double tailIntegrity = update_airframe_actuators(dt);
+    update_weapon_release_sequence(dt);
+    update_propulsion_and_control_effectiveness(dt, tailIntegrity);
+    log_engine_debug_sample();
 
-// Run the tuned pitch/roll/yaw control laws and clamp the commanded surfaces.
-update_flight_control_commands(dt, controlDegradation);
+    // Aerodynamic coefficient update and force accumulation
+    update_aerodynamic_coefficients();
+    apply_aerodynamic_forces_and_thrust();
 
-double tailIntegrity = update_airframe_actuators(dt);
-update_weapon_release_sequence(dt);
-update_propulsion_and_control_effectiveness(dt, tailIntegrity);
-	// Engine and yaw debug logging
-		{
-			static std::ofstream engineDebugLog;
-			static int engineLogCounter = 0;
-			static bool engineLogInitialized = false;
+    // Mark subsystem initialization complete after the first successful simulation frame.
+    F117::simInitialized = F117::ACTUATORS::initialized = F117::FLIGHTCONTROLS::simInitialized = true;
 
-			if (!engineLogInitialized)
-			{
-				const std::string savedGamesLogPath =
-					build_saved_games_dcs_path("DCS", "Logs\\F117_Engine_Debug.csv");
-				if (!savedGamesLogPath.empty())
-				{
-					engineDebugLog.open(savedGamesLogPath);
-				}
-				if (!engineDebugLog.is_open())
-				{
-					const std::string openBetaLogPath =
-						build_saved_games_dcs_path("DCS.openbeta", "Logs\\F117_Engine_Debug.csv");
-					if (!openBetaLogPath.empty())
-					{
-						engineDebugLog.open(openBetaLogPath);
-					}
-				}
-				if (!engineDebugLog.is_open())
-				{
-					engineDebugLog.open("F117_Engine_Debug.csv");
-				}
-				if (engineDebugLog.is_open())
-				{
-					engineDebugLog << "engine1_thrust_N,engine2_thrust_N,total_thrust_N,throttle_pct,N2_rpm_pct,mach,velocity_mps,altitude_m,"
-					               << "pedInput,rudder_DEG_cmd,rudder_DEG,rudder_PCT,rudder_pos,beta_DEG,yawRate_RPS,yawTrim,aileron_DEG,aileron_PCT\n";
-				}
-				engineLogInitialized = true;
-			}
-
-			engineLogCounter++;
-			if (engineDebugLog.is_open() && (engineLogCounter % 100 == 0))
-			{
-				engineDebugLog << F117::engine_thrust_N[0] << ","
-				               << F117::engine_thrust_N[1] << ","
-				               << F117::thrust_N << ","
-				               << F117::throttleInput << ","
-				               << 0.5 * (F117::engines[0].N2 + F117::engines[1].N2) << ","
-				               << F117::mach << ","
-				               << F117::totalVelocity_MPS << ","
-				               << F117::altitude_m << ","
-				               << F117::pedInput << ","
-				               << F117::rudder_DEG_commanded << ","
-				               << F117::rudder_DEG << ","
-				               << F117::rudder_PCT << ","
-				               << F117::rudder_pos << ","
-				               << F117::beta_DEG << ","
-				               << F117::yawRate_RPS << ","
-				               << F117::yawTrim << ","
-				               << F117::aileron_DEG << ","
-				               << F117::aileron_PCT << "\n";
-				engineDebugLog.flush();
-			}
-		}
-
-
-// Aerodynamic coefficient update and force accumulation
-update_aerodynamic_coefficients();
-apply_aerodynamic_forces_and_thrust();
-		// Mark subsystem initialization complete after the first successful simulation frame.
-		F117::simInitialized = F117::ACTUATORS::initialized = F117::FLIGHTCONTROLS::simInitialized = true;
-
-		update_weight_on_wheels();
-
+    update_weight_on_wheels();
 }
 
 void ed_fm_simulate(double dt)

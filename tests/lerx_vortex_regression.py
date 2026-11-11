@@ -115,7 +115,7 @@ int main(){
 p = out / 'lerx_vortex_tests.cpp'
 p.write_text(code, encoding='utf-8')
 vc = r'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat'
-command = f'call "{vc}" >nul && cl /nologo /EHsc /std:c++14 /W4 "{p}" /Fo"{out}/lerx_vortex_tests.obj" /Fe"{out}/lerx_vortex_tests.exe"'
+command = f'call "{vc}" >nul && cl /nologo /EHsc /std:c++17 /W4 "{p}" /Fo"{out}/lerx_vortex_tests.obj" /Fe"{out}/lerx_vortex_tests.exe"'
 r = subprocess.run(command, shell=True, capture_output=True, text=True)
 print(r.stdout, r.stderr)
 assert r.returncode == 0

@@ -101,6 +101,9 @@
     <ClCompile Include="FlightControls/Pitch.cpp" />
     <ClCompile Include="FlightControls/Roll.cpp" />
     <ClCompile Include="FlightControls/PitchLog.cpp" />
+    <ClCompile Include="FlightModel/ControlLaws.cpp" />
+    <ClCompile Include="FlightModel/AirData.cpp" />
+    <ClCompile Include="Diagnostics/EngineLog.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Actuators/Actuators.h" />
@@ -143,6 +146,9 @@
     <ClInclude Include="FlightControls/PitchLog.h" />
     <ClInclude Include="FlightControls/Config.h" />
     <ClInclude Include="FlightControls/Internal.h" />
+    <ClInclude Include="FlightModel/ControlLaws.h" />
+    <ClInclude Include="FlightModel/AirData.h" />
+    <ClInclude Include="Diagnostics/EngineLog.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

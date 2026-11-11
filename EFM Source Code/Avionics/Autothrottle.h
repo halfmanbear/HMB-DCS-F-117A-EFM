@@ -23,7 +23,7 @@ namespace Autothrottle
     constexpr double kAccelFilterTauS = 0.5;
     constexpr double kIntegrateBandKt = 5.0;     // integrate only near the target speed
 
-    // The EFM builds as C++14, which has no std::clamp.
+    // Local clamp so this header needs no <algorithm>.
     inline double clamp_value(double value, double low, double high)
     {
         return value < low ? low : (value > high ? high : value);

@@ -214,6 +214,6 @@ int main() {
 code = code.replace('START_HEADER', str(src / 'Engine/EngineStart.h').replace('\\', '/'))
 p = out / 'engine_start_tests.cpp'; p.write_text(code, encoding='utf-8')
 vc = r'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat'
-cmd = f'call "{vc}" >nul && cl /nologo /EHsc /std:c++14 /W4 "{p}" /Fo"{out}/engine_start_tests.obj" /Fe"{out}/engine_start_tests.exe"'
+cmd = f'call "{vc}" >nul && cl /nologo /EHsc /std:c++17 /W4 "{p}" /Fo"{out}/engine_start_tests.obj" /Fe"{out}/engine_start_tests.exe"'
 r = subprocess.run(cmd, shell=True, capture_output=True, text=True); print(r.stdout, r.stderr); assert r.returncode == 0
 r = subprocess.run([str(out / 'engine_start_tests.exe')], capture_output=True, text=True); print(r.stdout, r.stderr); assert r.returncode == 0

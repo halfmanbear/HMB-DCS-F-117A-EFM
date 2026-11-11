@@ -41,7 +41,7 @@ void update_fuel_system(double dt)
         if (start.running())
         {
             const double specific_fuel = 0.9928 + 0.0911 * F117::mach + 0.0025 * F117::engines[side].thrustFractionOfMax - 0.1221 * F117::altitude_m / 10000.0; // kg / kgf / hour
-            flow_kg_s = (std::max)(kIdleFuelFlowKgS / 2.0, (std::max)(F117::engine_thrust_N[side], 0.0) / 9.81 * specific_fuel / 3600.0);
+            flow_kg_s = (std::max)(kIdleFuelFlowKgS / 2.0, (std::max)(F117::engine_thrust_N[side], 0.0) / kStandardGravity_MPS2 * specific_fuel / 3600.0);
         }
         else if (start.lit())
         {
