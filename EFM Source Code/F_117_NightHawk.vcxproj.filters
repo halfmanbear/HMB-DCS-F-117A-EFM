@@ -10,6 +10,7 @@
     <ClCompile Include="Effects/LerxVortex.cpp"><Filter>Flight model\Effects</Filter></ClCompile>
     <ClCompile Include="Damage/Damage.cpp"><Filter>Flight model\Damage</Filter></ClCompile>
     <ClCompile Include="Diagnostics/Paths.cpp"><Filter>Flight model\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Cockpit/ParamBridge.cpp"><Filter>Flight model\Cockpit</Filter></ClCompile>
     <ClInclude Include="Actuators/Actuators.h"><Filter>Flight model\Actuators</Filter></ClInclude>
     <ClInclude Include="Aerodynamics/AeroModel.h"><Filter>Flight model\Aerodynamics</Filter></ClInclude>
     <ClInclude Include="Atmosphere/Atmosphere.h"><Filter>Flight model\Atmosphere</Filter></ClInclude>
@@ -38,6 +39,7 @@
     <ClInclude Include="FlightModel/State.h"><Filter>Flight model\State</Filter></ClInclude>
     <ClInclude Include="Damage/Damage.h"><Filter>Flight model\Damage</Filter></ClInclude>
     <ClInclude Include="Diagnostics/Paths.h"><Filter>Flight model\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Cockpit/ParamBridge.h"><Filter>Flight model\Cockpit</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Flight model"><UniqueIdentifier>{D9B8AD70-751F-576C-9EDF-491D8778187B}</UniqueIdentifier></Filter>
@@ -55,5 +57,6 @@
     <Filter Include="Flight model\Effects"><UniqueIdentifier>{849519AD-2B4F-4ABF-B1FB-8DB8EEB68B83}</UniqueIdentifier></Filter>
     <Filter Include="Flight model\Damage"><UniqueIdentifier>{F367B0DC-9401-4380-AF6D-D48330FE380B}</UniqueIdentifier></Filter>
     <Filter Include="Flight model\Diagnostics"><UniqueIdentifier>{71532135-74D1-4728-8AEE-A02AAB953841}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Cockpit"><UniqueIdentifier>{E73497A9-9EA6-4E4E-BC39-D9371F1AB5B9}</UniqueIdentifier></Filter>
   </ItemGroup>
 </Project>

@@ -83,6 +83,7 @@
     <ClCompile Include="Effects/LerxVortex.cpp" />
     <ClCompile Include="Damage/Damage.cpp" />
     <ClCompile Include="Diagnostics/Paths.cpp" />
+    <ClCompile Include="Cockpit/ParamBridge.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Actuators/Actuators.h" />
@@ -113,6 +114,7 @@
     <ClInclude Include="FlightModel/State.h" />
     <ClInclude Include="Damage/Damage.h" />
     <ClInclude Include="Diagnostics/Paths.h" />
+    <ClInclude Include="Cockpit/ParamBridge.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
