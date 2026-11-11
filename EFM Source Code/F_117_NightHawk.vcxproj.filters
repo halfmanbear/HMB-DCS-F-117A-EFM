@@ -31,6 +31,7 @@
     <ClCompile Include="FlightModel/ControlLaws.cpp"><Filter>Flight model\State</Filter></ClCompile>
     <ClCompile Include="FlightModel/AirData.cpp"><Filter>Flight model\State</Filter></ClCompile>
     <ClCompile Include="Diagnostics/EngineLog.cpp"><Filter>Flight model\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Diagnostics/LogFile.cpp"><Filter>Flight model\Diagnostics</Filter></ClCompile>
     <ClInclude Include="Actuators/Actuators.h"><Filter>Flight model\Actuators</Filter></ClInclude>
     <ClInclude Include="Aerodynamics/AeroModel.h"><Filter>Flight model\Aerodynamics</Filter></ClInclude>
     <ClInclude Include="Atmosphere/Atmosphere.h"><Filter>Flight model\Atmosphere</Filter></ClInclude>
@@ -74,6 +75,7 @@
     <ClInclude Include="FlightModel/ControlLaws.h"><Filter>Flight model\State</Filter></ClInclude>
     <ClInclude Include="FlightModel/AirData.h"><Filter>Flight model\State</Filter></ClInclude>
     <ClInclude Include="Diagnostics/EngineLog.h"><Filter>Flight model\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Diagnostics/LogFile.h"><Filter>Flight model\Diagnostics</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Flight model"><UniqueIdentifier>{D9B8AD70-751F-576C-9EDF-491D8778187B}</UniqueIdentifier></Filter>

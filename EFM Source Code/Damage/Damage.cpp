@@ -3,7 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
+#include "../Diagnostics/LogFile.h"
 #include <string>
 
 #include "../Diagnostics/Paths.h"
@@ -45,27 +45,25 @@ constexpr int kDamageElementFlapRight = 38;
 constexpr int kDamageElementRudderLeft = 53;
 constexpr int kDamageElementRudderRight = 54;
 
-FILE* g_damageLog = nullptr;
+LogFile g_damageLog;
 double g_damageLogTimer = 0.0;
 
 bool try_open_damage_log_path(const char* path)
 {
-    g_damageLog = fopen(path, "w");
-    if (!g_damageLog)
+    if (!g_damageLog.open(path, false))
     {
         return false;
     }
 
-    fprintf(g_damageLog, "=== F-117 Damage Debug Log (DCS-owned visuals v2) ===\n");
-    fprintf(g_damageLog, "Log opened at: %s\n", path);
-    fprintf(g_damageLog, "invincible_value at init: %d\n\n", static_cast<int>(F117::param_class.invincible_value));
-    fflush(g_damageLog);
+    g_damageLog.write("=== F-117 Damage Debug Log (DCS-owned visuals v2) ===\n");
+    g_damageLog.write("Log opened at: %s\n", path);
+    g_damageLog.write("invincible_value at init: %d\n\n", static_cast<int>(F117::param_class.invincible_value));
     return true;
 }
 
 void initDamageLog()
 {
-    if (g_damageLog)
+    if (g_damageLog.is_open())
         return;
 
     const std::string paths[] = {build_saved_games_dcs_path("DCS", "Logs\\F117_Damage_Debug.log"),
@@ -85,20 +83,18 @@ void initDamageLog()
 
 void log_damage_callback_header(int element, double element_integrity_factor)
 {
-    if (g_damageLog)
+    if (g_damageLog.is_open())
     {
-        fprintf(g_damageLog, "ed_fm_on_damage called: Element=%d, integrity=%.4f, invincible=%d\n", element,
-                element_integrity_factor, static_cast<int>(F117::param_class.invincible_value));
-        fflush(g_damageLog);
+        g_damageLog.write("ed_fm_on_damage called: Element=%d, integrity=%.4f, invincible=%d\n", element,
+                          element_integrity_factor, static_cast<int>(F117::param_class.invincible_value));
     }
 }
 
 void log_damage_callback_skipped_immortal()
 {
-    if (g_damageLog)
+    if (g_damageLog.is_open())
     {
-        fprintf(g_damageLog, "  -> SKIPPED (immortal)\n");
-        fflush(g_damageLog);
+        g_damageLog.write("  -> SKIPPED (immortal)\n");
     }
 }
 
@@ -227,12 +223,11 @@ const char* apply_damage_for_element(int element, double integrity)
 
 void log_damage_mapping_result(const char* mapped)
 {
-    if (g_damageLog)
+    if (g_damageLog.is_open())
     {
-        fprintf(g_damageLog, "  -> mapped to: %s | State: LW=%.2f RW=%.2f LE=%.2f RE=%.2f LT=%.2f RT=%.2f CP=%.2f\n",
-                mapped, g_damage.leftWing, g_damage.rightWing, g_damage.leftEngine, g_damage.rightEngine,
-                g_damage.leftTail, g_damage.rightTail, g_damage.cockpit);
-        fflush(g_damageLog);
+        g_damageLog.write("  -> mapped to: %s | State: LW=%.2f RW=%.2f LE=%.2f RE=%.2f LT=%.2f RT=%.2f CP=%.2f\n",
+                          mapped, g_damage.leftWing, g_damage.rightWing, g_damage.leftEngine, g_damage.rightEngine,
+                          g_damage.leftTail, g_damage.rightTail, g_damage.cockpit);
     }
 }
 
@@ -255,15 +250,15 @@ void pushFireEvent(int handle, double x, double y, double z)
     g_damage.fireActive[handle] = true;
     ed_fm_simulation_event evt = {};
     evt.event_type = ED_FM_EVENT_FIRE;
-    evt.event_params[0] = (float)handle;  // fire control handle
-    evt.event_params[1] = (float)x;       // fire origin X (body space)
-    evt.event_params[2] = (float)y;       // fire origin Y
-    evt.event_params[3] = (float)z;       // fire origin Z
-    evt.event_params[4] = 0.0f;           // emitter direction X
-    evt.event_params[5] = 1.0f;           // emitter direction Y (up)
-    evt.event_params[6] = 0.0f;           // emitter direction Z
-    evt.event_params[7] = 5.0f;           // particle speed
-    evt.event_params[8] = 1.0f;           // scale (>0 = fire on, <=0 = fire off)
+    evt.event_params[0] = static_cast<float>(handle);  // fire control handle
+    evt.event_params[1] = static_cast<float>(x);       // fire origin X (body space)
+    evt.event_params[2] = static_cast<float>(y);       // fire origin Y
+    evt.event_params[3] = static_cast<float>(z);       // fire origin Z
+    evt.event_params[4] = 0.0f;                        // emitter direction X
+    evt.event_params[5] = 1.0f;                        // emitter direction Y (up)
+    evt.event_params[6] = 0.0f;                        // emitter direction Z
+    evt.event_params[7] = 5.0f;                        // particle speed
+    evt.event_params[8] = 1.0f;                        // scale (>0 = fire on, <=0 = fire off)
     g_simEvents.push(evt);
 }
 
@@ -292,13 +287,12 @@ void apply_lua_damage_hit()
     }
 
     initDamageLog();
-    if (g_damageLog)
+    if (g_damageLog.is_open())
     {
-        fprintf(g_damageLog,
-                "[LUA_DMG] Hit received! dose=%.2f | LW=%.2f RW=%.2f LE=%.2f RE=%.2f LT=%.2f RT=%.2f CP=%.2f\n",
-                kLuaDamageDose, g_damage.leftWing, g_damage.rightWing, g_damage.leftEngine, g_damage.rightEngine,
-                g_damage.leftTail, g_damage.rightTail, g_damage.cockpit);
-        fflush(g_damageLog);
+        g_damageLog.write(
+            "[LUA_DMG] Hit received! dose=%.2f | LW=%.2f RW=%.2f LE=%.2f RE=%.2f LT=%.2f RT=%.2f CP=%.2f\n",
+            kLuaDamageDose, g_damage.leftWing, g_damage.rightWing, g_damage.leftEngine, g_damage.rightEngine,
+            g_damage.leftTail, g_damage.rightTail, g_damage.cockpit);
     }
 }
 
@@ -348,10 +342,9 @@ void reset_damage_and_events()
 void log_damage_lifecycle_event(const char* label)
 {
     initDamageLog();
-    if (g_damageLog)
+    if (g_damageLog.is_open())
     {
-        fprintf(g_damageLog, "\n*** %s called ***\n", label);
-        fflush(g_damageLog);
+        g_damageLog.write("\n*** %s called ***\n", label);
     }
 }
 
@@ -360,19 +353,19 @@ void log_simulation_frame(double dt, double acceleration_mps2)
     static int simFrameCount = 0;
     simFrameCount++;
     initDamageLog();
-    if (g_damageLog)
+    if (g_damageLog.is_open())
     {
         g_damageLogTimer += dt;
         if (simFrameCount <= 500 || g_damageLogTimer >= 2.0)
         {
             g_damageLogTimer = 0.0;
-            fprintf(g_damageLog,
-                    "[SIM] frame=%d invincible=%d | LW=%.2f RW=%.2f LE=%.2f RE=%.2f LT=%.2f RT=%.2f CP=%.2f | "
-                    "accel=%.1f events=%d WoW=%d\n",
-                    simFrameCount, (int)F117::param_class.invincible_value, g_damage.leftWing, g_damage.rightWing,
-                    g_damage.leftEngine, g_damage.rightEngine, g_damage.leftTail, g_damage.rightTail, g_damage.cockpit,
-                    acceleration_mps2, (int)g_simEvents.size(), (int)F117::weight_on_wheels);
-            fflush(g_damageLog);
+            g_damageLog.write(
+                "[SIM] frame=%d invincible=%d | LW=%.2f RW=%.2f LE=%.2f RE=%.2f LT=%.2f RT=%.2f CP=%.2f | "
+                "accel=%.1f events=%d WoW=%d\n",
+                simFrameCount, static_cast<int>(F117::param_class.invincible_value), g_damage.leftWing,
+                g_damage.rightWing, g_damage.leftEngine, g_damage.rightEngine, g_damage.leftTail, g_damage.rightTail,
+                g_damage.cockpit, acceleration_mps2, static_cast<int>(g_simEvents.size()),
+                static_cast<int>(F117::weight_on_wheels));
         }
     }
 }
@@ -384,15 +377,13 @@ bool ed_fm_pop_simulation_event(ed_fm_simulation_event& out)
         return false;
     out = g_simEvents.front();
     g_simEvents.pop();
-    if (g_damageLog)
+    if (g_damageLog.is_open())
     {
-        fprintf(g_damageLog,
-                "ed_fm_pop_simulation_event: type=%u handle=%.0f pos=(%.1f,%.1f,%.1f) dir=(%.1f,%.1f,%.1f) speed=%.1f "
-                "scale=%.1f\n",
-                out.event_type, out.event_params[0], out.event_params[1], out.event_params[2], out.event_params[3],
-                out.event_params[4], out.event_params[5], out.event_params[6], out.event_params[7],
-                out.event_params[8]);
-        fflush(g_damageLog);
+        g_damageLog.write(
+            "ed_fm_pop_simulation_event: type=%u handle=%.0f pos=(%.1f,%.1f,%.1f) dir=(%.1f,%.1f,%.1f) speed=%.1f "
+            "scale=%.1f\n",
+            out.event_type, out.event_params[0], out.event_params[1], out.event_params[2], out.event_params[3],
+            out.event_params[4], out.event_params[5], out.event_params[6], out.event_params[7], out.event_params[8]);
     }
     return true;
 }
@@ -421,11 +412,10 @@ void ed_fm_set_immortal(bool enabled)
 {
     F117::param_class.set_immortal(enabled);
     initDamageLog();
-    if (g_damageLog)
+    if (g_damageLog.is_open())
     {
-        fprintf(g_damageLog, "ed_fm_set_immortal called: value=%d -> invincible_value=%d\n", (int)enabled,
-                (int)F117::param_class.invincible_value);
-        fflush(g_damageLog);
+        g_damageLog.write("ed_fm_set_immortal called: value=%d -> invincible_value=%d\n", static_cast<int>(enabled),
+                          static_cast<int>(F117::param_class.invincible_value));
     }
 }
 

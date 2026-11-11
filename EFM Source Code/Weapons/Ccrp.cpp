@@ -3,7 +3,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 
 #include "../Avionics/CockpitBase_Interop.h"
 #include "../Avionics/JdamEnvelope.h"
@@ -137,8 +136,9 @@ int get_ccrp_profile_index()
     }
 
     const double rawIndex = F117::cockpitAPI.getParamNumber(g_ccrpProfileParam);
-    int profileIndex =
-        std::isfinite(rawIndex) && rawIndex >= 0.0 && rawIndex < kCcrpStoreCount ? (int)floor(rawIndex + 0.5) : 0;
+    int profileIndex = std::isfinite(rawIndex) && rawIndex >= 0.0 && rawIndex < kCcrpStoreCount
+                           ? static_cast<int>(std::floor(rawIndex + 0.5))
+                           : 0;
     const int profileCount = kCcrpStoreCount;
     if (profileIndex < 0)
     {
@@ -237,7 +237,8 @@ bool simulate_bomb_impact_point(const CcrpStoreModel& profile, const Vec3& relea
 }
 
 bool g_releaseAlignmentValid = false;
-double g_releaseMinRange = 0.0, g_releaseMaxRange = 0.0;
+double g_releaseMinRange = 0.0;
+double g_releaseMaxRange = 0.0;
 
 // Provisional guided-store envelope around the ballistic prediction, not a
 // measured DCS DLZ. Keep the ballistic error/TTG as cues, not a pinpoint gate.
@@ -312,7 +313,9 @@ bool compute_release_solution(double* outErrorMeters, double* outTimeToGoSeconds
                  airZ = releaseVel.z - worldWind.z;
     const double airSpeed = std::sqrt(airX * airX + airY * airY + airZ * airZ);
     const StoreKind kind = profile.kind;
-    double impactAlongTrack = 0.0, errorMeters = 0.0, timeToGo = 0.0;
+    double impactAlongTrack = 0.0;
+    double errorMeters = 0.0;
+    double timeToGo = 0.0;
     if (store_falls_ballistic(kind))
     {
         Vec3 impactPos{};
@@ -386,18 +389,18 @@ bool compute_release_solution(double* outErrorMeters, double* outTimeToGoSeconds
             std::max(1.0, impactAlongTrack - std::max(profile.releaseWindowMeters, impactAlongTrack * 0.20));
         g_releaseMaxRange = impactAlongTrack + std::max(profile.releaseWindowMeters, impactAlongTrack * 0.20);
     }
-    static bool logged = false, lastZone = false, lastAligned = false;
+    static bool logged = false;
+    static bool lastZone = false;
+    static bool lastAligned = false;
     static unsigned diagnosticFrames = 0;
     if (!logged || inZone != lastZone || g_releaseAlignmentValid != lastAligned ||
         (F117::weapon_release_pickle_held && ++diagnosticFrames >= 600))
     {
-        char message[320];
-        sprintf_s(message,
-                  "DELIVERY ZONE: profile=%d along=%.1f cross=%.1f ballistic=%.1f error=%.1f aligned=%d zone=%d "
-                  "min=%.1f max=%.1f drop=%.1f speed=%.1f",
-                  get_ccrp_profile_index(), alongTrack, crossTrack, impactAlongTrack, errorMeters,
-                  g_releaseAlignmentValid, inZone, g_releaseMinRange, g_releaseMaxRange, dropMeters, horizSpeed);
-        CockpitInterop::Log_(message);
+        CockpitInterop::Log(
+            "DELIVERY ZONE: profile=%d along=%.1f cross=%.1f ballistic=%.1f error=%.1f aligned=%d zone=%d "
+            "min=%.1f max=%.1f drop=%.1f speed=%.1f",
+            get_ccrp_profile_index(), alongTrack, crossTrack, impactAlongTrack, errorMeters, g_releaseAlignmentValid,
+            inZone, g_releaseMinRange, g_releaseMaxRange, dropMeters, horizSpeed);
         logged = true;
         lastZone = inZone;
         lastAligned = g_releaseAlignmentValid;

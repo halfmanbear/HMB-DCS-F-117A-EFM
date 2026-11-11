@@ -8,7 +8,8 @@ namespace JdamEnvelope
 {
 // clang-format off
 constexpr double speeds[10] = {100, 150, 200, 250, 300, 350, 400, 450, 500, 550};
-constexpr double heights[21] = {400, 500, 600, 700, 800, 900, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000, 13000, 14000, 15000};
+constexpr double heights[21] = {400,  500,  600,  700,  800,   900,   1000,  2000,  3000,  4000, 5000,
+                                6000, 7000, 8000, 9000, 10000, 11000, 12000, 13000, 14000, 15000};
 constexpr double maximum[3][21][10] = {
 {
 {1020, 1420, 2960, 5210, 8250, 12170, 15400, 16330, 16350, 17030},
@@ -157,7 +158,8 @@ inline bool lookup(int profile, double height, double speed, double* outMin, dou
     if (!outMin || !outMax || profile < 0 || profile > 2 || !std::isfinite(height) || !std::isfinite(speed) ||
         height < heights[0] || height > heights[20] || speed < speeds[0] || speed > speeds[9])
         return false;
-    int h = 0, v = 0;
+    int h = 0;
+    int v = 0;
     while (h < 19 && height > heights[h + 1])
         ++h;
     while (v < 8 && speed > speeds[v + 1])
@@ -263,7 +265,8 @@ inline bool lookup(int table, double height, double speed, double* outMin, doubl
     if (!outMin || !outMax || table < 0 || table > 1 || !std::isfinite(height) || !std::isfinite(speed) ||
         height < heights[0] || height > heights[17] || speed < speeds[0] || speed > speeds[9])
         return false;
-    int h = 0, v = 0;
+    int h = 0;
+    int v = 0;
     while (h < 16 && height > heights[h + 1])
         ++h;
     while (v < 8 && speed > speeds[v + 1])

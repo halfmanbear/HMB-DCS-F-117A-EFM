@@ -98,7 +98,6 @@ inline double s_last_aircraft_pos[3] = {};
 inline void* s_our_ind = nullptr;  // cached DLIR indicator (owned by DCS)
 
 // -- Cross-unit functions --------------------------------------------------
-void Log(const char* fmt, ...);
 FARPROC ResolveCockpitBaseExport(const char* name);
 CcCockpitContextLayout* GetGlobalContext();
 CcCockpitContextLayout* GetBindingContext();

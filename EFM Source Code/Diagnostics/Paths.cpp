@@ -1,6 +1,5 @@
 #include "stdafx.h"
 
-#include <cstdlib>
 #include <vector>
 #include <shlobj.h>
 
@@ -9,15 +8,32 @@
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "Ole32.lib")
 
+static constexpr size_t kEnvironmentValueBytes = 4096;
+
+namespace
+{
+// Value of an environment variable, or an empty string when it is unset or empty.
+std::string read_environment_variable(const char* name)
+{
+    char buffer[kEnvironmentValueBytes];
+    const DWORD length = GetEnvironmentVariableA(name, buffer, sizeof(buffer));
+    if (length == 0 || length >= sizeof(buffer))
+    {
+        return std::string();
+    }
+    return std::string(buffer, length);
+}
+}  // namespace
+
 std::string build_saved_games_dcs_path(const char* dcsFolderName, const char* relativePath)
 {
-    const char* userProfile = getenv("USERPROFILE");
-    if (userProfile == nullptr)
+    const std::string userProfile = read_environment_variable("USERPROFILE");
+    if (userProfile.empty())
     {
         return std::string();
     }
 
-    return std::string(userProfile) + "\\Saved Games\\" + dcsFolderName + "\\" + relativePath;
+    return userProfile + "\\Saved Games\\" + dcsFolderName + "\\" + relativePath;
 }
 
 namespace
@@ -42,10 +58,10 @@ std::string narrow_from_wide(const std::wstring& wide)
 
 std::string get_saved_games_root_path()
 {
-    const char* logRootOverride = getenv("F117_LOG_ROOT");
-    if (logRootOverride != nullptr && *logRootOverride)
+    const std::string logRootOverride = read_environment_variable("F117_LOG_ROOT");
+    if (!logRootOverride.empty())
     {
-        return std::string(logRootOverride);
+        return logRootOverride;
     }
 
     PWSTR savedGamesPath = nullptr;
@@ -60,10 +76,10 @@ std::string get_saved_games_root_path()
         }
     }
 
-    const char* userProfile = getenv("USERPROFILE");
-    if (userProfile != nullptr)
+    const std::string userProfile = read_environment_variable("USERPROFILE");
+    if (!userProfile.empty())
     {
-        return std::string(userProfile) + "\\Saved Games";
+        return userProfile + "\\Saved Games";
     }
 
     return std::string();

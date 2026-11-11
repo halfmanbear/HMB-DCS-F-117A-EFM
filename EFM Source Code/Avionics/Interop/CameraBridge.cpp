@@ -145,7 +145,8 @@ static void* __fastcall IRADSGetCamera(void* indicator)
     // not a native cached target or a newly recomputed aircraft-forward ray.
     if (s_irads_power)
     {
-        float eye[3], forward[3];
+        float eye[3];
+        float forward[3];
         std::memcpy(eye, static_cast<char*>(camera) + kCameraEyeOffset, sizeof(eye));
         std::memcpy(forward, static_cast<char*>(camera) + kCameraForwardOffset, sizeof(forward));
         s_irads_ray_valid = true;
@@ -159,14 +160,18 @@ static void* __fastcall IRADSGetCamera(void* indicator)
         if (s_irads_ray_valid)
             s_irads_ray_age = 0;
     }
-    static unsigned renderSamples = 0, renderFrames = 0;
+    static unsigned renderSamples = 0;
+    static unsigned renderFrames = 0;
     if (locked && renderSamples < kRenderLogLimit && (++renderFrames == 1 || renderFrames % kRenderLogInterval == 0))
     {
         // Observe the FINAL rendered ray, not just the cached pose.
-        float forward[3], eye[3];
+        float forward[3];
+        float eye[3];
         std::memcpy(forward, static_cast<char*>(camera) + kCameraForwardOffset, sizeof(forward));
         std::memcpy(eye, static_cast<char*>(camera) + kCameraEyeOffset, sizeof(eye));
-        double dot = 0, rangeSq = 0, axisSq = 0;
+        double dot = 0;
+        double rangeSq = 0;
+        double axisSq = 0;
         for (int i = 0; i < 3; ++i)
         {
             const double d = s_irads_lock_world[i] - eye[i];

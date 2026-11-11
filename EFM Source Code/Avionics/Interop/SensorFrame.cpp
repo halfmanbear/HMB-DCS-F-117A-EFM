@@ -85,7 +85,9 @@ static void SeedInjectedSensorPose(double aircraft_x, double aircraft_y, double 
 // Native slave_to_point is rate limited and otherwise leaves a visible lag.
 bool AimPoseAtWorldPoint(double pose[16], const double target[3])
 {
-    double forward[3], up[3], right[3];
+    double forward[3];
+    double up[3];
+    double right[3];
     double lengthSq = 0.0;
     for (int i = 0; i < 3; ++i)
     {

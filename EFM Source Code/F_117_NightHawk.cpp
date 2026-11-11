@@ -3,7 +3,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <queue>
@@ -191,16 +190,15 @@ void ed_fm_simulate(double dt)
     simulate_aircraft_frame(dt);
 }
 
-void ed_fm_set_surface(double h, double h_obj, unsigned /*surface_type*/, double /*normal_x*/, double /*normal_y*/,
-                       double /*normal_z*/)
+void ed_fm_set_surface(double h, double h_obj, unsigned, double, double, double)
 {
     F117::surface_height_valid = std::isfinite(h);
     if (F117::surface_height_valid)
         F117::surface_height_m = std::isfinite(h_obj) ? (std::max)(h, h_obj) : h;
 }
 
-void ed_fm_set_atmosphere(double altitude, double temperature, double /*soundSpeed*/, double density, double pressure,
-                          double windX, double windY, double windZ)
+void ed_fm_set_atmosphere(double altitude, double temperature, double, double density, double pressure, double windX,
+                          double windY, double windZ)
 {
     // Air data and ballistic wind are separate from the body-frame wind callback.
     wind_world_cs = {windX, windY, windZ};
@@ -221,9 +219,8 @@ void ed_fm_set_current_mass_state(double massKg, double cgX, double cgY, double 
     F117::weight_N = controllerWeightPerKg * massKg;
 }
 void ed_fm_set_current_state(double accelX, double accelY, double accelZ, double speedX, double speedY, double speedZ,
-                             double posX, double posY, double posZ, double /*angularAccelX*/, double /*angularAccelY*/,
-                             double /*angularAccelZ*/, double /*rateX*/, double /*rateY*/, double /*rateZ*/, double qx,
-                             double qy, double qz, double qw)
+                             double posX, double posY, double posZ, double, double, double, double, double, double,
+                             double qx, double qy, double qz, double qw)
 {
     position_world_cs = {posX, posY, posZ};
     vx_world = speedX;
@@ -248,9 +245,8 @@ double vy_body{};
 double vz_body{};
 
 void ed_fm_set_current_state_body_axis(double accelX, double accelY, double accelZ, double speedX, double speedY,
-                                       double speedZ, double windX, double windY, double windZ,
-                                       double /*angularAccelX*/, double /*angularAccelY*/, double /*angularAccelZ*/,
-                                       double rateX, double rateY, double rateZ, double /*heading*/, double pitchRad,
+                                       double speedZ, double windX, double windY, double windZ, double, double, double,
+                                       double rateX, double rateY, double rateZ, double, double pitchRad,
                                        double rollRad, double attackRad, double slipRad)
 {
     // ED uses X forward, Y up, Z right. The control laws use positive yaw to the right.
@@ -320,7 +316,7 @@ double ed_fm_get_internal_fuel()
 {
     return F117::internal_fuel;  // The F-117 carries no external fuel tanks.
 }
-void ed_fm_set_external_fuel(int /*station*/, double /*kilograms*/, double /*x*/, double /*y*/, double /*z*/)
+void ed_fm_set_external_fuel(int, double, double, double, double)
 {
     // No supported loadout has an external tank; DCS owns all weapon masses.
 }
@@ -415,7 +411,7 @@ void ed_fm_set_draw_args_v2(float* drawargs,
 
 // FC3 cockpit draw-arg callback used for stick, rudder pedal, throttle, and gear-handle animation.
 
-void ed_fm_set_fc3_cockpit_draw_args_v2(float* arguments, size_t /*count*/)
+void ed_fm_set_fc3_cockpit_draw_args_v2(float* arguments, size_t)
 {
     update_fc3_cockpit_draw_args(arguments);
 }
@@ -691,7 +687,7 @@ double ed_fm_get_shake_amplitude(void)
 }
 
 // Optional DCS easy-flight hook. This FM currently leaves game-mode behavior unchanged.
-void ed_fm_set_easy_flight(bool /*enabled*/)
+void ed_fm_set_easy_flight(bool)
 {
     // There is one control-law configuration for both DCS difficulty settings.
 }
@@ -739,7 +735,7 @@ void ed_fm_hot_start_in_air()
 // -----------------------------------------------------------------------
 
 // Called asynchronously with cloud/precipitation density at the aircraft position.
-void ed_fm_set_clouds_density(const atmo_clouds_and_precipation& /*info*/)
+void ed_fm_set_clouds_density(const atmo_clouds_and_precipation&)
 {
 }
 
@@ -757,7 +753,7 @@ void ed_fm_wind_vector_field_done()
 }
 
 // DCS pushes in-game events (e.g. carrier cat/trap) to the FM.
-bool ed_fm_push_simulation_event(const ed_fm_simulation_event& /*in*/)
+bool ed_fm_push_simulation_event(const ed_fm_simulation_event&)
 {
     return false;
 }

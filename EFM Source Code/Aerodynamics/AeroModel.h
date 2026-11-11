@@ -158,13 +158,19 @@ struct Input
 
 struct Output
 {
-    double CN, CY, Cl, Cm, Cn;
+    double CN;
+    double CY;
+    double Cl;
+    double Cm;
+    double Cn;
     double ClPerAileronDeg;   // Rolling moment per degree of aileron here, for the roll law.
     double CmPerElevatorDeg;  // Pitching moment per degree of elevator here, for the pitch law.
     double Clp;               // Roll damping per unit of p b / 2V, wing and fins.
     double CnPerBetaDeg;      // Directional stability per degree, for the debug log.
     double ClPerBetaDeg;
-    double CyPerRudderDeg, CnPerRudderDeg, ClPerRudderDeg;
+    double CyPerRudderDeg;
+    double CnPerRudderDeg;
+    double ClPerRudderDeg;
 };
 
 // Each side's elevon, with the lift per degree falling off past the linear range.

@@ -157,7 +157,6 @@ bool handle_actuator_toggle_command(int command)
             {
                 F117::dragchute_command = 0.0;
             }
-            printf("Drag chute = %f \n", dragchute_command);
             return true;
         case geardown:
             set_gear_command(kGearCommandDown);

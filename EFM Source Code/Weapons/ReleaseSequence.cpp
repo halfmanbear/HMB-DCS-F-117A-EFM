@@ -135,18 +135,19 @@ void handle_weapon_release_released()
 
     for (int bay = 0; bay < F117::kWeaponBayCount; ++bay)
     {
-        if (!F117::weapon_bay_owned_by_release[bay])
-            continue;
-        if (weapon_bay_is_open(bay))
+        if (F117::weapon_bay_owned_by_release[bay])
         {
-            F117::weapon_bay_close_pending[bay] = true;
-            F117::weapon_bay_close_delay[bay] = kWeaponBayHoldAfterReleaseSeconds;
-        }
-        else
-        {
-            command_weapon_bay_close(bay);
-            F117::weapon_bay_close_pending[bay] = false;
-            F117::weapon_bay_close_delay[bay] = 0.0;
+            if (weapon_bay_is_open(bay))
+            {
+                F117::weapon_bay_close_pending[bay] = true;
+                F117::weapon_bay_close_delay[bay] = kWeaponBayHoldAfterReleaseSeconds;
+            }
+            else
+            {
+                command_weapon_bay_close(bay);
+                F117::weapon_bay_close_pending[bay] = false;
+                F117::weapon_bay_close_delay[bay] = 0.0;
+            }
         }
     }
 
@@ -203,7 +204,9 @@ void update_weapon_release_sequence(double dt)
 {
     update_laser(dt);
     F117::release_retry_delay = std::max(0.0, F117::release_retry_delay - dt);
-    double errorMeters = 0.0, timeToGoSeconds = 0.0, rangeMeters = 0.0;
+    double errorMeters = 0.0;
+    double timeToGoSeconds = 0.0;
+    double rangeMeters = 0.0;
     bool inZone = false;
     const bool hasSolution = CockpitInterop::HasIRADSLock() &&
                              compute_release_solution(&errorMeters, &timeToGoSeconds, &rangeMeters, &inZone);
@@ -277,10 +280,8 @@ void update_weapon_release_sequence(double dt)
         status = 10;
     if (status != F117::release_status)
     {
-        char message[128];
-        sprintf_s(message, "DELIVERY: status=%d station=%d profile=%d consent=%d", status, station,
-                  get_ccrp_profile_index(), F117::weapon_release_pickle_held);
-        CockpitInterop::Log_(message);
+        CockpitInterop::Log("DELIVERY: status=%d station=%d profile=%d consent=%d", status, station,
+                            get_ccrp_profile_index(), F117::weapon_release_pickle_held);
         F117::release_status = status;
     }
     static void* statusParam = nullptr;

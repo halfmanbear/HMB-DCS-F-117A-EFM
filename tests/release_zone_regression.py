@@ -26,7 +26,7 @@ int profileIndex=0;
 namespace F117 {double ambientDensity_KgPerM3=.819; double ccrp_time_of_flight=0;bool weapon_release_pickle_held=false;}
 namespace CockpitInterop {
  bool GetIRADSLockWorldPoint(double* p){for(int i=0;i<3;++i)p[i]=target[i];return true;}
- void Log_(const char*){}
+ void Log_(const char*){} void Log(const char*,...){}
 }
 int get_ccrp_profile_index(){return profileIndex;}
 '''+constants+ccrp_h[start:end]+r'''

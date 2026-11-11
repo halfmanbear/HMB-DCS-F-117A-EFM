@@ -4,6 +4,7 @@
 // Public interface used by the flight model; the implementation lives in Interop/.
 // ============================================================================
 #include <Windows.h>
+#include <cstdarg>
 #include <cstdint>
 
 namespace CockpitInterop
@@ -23,6 +24,8 @@ extern HMODULE g_hDLL;              // this module; set by DllMain, used for the
 extern void** g_contexts_ptr_addr;  // address of the cockpit context table
 
 void Log_(const char* msg);
+void LogV(const char* fmt, va_list args);
+void Log(const char* fmt, ...);
 bool Initialize();
 bool InjectIRADSSensor_Early();  // Phase A: DllMain - ctor + add to keeper
 bool InjectIRADSSensor_Late();   // Phase B: ed_fm_start - ensure init + camera pos + IR mode

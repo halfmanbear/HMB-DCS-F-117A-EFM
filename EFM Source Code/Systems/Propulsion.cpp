@@ -88,11 +88,13 @@ void update_engine_indications(double dt)
         {
             shownEgt = egt;  // first frame of a session: hot starts begin at idle, cold ones at ambient
             F117::engine_oil_psi[side] = oil;
-            continue;
         }
-        const double egtTau = egt > shownEgt ? kEgtHeatTau : kEgtCoolTau;
-        shownEgt += (egt - shownEgt) * (1.0 - std::exp(-dt / egtTau));
-        F117::engine_oil_psi[side] += (oil - F117::engine_oil_psi[side]) * (1.0 - std::exp(-dt / kOilTau));
+        else
+        {
+            const double egtTau = egt > shownEgt ? kEgtHeatTau : kEgtCoolTau;
+            shownEgt += (egt - shownEgt) * (1.0 - std::exp(-dt / egtTau));
+            F117::engine_oil_psi[side] += (oil - F117::engine_oil_psi[side]) * (1.0 - std::exp(-dt / kOilTau));
+        }
     }
 }
 

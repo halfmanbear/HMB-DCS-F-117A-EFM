@@ -65,7 +65,7 @@ constexpr CcrpStoreModel kCcrpStoreModels[] = {
     {"AGM-65D", 218.0, 0.0, 0.073, 0.0, 30.0, 10.0, StoreKind::MissileIr, -1, 500.0, 12964.0, 0.5},
     {"AGM-65E", 293.0, 0.0, 0.073, 0.0, 30.0, 10.0, StoreKind::MissileLaser, -1, 1000.0, 11112.0, 0.5},
 };
-constexpr int kCcrpStoreCount = (int)(sizeof(kCcrpStoreModels) / sizeof(kCcrpStoreModels[0]));
+constexpr int kCcrpStoreCount = static_cast<int>(sizeof(kCcrpStoreModels) / sizeof(kCcrpStoreModels[0]));
 
 constexpr bool store_needs_laser(StoreKind kind)
 {

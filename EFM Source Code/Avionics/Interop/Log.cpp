@@ -1,8 +1,8 @@
 // IRADS interop log: F117_IRADS.log beside the DLL, bounded in size.
 #include "stdafx.h"
 #include "IradsInternal.h"
+#include "../../Diagnostics/LogFile.h"
 #include <cstdarg>
-#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -15,7 +15,7 @@ static constexpr unsigned long long kLogRotateBytes = 10ULL * 1024 * 1024;
 static constexpr unsigned long long kLogLoadBytes = 20ULL * 1024 * 1024;
 static constexpr size_t kLogLineBytes = 512;
 
-static FILE* s_log = nullptr;
+static LogFile s_log;
 static unsigned long long s_log_load_bytes = 0;
 
 static void RotateLogIfLarge(const std::string& directory, const std::string& path)
@@ -32,7 +32,7 @@ static void RotateLogIfLarge(const std::string& directory, const std::string& pa
 
 static void OpenLog()
 {
-    if (s_log || !g_hDLL)
+    if (s_log.is_open() || !g_hDLL)
         return;
     char dllPath[MAX_PATH] = {};
     if (GetModuleFileNameA(g_hDLL, dllPath, MAX_PATH))
@@ -42,40 +42,43 @@ static void OpenLog()
             *(lastSlash + 1) = '\0';
         std::string path = std::string(dllPath) + "F117_IRADS.log";
         RotateLogIfLarge(dllPath, path);
-        s_log = fopen(path.c_str(), "a");
+        s_log.open(path.c_str(), true);
     }
-    if (s_log)
+    if (s_log.is_open())
     {
-        fprintf(s_log, "\n--- F117_IRADS log opened ---\n");
-        fprintf(s_log, "[F117-IRADS] BUILD %s\n", kIRADSBuildMarker);
-        fflush(s_log);
+        s_log.write("\n--- F117_IRADS log opened ---\n");
+        s_log.write("[F117-IRADS] BUILD %s\n", kIRADSBuildMarker);
     }
 }
 
 void Log_(const char* msg)
 {
     OpenLog();
-    if (s_log && s_log_load_bytes < kLogLoadBytes)
+    if (s_log.is_open() && s_log_load_bytes < kLogLoadBytes)
     {
-        const int written = fprintf(s_log, "[F117-IRADS] %s\n", msg);
+        const int written = s_log.write("[F117-IRADS] %s\n", msg);
         if (written > 0)
             s_log_load_bytes += static_cast<unsigned long long>(written);
         if (s_log_load_bytes >= kLogLoadBytes)
-            fprintf(s_log, "[F117-IRADS] Log limit reached; file output stops until the DLL next loads\n");
-        fflush(s_log);
+            s_log.write("[F117-IRADS] Log limit reached; file output stops until the DLL next loads\n");
     }
     OutputDebugStringA("[F117-IRADS] ");
     OutputDebugStringA(msg);
     OutputDebugStringA("\n");
 }
 
-void Log(const char* fmt, ...)
+void LogV(const char* fmt, va_list args)
 {
     char buf[kLogLineBytes];
+    format_into(buf, sizeof(buf), fmt, args);
+    Log_(buf);
+}
+
+void Log(const char* fmt, ...)
+{
     va_list va;
     va_start(va, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, va);
+    LogV(fmt, va);
     va_end(va);
-    Log_(buf);
 }
 }  // namespace CockpitInterop

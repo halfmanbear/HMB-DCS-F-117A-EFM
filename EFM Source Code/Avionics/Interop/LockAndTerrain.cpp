@@ -66,7 +66,8 @@ bool CompleteIRADSTerrainRequest(unsigned sequence, bool hit, const double point
     s_irads_terrain_pending = false;
     if (!hit || !point || !s_irads_power || !g_avTVSensor_instance)
         return false;
-    double distanceSq = 0, dot = 0;
+    double distanceSq = 0;
+    double dot = 0;
     for (int i = 0; i < 3; ++i)
     {
         if (!std::isfinite(point[i]))

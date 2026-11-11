@@ -11,7 +11,7 @@
 #include "CockpitBase_Interop.h"
 #include "CockpitBase_Layouts.h"
 #include <cstdint>
-#include <cstdio>
+#include <cstdarg>
 #include <cstdarg>
 #include <cmath>
 
@@ -21,11 +21,15 @@ namespace
 {
 struct Vec3d
 {
-    double x, y, z;
+    double x;
+    double y;
+    double z;
 };
 struct Vec3f
 {
-    float x, y, z;
+    float x;
+    float y;
+    float z;
 };
 
 constexpr size_t kSlotGetWeaponManager = 0x120 / 8;  // MovingObject
@@ -63,12 +67,10 @@ ptrdiff_t s_suicideOffset = -1;
 
 void Log(const char* fmt, ...)
 {
-    char buf[512];
     va_list va;
     va_start(va, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, va);
+    CockpitInterop::LogV(fmt, va);
     va_end(va);
-    CockpitInterop::Log_(buf);
 }
 
 void Log_(const char* msg)
@@ -97,7 +99,8 @@ void Resolve()
     }
     s_resolved = s_createLaserSpot && s_setPoint && s_registerToKill && s_spotSuicideVtbl;
     Log("WeaponsInterop: create_laser_spot=%p set_point=%p registerToKill=%p woSpot::Suicide vtbl=%p",
-        (void*)s_createLaserSpot, (void*)s_setPoint, (void*)s_registerToKill, s_spotSuicideVtbl);
+        reinterpret_cast<void*>(s_createLaserSpot), reinterpret_cast<void*>(s_setPoint),
+        reinterpret_cast<void*>(s_registerToKill), s_spotSuicideVtbl);
 }
 
 CockpitInterop::CcCockpitContextLayout* Context()
@@ -259,7 +262,8 @@ bool LaunchAtPoint(const double worldPoint[3], int station)
     void* manager = WeaponManager();
     if (!manager)
         return false;
-    int current = -1, count = 0;
+    int current = -1;
+    int count = 0;
     if (!StationInfoRaw(manager, &current, &count) || station >= count)
         return false;
     const Vec3f point{static_cast<float>(worldPoint[0]), static_cast<float>(worldPoint[1]),

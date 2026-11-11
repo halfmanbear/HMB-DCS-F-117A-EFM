@@ -86,7 +86,7 @@ int launches=0,profile=0;double handoff[3]{};double publishedFlight=-1;
 namespace CockpitInterop {
  bool IsIRADSPowered(){return power;} bool HasIRADSLock(){return lockValid;}
  bool GetIRADSLockWorldPoint(double* p){p[0]=1000;p[1]=0;p[2]=-2000;return lockValid;}
- int GetIRADSZoomLevel(){return 1;} void Log_(const char*){}
+ int GetIRADSZoomLevel(){return 1;} void Log_(const char*){} void LogV(const char*,va_list){} void Log(const char*,...){}
  bool GetIRADSLineOfSight(double* d){d[0]=0;d[1]=0;d[2]=1;return power&&lockValid;}
 }
 namespace WeaponsInterop {
@@ -179,7 +179,7 @@ code=r'''
 #include <cstdio>
 #include <cstring>
 #include "WEAPON_CPP"
-namespace CockpitInterop {void** g_contexts_ptr_addr=nullptr;void Log_(const char*){}}
+namespace CockpitInterop {void** g_contexts_ptr_addr=nullptr;void Log_(const char*){}void LogV(const char*,va_list){}}
 static int launchCount=0,selected=-1,nativeResult=1,spotKills=0,spotMoves=0;
 static float passedPoint[3]{};static unsigned char fakeSpot[0x400]{};
 static void* managerSlots[64]{};static void** manager=managerSlots;
