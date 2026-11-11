@@ -1,7 +1,12 @@
 #pragma once
 // CSV debug log of the pitch control law (F117_GLimiter_Debug.csv in the DCS Logs folder).
 
-namespace F117 { namespace FLIGHTCONTROLS { namespace detail {
+namespace F117
+{
+namespace FLIGHTCONTROLS
+{
+namespace detail
+{
 
 struct PitchDebugSample
 {
@@ -16,7 +21,7 @@ struct PitchDebugSample
     double nzCommand{};
     double nzError{};
     double nzProportional{};
-    double pitchRateBlend{};     // washed pitch-rate blend contribution (g) in the error signal
+    double pitchRateBlend{};  // washed pitch-rate blend contribution (g) in the error signal
     double nzControl{};
     double integratorOut{};
     double rawAoA{};
@@ -36,4 +41,6 @@ void close_pitch_debug_log();
 // Writes one row every kPitchDebugLogIntervalFrames calls when the log is open.
 void log_pitch_debug_sample(const PitchDebugSample& sample);
 
-}}} // namespace F117::FLIGHTCONTROLS::detail
+}  // namespace detail
+}  // namespace FLIGHTCONTROLS
+}  // namespace F117

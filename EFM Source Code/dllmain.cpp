@@ -11,7 +11,8 @@
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID)
 {
-    if (reason != DLL_PROCESS_ATTACH) return TRUE;
+    if (reason != DLL_PROCESS_ATTACH)
+        return TRUE;
     OutputDebugStringA("F117: dllmain hit\n");
     CockpitInterop::g_hDLL = instance;
     CockpitInterop::Log_("DllMain: DLL_PROCESS_ATTACH");

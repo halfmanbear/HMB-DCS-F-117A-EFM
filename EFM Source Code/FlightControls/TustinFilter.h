@@ -25,7 +25,7 @@ public:
             // num[term] multiplies s^(n - term), which becomes
             // k^(n - term) (1 - z^-1)^(n - term) (1 + z^-1)^term over a common (1 + z^-1)^n.
             const int sPower = order_ - term;
-            double poly[kMaxOrder + 1] = { 1.0 };
+            double poly[kMaxOrder + 1] = {1.0};
             int degree = 0;
             for (int i = 0; i < order_; ++i)
             {
@@ -93,7 +93,7 @@ private:
     int order_ = 1;
     double b_[kMaxOrder + 1] = {};
     double a_[kMaxOrder + 1] = {};
-    double pastInput_[kMaxOrder] = {};   // newest first
+    double pastInput_[kMaxOrder] = {};  // newest first
     double pastOutput_[kMaxOrder] = {};
     double steadyGain_ = 0.0;
 };

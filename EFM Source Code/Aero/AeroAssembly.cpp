@@ -15,7 +15,8 @@
 // Fraction of induced drag remaining near the ground (Wieselberger): 0 on the ground, 1 in free air.
 double induced_drag_ground_effect()
 {
-    if (!F117::surface_height_valid || !F117::altitude_valid) return 1.0;
+    if (!F117::surface_height_valid || !F117::altitude_valid)
+        return 1.0;
     const double clearance = (std::max)(0.0, F117::altitude_m - F117::surface_height_m);
     const double ratio = 16.0 * clearance / F117::wingSpan_M;
     return ratio * ratio / (1.0 + ratio * ratio);
@@ -28,7 +29,8 @@ double induced_drag_ground_effect()
 // for low aspect ratio delta wings varies widely.
 double lift_ground_effect_gain()
 {
-    if (!F117::surface_height_valid || !F117::altitude_valid) return 0.0;
+    if (!F117::surface_height_valid || !F117::altitude_valid)
+        return 0.0;
     const double clearance = (std::max)(0.0, F117::altitude_m - F117::surface_height_m);
     constexpr double kGainOnWheels = 0.20;
     constexpr double kHeightOnWheels_M = 2.12;
@@ -44,7 +46,8 @@ void update_aerodynamic_coefficients()
 
     // 0.015 with both bays open, shared between them.
     double bayOpenSum = 0.0;
-    for (const auto& servo : F117::ACTUATORS::weaponBay) bayOpenSum += servo.position;
+    for (const auto& servo : F117::ACTUATORS::weaponBay)
+        bayOpenSum += servo.position;
     const double CDbay = 0.015 * bayOpenSum / F117::kWeaponBayCount;
     const double Czbay = -(CDbay * sin(F117::pi / 180.0));
     const double Cxbay = CDbay * cos(F117::pi / 180.0);
@@ -88,7 +91,8 @@ void update_aerodynamic_coefficients()
     // Ground effect relieves part of that tilted normal force.
     const double phi_GE = induced_drag_ground_effect();
     // The second term cancels the drag the extra ground-effect lift would gain from being tilted with the body axis.
-    const double Cd_induced = ((1.0 - phi_GE) * Cz + CzGroundEffect) * tan(limit(alpha1_DEG_Limited, -89.0, 89.0) * F117::pi / 180.0);
+    const double Cd_induced =
+        ((1.0 - phi_GE) * Cz + CzGroundEffect) * tan(limit(alpha1_DEG_Limited, -89.0, 89.0) * F117::pi / 180.0);
 
     double Cd_wave = 0.0;
     const double Mdiv = 0.85;
@@ -131,20 +135,13 @@ void update_aerodynamic_coefficients()
     F117::AERO::CnPerRudderDeg = aero.CnPerRudderDeg;
     F117::AERO::Clp = aero.Clp;
 
-    F117::FLIGHTCONTROLS::update_aero_debug_snapshot(
-        aero.CyPerRudderDeg,
-        aero.CnPerRudderDeg,
-        aero.ClPerRudderDeg,
-        aero.CnPerBetaDeg,
-        aero.ClPerBetaDeg,
-        aero.CY,
-        aero.Cn,
-        aero.Cl);
+    F117::FLIGHTCONTROLS::update_aero_debug_snapshot(aero.CyPerRudderDeg, aero.CnPerRudderDeg, aero.ClPerRudderDeg,
+                                                     aero.CnPerBetaDeg, aero.ClPerBetaDeg, aero.CY, aero.Cn, aero.Cl);
 }
 
 void apply_aerodynamic_forces_and_thrust()
 {
-    const double qS = F117::wingArea_M2 * F117::dynamicPressure_PA; // N
+    const double qS = F117::wingArea_M2 * F117::dynamicPressure_PA;  // N
 
     Vec3 cy_force(0.0, 0.0, F117::AERO::Cy_total * qS);
     add_local_force(cy_force);
@@ -156,16 +153,15 @@ void apply_aerodynamic_forces_and_thrust()
     Vec3 cz_force(0.0, -F117::AERO::Cz_total * qS * liftDamageFactor, 0.0);
     add_local_force(cz_force);
 
-    const double qS_b = qS * F117::wingSpan_M; // N·m
+    const double qS_b = qS * F117::wingSpan_M;  // N·m
     double rollMoment = F117::AERO::Cl_total * qS_b;
     rollMoment += g_damage.wingAsymmetry * qS_b * 0.05;
-
 
     const double pitchDamageFactor = 1.0 - g_damage.totalTailLoss * 0.5;
     const double noseDownBias = -g_damage.totalWingLoss * qS_b * 0.08;
     const double pitchMoment = F117::AERO::Cm_total * qS * F117::meanChord_M * pitchDamageFactor + noseDownBias;
 
-    const double qS_span = qS_b; // N·m (same as qS_b for yaw)
+    const double qS_span = qS_b;  // N·m (same as qS_b for yaw)
     double yawMoment = -F117::AERO::Cn_total * qS_span;
     const double tailAsymDamage = g_damage.leftTail - g_damage.rightTail;
     yawMoment += tailAsymDamage * qS_span * 0.03;

@@ -4,7 +4,12 @@
 #include "Config.h"
 #include "FlightControls.h"
 
-namespace F117 { namespace FLIGHTCONTROLS { namespace detail {
+namespace F117
+{
+namespace FLIGHTCONTROLS
+{
+namespace detail
+{
 
 // Latest values of the roll and yaw loops and the aero totals, recorded for the pitch debug log.
 struct RollSnapshot
@@ -82,4 +87,6 @@ void reset_yaw_state();
 void reset_pitch_state();
 void reset_roll_state();
 
-}}} // namespace F117::FLIGHTCONTROLS::detail
+}  // namespace detail
+}  // namespace FLIGHTCONTROLS
+}  // namespace F117

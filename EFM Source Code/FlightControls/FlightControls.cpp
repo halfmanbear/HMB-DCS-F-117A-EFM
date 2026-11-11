@@ -4,7 +4,10 @@
 #include "FlightControls.h"
 #include "Internal.h"
 
-namespace F117 { namespace FLIGHTCONTROLS {
+namespace F117
+{
+namespace FLIGHTCONTROLS
+{
 
 bool simInitialized{};
 double longStickInput{};
@@ -30,7 +33,8 @@ void update_ground_contact(bool wheelOnGround, double dt)
     detail::ground_contact_fade = limit(detail::ground_contact_fade + (wheelOnGround ? change : -change), 0.0, 1.0);
 }
 
-void update_yaw_debug_snapshot(double betaDeg, double yawRateRps, double rudderDegCommanded, double rudderDeg, double rudderPct)
+void update_yaw_debug_snapshot(double betaDeg, double yawRateRps, double rudderDegCommanded, double rudderDeg,
+                               double rudderPct)
 {
     detail::YawSnapshot& yaw = detail::debug_snapshot.yaw;
     yaw.betaDeg = betaDeg;
@@ -40,7 +44,8 @@ void update_yaw_debug_snapshot(double betaDeg, double yawRateRps, double rudderD
     yaw.rudderPct = rudderPct;
 }
 
-void update_aero_debug_snapshot(double cyDeltaRudder, double cnDeltaRudder, double clDeltaRudder, double cnDeltaBeta, double clDeltaBeta, double cyTotal, double cnTotal, double clTotal)
+void update_aero_debug_snapshot(double cyDeltaRudder, double cnDeltaRudder, double clDeltaRudder, double cnDeltaBeta,
+                                double clDeltaBeta, double cyTotal, double cnTotal, double clTotal)
 {
     detail::AeroSnapshot& aero = detail::debug_snapshot.aero;
     aero.cyDeltaRudder = cyDeltaRudder;
@@ -53,4 +58,5 @@ void update_aero_debug_snapshot(double cyDeltaRudder, double cnDeltaRudder, doub
     aero.clTotal = clTotal;
 }
 
-}}
+}  // namespace FLIGHTCONTROLS
+}  // namespace F117

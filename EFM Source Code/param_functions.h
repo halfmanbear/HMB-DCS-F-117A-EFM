@@ -7,6 +7,12 @@ struct param_stuff final
     bool fuelvalue{true};
     bool invincible_value{true};
 
-    void set_unlimited_fuel(bool enabled) noexcept { fuelvalue = !enabled; }
-    void set_immortal(bool enabled) noexcept { invincible_value = !enabled; }
+    void set_unlimited_fuel(bool enabled) noexcept
+    {
+        fuelvalue = !enabled;
+    }
+    void set_immortal(bool enabled) noexcept
+    {
+        invincible_value = !enabled;
+    }
 };

@@ -65,5 +65,5 @@ def unit_body(*subdirs, keep_namespace=True):
     text = '\n'.join(line for line in lines if not line.startswith('#include'))
     if not keep_namespace:
         text = re.sub(r'^namespace \w+\s*\{', '', text, count=1, flags=re.M)
-        text = re.sub(r'^\} // namespace \w+', '', text, count=1, flags=re.M)
+        text = re.sub(r'^\}\s*// namespace \w+', '', text, count=1, flags=re.M)
     return text

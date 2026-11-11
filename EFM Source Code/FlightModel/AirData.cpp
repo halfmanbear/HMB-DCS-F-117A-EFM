@@ -6,26 +6,27 @@
 #include "../Atmosphere/Atmosphere.h"
 #include "State.h"
 
-namespace F117 {
+namespace F117
+{
 
 namespace
 {
-    constexpr double kMinAirspeed_MPS = 0.003; // ~0.01 ft/s equivalent minimum
+constexpr double kMinAirspeed_MPS = 0.003;  // ~0.01 ft/s equivalent minimum
 
-    void update_total_velocity_from_airmass()
+void update_total_velocity_from_airmass()
+{
+    Vec3 airspeed;
+    airspeed.x = velocity_world_cs.x - wind.x;
+    airspeed.y = velocity_world_cs.y - wind.y;
+    airspeed.z = velocity_world_cs.z - wind.z;
+
+    totalVelocity_MPS = std::sqrt(airspeed.x * airspeed.x + airspeed.y * airspeed.y + airspeed.z * airspeed.z);
+    if (totalVelocity_MPS < kMinAirspeed_MPS)
     {
-        Vec3 airspeed;
-        airspeed.x = velocity_world_cs.x - wind.x;
-        airspeed.y = velocity_world_cs.y - wind.y;
-        airspeed.z = velocity_world_cs.z - wind.z;
-
-        totalVelocity_MPS = std::sqrt(airspeed.x * airspeed.x + airspeed.y * airspeed.y + airspeed.z * airspeed.z);
-        if (totalVelocity_MPS < kMinAirspeed_MPS)
-        {
-            totalVelocity_MPS = kMinAirspeed_MPS;
-        }
+        totalVelocity_MPS = kMinAirspeed_MPS;
     }
 }
+}  // namespace
 
 void update_air_data()
 {
@@ -37,4 +38,4 @@ void update_air_data()
     mach = airData[1];
 }
 
-} // namespace F117
+}  // namespace F117

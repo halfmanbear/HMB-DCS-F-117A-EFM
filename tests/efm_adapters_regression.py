@@ -56,7 +56,7 @@ for name in ['void add_local_force(', 'void add_local_moment(', 'void ed_fm_add_
              'void ed_fm_set_atmosphere(', 'void ed_fm_set_current_mass_state(',
              'bool handle_autopilot_command(', 'bool ed_fm_change_mass(',
              'void ed_fm_set_internal_fuel(', 'double ed_fm_get_internal_fuel(',
-             'void ed_fm_set_external_fuel(', 'double ed_fm_get_external_fuel (',
+             'void ed_fm_set_external_fuel(', 'double ed_fm_get_external_fuel(',
              'void ed_fm_refueling_add_fuel(']:
     code += '\n' + extract(name) + '\n'
 code += r'''

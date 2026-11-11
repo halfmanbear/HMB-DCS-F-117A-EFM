@@ -9,8 +9,8 @@ def extract(name):
  start=fm.index(name);brace=fm.index('{',start);end=brace+1;depth=1
  while depth:depth+=(fm[end]=='{')-(fm[end]=='}');end+=1
  return fm[start:end]
-constants=ccrp_h[ccrp_h.index('    enum class StoreKind'):ccrp_h.index('    constexpr double kGravity_MPS2')]
-start=ccrp_h.index('    constexpr double kGravity_MPS2');end=ccrp_h.index('    constexpr double kWeaponBayOpenThreshold')
+constants=ccrp_h[ccrp_h.index('enum class StoreKind'):ccrp_h.index('constexpr double kGravity_MPS2')]
+start=ccrp_h.index('constexpr double kGravity_MPS2');end=ccrp_h.index('constexpr double kWeaponBayOpenThreshold')
 code=r'''
 #include <cmath>
 #include <cassert>

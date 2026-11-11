@@ -1,0 +1,23 @@
+# Formatting for the EFM sources (JSF AV 41-44, 60: 120 columns, no tabs, braces on their own line).
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++17
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+BreakBeforeBraces: Allman
+PointerAlignment: Left
+NamespaceIndentation: None
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AlwaysBreakTemplateDeclarations: Yes
+IndentCaseLabels: true
+SortIncludes: Never
+FixNamespaceComments: true
+ReflowComments: true
+SpacesBeforeTrailingComments: 2
