@@ -8,8 +8,8 @@ def extract(name):
  start=fm.index(name);brace=fm.index('{',start);end=brace+1;depth=1
  while depth:depth+=(fm[end]=='{')-(fm[end]=='}');end+=1
  return fm[start:end]
-constants=fm[fm.index('    enum class StoreKind'):fm.index('    std::string build_saved_games_dcs_path')]
-start=fm.index('    constexpr double kGravity_MPS2');end=fm.index('    constexpr double kLuaDamageDose')
+constants=fm[fm.index('    enum class StoreKind'):fm.index('    constexpr double kGearCommandDown')]
+start=fm.index('    constexpr double kGravity_MPS2');end=fm.index('    constexpr size_t kMirroredGearDrawArgRequiredSize')
 code=r'''
 #include <cmath>
 #include <cassert>

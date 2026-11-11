@@ -101,7 +101,7 @@ void publish_named_param(void*&,const char* name,double value){if(std::string(na
 void setBay(bool open){F117::bay_state[0]=open?1.f:0.f;}
 void publish_weapon_release_gate_param(){}void publish_release_cue_params(){}
 int get_ccrp_profile_index(){return profile;}
-'''+fm[fm.index('    enum class StoreKind'):fm.index('    std::string build_saved_games_dcs_path')]+r'''
+'''+fm[fm.index('    enum class StoreKind'):fm.index('    constexpr double kGearCommandDown')]+r'''
 const CcrpStoreModel& get_ccrp_profile(){return kCcrpStoreModels[profile];}
 bool compute_release_solution(double*,double*,double*,bool* z){*z=zone;return solution;}
 '''+ '\n'.join(extract(fm,n) for n in names)+r'''
