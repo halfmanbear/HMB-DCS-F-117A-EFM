@@ -3,9 +3,11 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.sources import load_source  # noqa: E402
 
 repo = Path(__file__).resolve().parents[1]
-source = (repo / 'EFM Source Code/F_117_NightHawk.cpp').read_text(encoding='utf-8-sig')
+source = load_source()
 out = Path(sys.argv[1]).resolve()
 out.mkdir(parents=True, exist_ok=True)
 

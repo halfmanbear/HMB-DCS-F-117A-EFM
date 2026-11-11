@@ -1,5 +1,7 @@
 from pathlib import Path
 import subprocess,sys,shutil
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.sources import load_source  # noqa: E402
 from lupa.lua51 import LuaRuntime
 repo=Path(__file__).resolve().parents[1];src=repo/'EFM Source Code';mod=Path(sys.argv[1]);out=Path(sys.argv[2]);out.mkdir(exist_ok=True)
 def extract(text,name):
@@ -54,7 +56,7 @@ for rel in ['command_defs.lua','Systems/Weapons.lua','Systems/bomb_bay.lua','MFD
 assert 'dispatch_action' not in (mod/'Cockpit/Scripts/Systems/bomb_bay.lua').read_text()
 print('PASS: deployed Lua parses; no untargeted release fallback')
 # Actual production gate/sequence functions with controlled cockpit and native outcomes.
-fm=(src/'F_117_NightHawk.cpp').read_text(encoding='utf-8')
+fm=load_source()
 names=['bool weapon_bay_valid(int bay)','bool weapon_bay_is_open(int bay)','bool weapon_bay_is_closed(int bay)','void command_weapon_bay_open(int bay)','void command_weapon_bay_close(int bay)','int selected_weapon_bay()','void forget_weapon_bay_ownership(int bay)','void reset_weapon_release_sequence()','void handle_weapon_release_pressed()','void handle_weapon_release_released()','void update_laser(double dt)','void update_weapon_release_sequence(double dt)']
 code=r'''
 #include <cassert>

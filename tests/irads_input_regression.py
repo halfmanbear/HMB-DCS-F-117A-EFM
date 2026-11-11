@@ -1,5 +1,7 @@
 from pathlib import Path
 import re, subprocess, sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.sources import load_source  # noqa: E402
 from lupa.lua51 import LuaRuntime
 repo=Path(__file__).resolve().parents[1]
 src=repo/'EFM Source Code'
@@ -107,7 +109,7 @@ assert 'dispatch_action(nil,392)' not in (mod/'Cockpit/Scripts/Systems/Displays.
 print('PASS: MFD Lua 5.1 syntax; deployed page parses; LAS uses EFM arm state')
 
 # Compile the actual production command handler with sensor-call mocks.
-text=(src/'Avionics/CockpitBase_Interop.cpp').read_text(encoding="utf-8-sig")
+text=load_source('Avionics')
 def function(name):
     start=text.index('    '+name); brace=text.index('{',start); depth=1; end=brace+1
     while depth:

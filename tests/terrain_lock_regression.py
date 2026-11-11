@@ -1,5 +1,7 @@
 from pathlib import Path
 import math, subprocess, sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.sources import load_source  # noqa: E402
 from lupa.lua51 import LuaRuntime
 
 repo=Path(__file__).resolve().parents[1]
@@ -43,8 +45,8 @@ vm.globals().fail=True;params['F117_TERRAIN_REQUEST']=8;module['update']()
 assert params['F117_TERRAIN_ACK']==8 and params['F117_TERRAIN_HIT']==0
 print('PASS Lua: real terrain trace, flat/sloped/ridge terrain, both headings, no-hit/invalid input; payload before ACK, duplicate suppression and failed query clears HIT')
 
-src=(repo/'EFM Source Code/Avionics/CockpitBase_Interop.cpp').read_text(encoding='utf-8')
-fm=(repo/'EFM Source Code/F_117_NightHawk.cpp').read_text(encoding='utf-8')
+src=load_source('Avionics')
+fm=load_source()
 def extract(text,signature):
     start=text.index(signature);i=text.index('{',start)+1;depth=1
     while depth:depth+=(text[i]=='{')-(text[i]=='}');i+=1

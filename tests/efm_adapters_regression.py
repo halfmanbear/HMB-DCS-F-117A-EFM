@@ -6,12 +6,14 @@ Requires the Visual Studio 2022 C++ tools.
 from pathlib import Path
 import subprocess
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.sources import load_source  # noqa: E402
 
 repo = Path(__file__).resolve().parents[1]
 src = repo / 'EFM Source Code'
 out = Path(sys.argv[1]).resolve()
 out.mkdir(parents=True, exist_ok=True)
-source = (src / 'F_117_NightHawk.cpp').read_text(encoding='utf-8-sig')
+source = load_source()
 
 
 def extract(signature):

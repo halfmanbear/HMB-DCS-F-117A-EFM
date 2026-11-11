@@ -2,11 +2,13 @@
 starter cut-out, relight, and abandoned and failed starts, on two engines."""
 from pathlib import Path
 import re, subprocess, sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.sources import load_source  # noqa: E402
 repo = Path(__file__).resolve().parents[1]
 out = Path(sys.argv[1]); out.mkdir(parents=True, exist_ok=True)
 src = repo / 'EFM Source Code'
 engine = '#include "' + (src / 'Engine/Engine.h').as_posix() + '"\n'
-source = (src / 'F_117_NightHawk.cpp').read_text(encoding='utf-8-sig')
+source = load_source()
 
 
 def extract(signature):

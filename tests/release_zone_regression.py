@@ -1,7 +1,9 @@
 from pathlib import Path
 import subprocess,sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.sources import load_source  # noqa: E402
 repo=Path(__file__).resolve().parents[1];out=Path(sys.argv[1]);out.mkdir(parents=True,exist_ok=True)
-fm=(repo/'EFM Source Code/F_117_NightHawk.cpp').read_text(encoding='utf-8-sig')
+fm=load_source()
 def extract(name):
  start=fm.index(name);brace=fm.index('{',start);end=brace+1;depth=1
  while depth:depth+=(fm[end]=='{')-(fm[end]=='}');end+=1

@@ -1,5 +1,7 @@
 from pathlib import Path
 import subprocess,sys,math
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.sources import load_source  # noqa: E402
 from lupa.lua51 import LuaRuntime
 repo=Path(__file__).resolve().parents[1];mod=Path(sys.argv[1]);out=Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 vm=LuaRuntime();params={}
@@ -45,7 +47,7 @@ print('PASS: actual Weapons.lua auto-steps once per accepted release, skips unsu
 keyboard=(mod/'Input/F-117-NightHawk/keyboard/default.lua').read_text(encoding='utf-8')
 assert "combos = {{key = 'Space', reformers = {'RAlt'}}}, down = iCommandPlanePickleOn, up = iCommandPlanePickleOff" in keyboard
 print('PASS: deployed generic pickle uses RAlt+Space with separate press/release commands')
-source=(repo/'EFM Source Code/Avionics/CockpitBase_Interop.cpp').read_text(encoding='utf-8-sig')
+source=load_source('Avionics')
 def extract(name):
  start=source.index(name);brace=source.index('{',start);end=brace+1;depth=1
  while depth:depth+=(source[end]=='{')-(source[end]=='}');end+=1
