@@ -52,10 +52,7 @@ namespace CockpitInterop
     static bool  s_initialized  = false;
     static bool  s_added        = false;
     static bool  s_started      = false;
-    static bool  s_carrier_set  = false;
     static bool  s_carrier_link_disabled_logged = false;
-    static bool  s_link_host_seed_logged = false;
-    static int   s_link_host_seed_fail_logs = 0;
     static int   s_designation_diag_logs = 0;
     static bool  s_pose_seed_logged = false;
     static FILE* s_log          = nullptr;
@@ -115,12 +112,6 @@ namespace CockpitInterop
     static void Log(const char* fmt, ...);
     static void SeedInjectedSensorPose(double aircraft_x, double aircraft_y, double aircraft_z,
         double quat_x, double quat_y, double quat_z, double quat_w);
-    static bool SeedInjectedSensorLinkHost();
-
-    static AvTrackDataLayout* AsTrackData(void* track)
-    {
-        return static_cast<AvTrackDataLayout*>(track);
-    }
 
     static CcCockpitContextLayout* GetGlobalContext()
     {
@@ -175,168 +166,6 @@ namespace CockpitInterop
         }
 
         return false;
-    }
-
-    static bool GetSensorTrackPoint(double out_point[3])
-    {
-        if (!g_avTVSensor_instance)
-            return false;
-
-        AvTVSensorLayout* sensor = AsSensor(g_avTVSensor_instance);
-
-        // Mode 3 = active object-tracking; any other active mode returns the cached
-        // designated/stabilised ground point. Both are valid for CCRP.
-        // We use the native function for mode 3, and read the cached point for other modes.
-        if (sensor->trackMode == 3)
-        {
-            if (g_avTVSensor_get_tracked_point)
-            {
-                double nativePoint[3] = {};
-                g_avTVSensor_get_tracked_point(g_avTVSensor_instance, nativePoint);
-                out_point[0] = nativePoint[0];
-                out_point[1] = nativePoint[1];
-                out_point[2] = nativePoint[2];
-                return (out_point[0] != 0.0 || out_point[1] != 0.0 || out_point[2] != 0.0);
-            }
-
-            // Fallback: compute the point from the track data transform
-            auto* track = AsTrackData(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x3B0);
-            const double* m = track->worldTransform;
-            const double local_x = track->localPointOffset[0];
-            const double local_y = track->localPointOffset[1];
-            const double local_z = track->localPointOffset[2];
-            out_point[0] = local_x * m[0]  + local_y * m[4]  + local_z * m[8]  + m[12];
-            out_point[1] = local_x * m[1]  + local_y * m[5]  + local_z * m[9]  + m[13];
-            out_point[2] = local_x * m[2]  + local_y * m[6]  + local_z * m[10] + m[14];
-            return (out_point[0] != 0.0 || out_point[1] != 0.0 || out_point[2] != 0.0);
-        }
-
-        // Non-tracking modes: read the cached designated/stabilised point.
-        // This is populated by the external designation stabilisation loop.
-        out_point[0] = sensor->cachedTrackedPoint[0];
-        out_point[1] = sensor->cachedTrackedPoint[1];
-        out_point[2] = sensor->cachedTrackedPoint[2];
-        return (out_point[0] != 0.0 || out_point[1] != 0.0 || out_point[2] != 0.0);
-    }
-
-    static void GetSensorPolar(double out_polar[3])
-    {
-        out_polar[0] = 0.0;
-        out_polar[1] = 0.0;
-        out_polar[2] = 0.0;
-
-        if (g_avTVSensor_instance && g_avTVSensor_get_polar_position)
-        {
-            g_avTVSensor_get_polar_position(g_avTVSensor_instance, out_polar);
-            return;
-        }
-
-        auto* track = AsTrackData(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x3B0);
-        out_polar[0] = track->relativeAzimuth;
-        out_polar[1] = track->relativeElevation;
-        out_polar[2] = track->relativeRange;
-    }
-
-
-
-    static bool SeedInjectedSensorLinkHost()
-    {
-        if (!g_avTVSensor_instance)
-            return false;
-
-        CcCockpitContextLayout* ctx = GetGlobalContext();
-        CcCockpitContextLayout* bindingCtx = GetBindingContext();
-        if (!ctx)
-            ctx = bindingCtx;
-
-        void* linkHost = ctx ? ctx->carrierLinkHostRaw : nullptr;
-        if (!linkHost && bindingCtx && bindingCtx != ctx)
-            linkHost = bindingCtx->carrierLinkHostRaw;
-        if (!linkHost)
-        {
-            if (s_link_host_seed_fail_logs < 6)
-            {
-                Log("SeedInjectedSensorLinkHost: no host globalCtx=%p moving=%p host=%p bindingCtx=%p bindingMoving=%p bindingHost=%p sensorLink=%p",
-                    (void*)ctx,
-                    ctx ? ctx->movingObjectRaw : nullptr,
-                    ctx ? ctx->carrierLinkHostRaw : nullptr,
-                    (void*)bindingCtx,
-                    bindingCtx ? bindingCtx->movingObjectRaw : nullptr,
-                    bindingCtx ? bindingCtx->carrierLinkHostRaw : nullptr,
-                    *reinterpret_cast<void**>(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x20));
-                ++s_link_host_seed_fail_logs;
-            }
-            return false;
-        }
-
-        // The platform's carrier position comes from its link host pointer. For the injected
-        // sensor we skip set_carrier and copy the live cockpit host pointer directly.
-        *reinterpret_cast<void**>(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x20) = linkHost;
-
-        if (!s_link_host_seed_logged)
-        {
-            Log("SeedInjectedSensorLinkHost: context=%p binding=%p linkHost=%p",
-                (void*)ctx, (void*)bindingCtx, linkHost);
-            s_link_host_seed_logged = true;
-        }
-        return true;
-    }
-
-    static bool SeedInjectedSensorCarrierLinkBase()
-    {
-        if (!g_avTVSensor_instance)
-        {
-            if (s_link_host_seed_fail_logs < 6)
-            {
-                Log("SeedInjectedSensorCarrierLinkBase: no sensor instance");
-                ++s_link_host_seed_fail_logs;
-            }
-            return false;
-        }
-
-        CcCockpitContextLayout* ctx = GetGlobalContext();
-        CcCockpitContextLayout* bindingCtx = GetBindingContext();
-        if (!ctx)
-            ctx = bindingCtx;
-
-        CcCockpitContextLayout* sourceCtx = nullptr;
-        if (ctx && ctx->carrierLinkHostRaw)
-            sourceCtx = ctx;
-        else if (bindingCtx && bindingCtx->carrierLinkHostRaw)
-            sourceCtx = bindingCtx;
-
-        if (!sourceCtx)
-        {
-            if (s_link_host_seed_fail_logs < 6)
-            {
-                Log("SeedInjectedSensorCarrierLinkBase: no source ctx global=%p globalMoving=%p globalHost=%p binding=%p bindingMoving=%p bindingHost=%p sensorLink=%p",
-                    (void*)ctx,
-                    ctx ? ctx->movingObjectRaw : nullptr,
-                    ctx ? ctx->carrierLinkHostRaw : nullptr,
-                    (void*)bindingCtx,
-                    bindingCtx ? bindingCtx->movingObjectRaw : nullptr,
-                    bindingCtx ? bindingCtx->carrierLinkHostRaw : nullptr,
-                    *reinterpret_cast<void**>(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x20));
-                ++s_link_host_seed_fail_logs;
-            }
-            return false;
-        }
-
-        // The sensor needs a carrier link equivalent to the cockpit context's.
-        // Recreate that object directly.
-        std::memcpy(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x10,
-                    sourceCtx->carrierLinkBaseStorage,
-                    sizeof(sourceCtx->carrierLinkBaseStorage));
-
-        if (!s_link_host_seed_logged)
-        {
-            Log("SeedInjectedSensorCarrierLinkBase: sourceCtx=%p host=%p sensorLink=%p",
-                (void*)sourceCtx,
-                sourceCtx->carrierLinkHostRaw,
-                *reinterpret_cast<void**>(reinterpret_cast<char*>(g_avTVSensor_instance) + 0x20));
-            s_link_host_seed_logged = true;
-        }
-        return true;
     }
 
     static bool GroundStabilizeIRADS()
@@ -1133,18 +962,6 @@ namespace CockpitInterop
             s_carrier_link_disabled_logged = true;
         }
 
-        if (false && !s_carrier_set && g_avPlatform_set_carrier && g_contexts_ptr_addr && *g_contexts_ptr_addr)
-        {
-            CcCockpitContextLayout* ctx = AsContext(*g_contexts_ptr_addr);
-            void* movingObject = ctx->movingObjectRaw;
-            if (movingObject)
-            {
-                g_avPlatform_set_carrier(g_avTVSensor_instance, movingObject);
-                s_carrier_set = true;
-                Log("UpdateIRADSSensorFrame: carrier set â†’ MovingObject=%p", movingObject);
-            }
-        }
-
         // Keep the sensor uncaged every frame.
         // initialize() cages the sensor, which blocks all slew.
         // Some DCS mode transitions may also re-cage â€” clearing it each frame
@@ -1428,7 +1245,6 @@ namespace CockpitInterop
         g_avTVSensor_instance   = nullptr;
         s_added                 = false;
         s_started               = false;
-        s_carrier_set           = false;
         Log_("ResetIRADSSession: IRADS session state cleared");
     }
 

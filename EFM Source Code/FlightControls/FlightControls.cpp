@@ -1233,7 +1233,7 @@ namespace F117 { namespace FLIGHTCONTROLS {
 
             return pitchHeldOutput;
         }
-        double fcs_roll_controller_step(double latStickInputCommand, double longStickForceCommand, double ay, double pedInput, double beta_deg, double roll_angle_deg, double roll_rate, double roll_rate_trim, double dynPressure_PA, double rollAccelPerSurfaceDeg, double surfacePerRollRate, bool gearDown, bool airRefuelDoorOpen, double dt, bool resetFilters)
+        double fcs_roll_controller_step(double latStickInputCommand, double longStickForceCommand, double ay, double pedInput, double beta_deg, double roll_angle_deg, double roll_rate, double roll_rate_trim, double dynPressure_PA, double rollAccelPerSurfaceDeg, double surfacePerRollRate, bool gearDown, bool airRefuelDoorOpen, [[maybe_unused]] double dt, bool resetFilters)
         {
             // Air refuelling: lateral stick gain reduced for control harmony with reduced pitch gain.
             const double effectiveLateralStick = airRefuelDoorOpen

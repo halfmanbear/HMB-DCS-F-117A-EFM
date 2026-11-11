@@ -65,15 +65,8 @@ namespace CockpitInterop
     {
         std::uint8_t _pad000[0x10];
         void* movingObjectRaw;  // the aircraft object
-        union
-        {
-            std::uint8_t carrierLinkBaseStorage[0x18];  // carrier link
-            struct
-            {
-                std::uint8_t _pad018[0x10];
-                void* carrierLinkHostRaw;  // carrier link host pointer
-            };
-        };
+        std::uint8_t _pad018[0x10];
+        void* carrierLinkHostRaw;  // carrier link host pointer
         std::uint8_t devicesKeeperStorage[0x18];
         std::uint8_t _pad048[0xB0 - 0x48];
         PointerVectorView indicators;
@@ -81,7 +74,6 @@ namespace CockpitInterop
         PointerVectorView childContexts;
     };
     static_assert(offsetof(CcCockpitContextLayout, movingObjectRaw) == 0x10);
-    static_assert(offsetof(CcCockpitContextLayout, carrierLinkBaseStorage) == 0x18);
     static_assert(offsetof(CcCockpitContextLayout, carrierLinkHostRaw) == 0x28);
     static_assert(offsetof(CcCockpitContextLayout, devicesKeeperStorage) == 0x30);
     static_assert(offsetof(CcCockpitContextLayout, indicators) == 0xB0);

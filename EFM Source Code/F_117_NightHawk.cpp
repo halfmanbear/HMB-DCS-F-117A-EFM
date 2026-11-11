@@ -2533,7 +2533,7 @@ void ed_fm_set_fc3_cockpit_draw_args_v2(float* arguments, size_t /*count*/)
     update_fc3_cockpit_draw_args(arguments);
 }
 
-void ed_fm_configure(const char * cfg_path)
+void ed_fm_configure([[maybe_unused]] const char * cfg_path)
 {
 	// Reserved DCS FM configuration hook; unused by this module.
 }
