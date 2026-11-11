@@ -13,6 +13,7 @@
     <ClCompile Include="Cockpit/ParamBridge.cpp"><Filter>Flight model\Cockpit</Filter></ClCompile>
     <ClCompile Include="Weapons/Ccrp.cpp"><Filter>Flight model\Weapons</Filter></ClCompile>
     <ClCompile Include="Weapons/ReleaseSequence.cpp"><Filter>Flight model\Weapons</Filter></ClCompile>
+    <ClCompile Include="Aero/AeroAssembly.cpp"><Filter>Flight model\Aero</Filter></ClCompile>
     <ClInclude Include="Actuators/Actuators.h"><Filter>Flight model\Actuators</Filter></ClInclude>
     <ClInclude Include="Aerodynamics/AeroModel.h"><Filter>Flight model\Aerodynamics</Filter></ClInclude>
     <ClInclude Include="Atmosphere/Atmosphere.h"><Filter>Flight model\Atmosphere</Filter></ClInclude>
@@ -44,6 +45,8 @@
     <ClInclude Include="Cockpit/ParamBridge.h"><Filter>Flight model\Cockpit</Filter></ClInclude>
     <ClInclude Include="Weapons/Ccrp.h"><Filter>Flight model\Weapons</Filter></ClInclude>
     <ClInclude Include="Weapons/ReleaseSequence.h"><Filter>Flight model\Weapons</Filter></ClInclude>
+    <ClInclude Include="Aero/AeroAssembly.h"><Filter>Flight model\Aero</Filter></ClInclude>
+    <ClInclude Include="FlightModel/Forces.h"><Filter>Flight model\State</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Flight model"><UniqueIdentifier>{D9B8AD70-751F-576C-9EDF-491D8778187B}</UniqueIdentifier></Filter>
@@ -63,5 +66,6 @@
     <Filter Include="Flight model\Diagnostics"><UniqueIdentifier>{71532135-74D1-4728-8AEE-A02AAB953841}</UniqueIdentifier></Filter>
     <Filter Include="Flight model\Cockpit"><UniqueIdentifier>{E73497A9-9EA6-4E4E-BC39-D9371F1AB5B9}</UniqueIdentifier></Filter>
     <Filter Include="Flight model\Weapons"><UniqueIdentifier>{DCFC1A67-751E-41C1-8257-02A5E01475D7}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Aero"><UniqueIdentifier>{65D001AB-54C7-4684-A3E4-36E46DB49727}</UniqueIdentifier></Filter>
   </ItemGroup>
 </Project>

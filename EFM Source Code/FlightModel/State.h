@@ -49,6 +49,7 @@ namespace F117 {
     inline constexpr double wingSpan_M = 13.205, wingArea_M2 = 84.77, meanChord_M = 6.422;
 
     // Pilot requests, commanded surfaces and actual surface feedback.
+    inline constexpr double kAileronFullScale_DEG = 25.5; // Aileron deflection that aileron_PCT = 1 stands for.
     inline double pitchTrim{}, rollTrim{}, yawTrim{}, roll_cmd{}, pedInput{};
     inline double elevator_DEG{}, aileron_DEG{}, rudder_DEG{};
     inline double elevator_DEG_commanded{}, aileron_DEG_commanded{}, rudder_DEG_commanded{};
@@ -71,6 +72,12 @@ namespace F117 {
     // Weapon bays: 0 is the left bay (station 1, arg 27), 1 is the right bay (station 2, arg 28).
     // 0 is closed and 1 is door open with the trapeze fully lowered.
     inline constexpr int kWeaponBayCount = 2;
+    // Each bay arg opens the door over 0 to 0.7 and lowers the trapeze over 0.6 to 1 (the keys in the EDM).
+    inline constexpr double kWeaponBayDoorFullyOpenArg = 0.7;
+    // TO 1F-117A-1 (Section VI): opening a single bay door "has effects similar to gear extension", which is about one
+    // degree of sideslip that the pilot can retrim. The sign is a choice: the extra drag on the open side yaws the nose
+    // that way, as the left-side nose gear does.
+    inline constexpr double kWeaponBayOneDoorSideslip_DEG = 1.0;
     inline float bay_cmd[kWeaponBayCount]{}, bay_state[kWeaponBayCount]{};
 
     // Engine telemetry and the fuel mass already acknowledged by DCS.
