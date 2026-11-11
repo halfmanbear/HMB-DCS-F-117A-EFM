@@ -1,96 +1,102 @@
-<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
   <ItemGroup>
-    <ClCompile Include="dllmain.cpp" />
-    <ClCompile Include="F_117_NightHawk.cpp" />
-    <ClCompile Include="FlightControls\FlightControls.cpp">
-      <Filter>FlightControls</Filter>
-    </ClCompile>
-    <ClCompile Include="stdafx.cpp">
-      <Filter>include</Filter>
-    </ClCompile>
+    <ClCompile Include="Avionics\Weapons_Interop.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="dllmain.cpp"><Filter>Flight model</Filter></ClCompile>
+    <ClCompile Include="F_117_NightHawk.cpp"><Filter>Flight model</Filter></ClCompile>
+    <ClCompile Include="FlightControls\FlightControls.cpp"><Filter>Flight model\FlightControls</Filter></ClCompile>
+    <ClCompile Include="stdafx.cpp"><Filter>Flight model</Filter></ClCompile>
+    <ClCompile Include="Effects/LerxVortex.cpp"><Filter>Flight model\Effects</Filter></ClCompile>
+    <ClCompile Include="Damage/Damage.cpp"><Filter>Flight model\Damage</Filter></ClCompile>
+    <ClCompile Include="Diagnostics/Paths.cpp"><Filter>Flight model\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Cockpit/ParamBridge.cpp"><Filter>Flight model\Cockpit</Filter></ClCompile>
+    <ClCompile Include="Weapons/Ccrp.cpp"><Filter>Flight model\Weapons</Filter></ClCompile>
+    <ClCompile Include="Weapons/ReleaseSequence.cpp"><Filter>Flight model\Weapons</Filter></ClCompile>
+    <ClCompile Include="Aero/AeroAssembly.cpp"><Filter>Flight model\Aero</Filter></ClCompile>
+    <ClCompile Include="Systems/Propulsion.cpp"><Filter>Flight model\Systems</Filter></ClCompile>
+    <ClCompile Include="Systems/Gear.cpp"><Filter>Flight model\Systems</Filter></ClCompile>
+    <ClCompile Include="Commands/CommandHandlers.cpp"><Filter>Flight model\Commands</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/Log.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/Loader.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/SensorInjection.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/SensorFrame.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/InputHandler.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/LockAndTerrain.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/CameraBridge.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="Avionics/Interop/Session.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="FlightControls/Yaw.cpp"><Filter>Flight model\FlightControls</Filter></ClCompile>
+    <ClCompile Include="FlightControls/Pitch.cpp"><Filter>Flight model\FlightControls</Filter></ClCompile>
+    <ClCompile Include="FlightControls/Roll.cpp"><Filter>Flight model\FlightControls</Filter></ClCompile>
+    <ClCompile Include="FlightControls/PitchLog.cpp"><Filter>Flight model\FlightControls</Filter></ClCompile>
+    <ClCompile Include="FlightModel/ControlLaws.cpp"><Filter>Flight model\State</Filter></ClCompile>
+    <ClCompile Include="FlightModel/AirData.cpp"><Filter>Flight model\State</Filter></ClCompile>
+    <ClCompile Include="Diagnostics/EngineLog.cpp"><Filter>Flight model\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Diagnostics/LogFile.cpp"><Filter>Flight model\Diagnostics</Filter></ClCompile>
+    <ClInclude Include="Actuators/Actuators.h"><Filter>Flight model\Actuators</Filter></ClInclude>
+    <ClInclude Include="Aerodynamics/AeroModel.h"><Filter>Flight model\Aerodynamics</Filter></ClInclude>
+    <ClInclude Include="Atmosphere/Atmosphere.h"><Filter>Flight model\Atmosphere</Filter></ClInclude>
+    <ClInclude Include="Avionics/Autothrottle.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="Avionics/CockpitBase_Interop.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="Avionics/CockpitBase_Layouts.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="Avionics/JdamEnvelope.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="Avionics/Paars.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="Avionics/Weapons_Interop.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="./ED_API.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="./EfmMath.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="Engine/Engine.h"><Filter>Flight model\Engine</Filter></ClInclude>
+    <ClInclude Include="Engine/EngineStart.h"><Filter>Flight model\Engine</Filter></ClInclude>
+    <ClInclude Include="./F_117_NightHawk.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="FlightControls/FlightControls.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
+    <ClInclude Include="FlightControls/TustinFilter.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
+    <ClInclude Include="./Inputs.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="include/Cockpit/CockpitAPI_Declare.h"><Filter>SDK\include\Cockpit</Filter></ClInclude>
+    <ClInclude Include="include/Cockpit/ccParametersAPI.h"><Filter>SDK\include\Cockpit</Filter></ClInclude>
+    <ClInclude Include="include/FM/wHumanCustomPhysicsAPI.h"><Filter>SDK\include\FM</Filter></ClInclude>
+    <ClInclude Include="include/FM/wHumanCustomPhysicsAPI_ImplementationDeclare.h"><Filter>SDK\include\FM</Filter></ClInclude>
+    <ClInclude Include="include/ed_object_access.h"><Filter>SDK\include</Filter></ClInclude>
+    <ClInclude Include="./param_functions.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="./stdafx.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="./targetver.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="FlightModel/State.h"><Filter>Flight model\State</Filter></ClInclude>
+    <ClInclude Include="Damage/Damage.h"><Filter>Flight model\Damage</Filter></ClInclude>
+    <ClInclude Include="Diagnostics/Paths.h"><Filter>Flight model\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Cockpit/ParamBridge.h"><Filter>Flight model\Cockpit</Filter></ClInclude>
+    <ClInclude Include="Weapons/Ccrp.h"><Filter>Flight model\Weapons</Filter></ClInclude>
+    <ClInclude Include="Weapons/ReleaseSequence.h"><Filter>Flight model\Weapons</Filter></ClInclude>
+    <ClInclude Include="Aero/AeroAssembly.h"><Filter>Flight model\Aero</Filter></ClInclude>
+    <ClInclude Include="FlightModel/Forces.h"><Filter>Flight model\State</Filter></ClInclude>
+    <ClInclude Include="Systems/Propulsion.h"><Filter>Flight model\Systems</Filter></ClInclude>
+    <ClInclude Include="Systems/Gear.h"><Filter>Flight model\Systems</Filter></ClInclude>
+    <ClInclude Include="Commands/CommandHandlers.h"><Filter>Flight model\Commands</Filter></ClInclude>
+    <ClInclude Include="Avionics/Interop/IradsInternal.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="FlightControls/PitchLog.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
+    <ClInclude Include="FlightControls/Config.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
+    <ClInclude Include="FlightControls/Internal.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
+    <ClInclude Include="FlightModel/ControlLaws.h"><Filter>Flight model\State</Filter></ClInclude>
+    <ClInclude Include="FlightModel/AirData.h"><Filter>Flight model\State</Filter></ClInclude>
+    <ClInclude Include="Diagnostics/EngineLog.h"><Filter>Flight model\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Diagnostics/LogFile.h"><Filter>Flight model\Diagnostics</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="F_117_NightHawk.h" />
-    <ClInclude Include="Aerodynamics\Aero.h">
-      <Filter>Aerodynamics</Filter>
-    </ClInclude>
-    <ClInclude Include="Aerodynamics\AeroData.h">
-      <Filter>Aerodynamics</Filter>
-    </ClInclude>
-    <ClInclude Include="Engine\Engine.h">
-      <Filter>Engine</Filter>
-    </ClInclude>
-    <ClInclude Include="Atmosphere\Atmosphere.h">
-      <Filter>Atmosphere</Filter>
-    </ClInclude>
-    <ClInclude Include="FlightControls\FlightControls.h">
-      <Filter>FlightControls</Filter>
-    </ClInclude>
-    <ClInclude Include="Actuators\Actuators.h">
-      <Filter>Actuators</Filter>
-    </ClInclude>
-    <ClInclude Include="ED_API.h">
-      <Filter>API</Filter>
-    </ClInclude>
-    <ClInclude Include="ED_FM_Utility.h">
-      <Filter>Utilities</Filter>
-    </ClInclude>
-    <ClInclude Include="UtilityFunctions.h">
-      <Filter>Utilities</Filter>
-    </ClInclude>
-    <ClInclude Include="include\FM\wHumanCustomPhysicsAPI.h">
-      <Filter>include\FM</Filter>
-    </ClInclude>
-    <ClInclude Include="param_functions.h">
-      <Filter>EDPARAM</Filter>
-    </ClInclude>
-    <ClInclude Include="Inputs.h">
-      <Filter>Inputs</Filter>
-    </ClInclude>
-    <ClInclude Include="stdafx.h">
-      <Filter>Headers</Filter>
-    </ClInclude>
-    <ClInclude Include="targetver.h">
-      <Filter>Headers</Filter>
-    </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <Filter Include="Aerodynamics">
-      <UniqueIdentifier>{85cac936-532d-42ee-bb93-fa92a9082ee1}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Actuators">
-      <UniqueIdentifier>{dafa3bf6-16fb-48d7-ae7b-e1f7cf8938b5}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Engine">
-      <UniqueIdentifier>{2a589438-685e-419e-a028-e49caa20811e}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Atmosphere">
-      <UniqueIdentifier>{fc3280db-4851-4500-8c0a-a6335717b2cc}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="FlightControls">
-      <UniqueIdentifier>{a631e22a-a48d-4b68-8446-701e99146567}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="API">
-      <UniqueIdentifier>{4d7ad23c-2738-4fb0-ba30-b5b2d20b58cd}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Utilities">
-      <UniqueIdentifier>{3b149de7-164d-4208-ba46-bed489177b3d}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="include">
-      <UniqueIdentifier>{f8ce2cd1-c3ad-45db-bc09-8143c1c1c4d2}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="include\FM">
-      <UniqueIdentifier>{2a91b7e1-999e-4cc2-a9ba-b4fd5809604f}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="EDPARAM">
-      <UniqueIdentifier>{99e5f0be-edcb-4f09-b2cd-0972291c96cf}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Inputs">
-      <UniqueIdentifier>{c2d40762-b980-4e74-a4ae-1674392e25a4}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Headers">
-      <UniqueIdentifier>{116d803a-2580-4500-a991-6b425ff5ab5d}</UniqueIdentifier>
-    </Filter>
+    <Filter Include="Flight model"><UniqueIdentifier>{D9B8AD70-751F-576C-9EDF-491D8778187B}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Actuators"><UniqueIdentifier>{FF8F6259-FFCA-537F-AFDA-6DE672FE956F}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Aerodynamics"><UniqueIdentifier>{83DB96D3-62E6-5196-84B9-1524DCDCCE79}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Atmosphere"><UniqueIdentifier>{9B102892-F911-5B98-B869-C10E9F5D1AA4}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Avionics"><UniqueIdentifier>{DB54660F-A70A-5A6A-BBAC-6B057BFB9780}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Engine"><UniqueIdentifier>{FBD0EF6B-DF0A-5596-9A85-B5257D1E90F3}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\FlightControls"><UniqueIdentifier>{ADCFE252-CE9A-523D-A267-74FDE934B738}</UniqueIdentifier></Filter>
+    <Filter Include="SDK"><UniqueIdentifier>{7E39D5EC-DA4B-53A8-8883-045CC666D081}</UniqueIdentifier></Filter>
+    <Filter Include="SDK\include"><UniqueIdentifier>{EE00C992-24C7-526E-AF93-1C6BFCAB73F9}</UniqueIdentifier></Filter>
+    <Filter Include="SDK\include\Cockpit"><UniqueIdentifier>{4D6481AE-5678-55A9-97CD-C9BCBBD34C3B}</UniqueIdentifier></Filter>
+    <Filter Include="SDK\include\FM"><UniqueIdentifier>{2BCBCC9A-D704-5227-AE92-697DC8BBC770}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\State"><UniqueIdentifier>{7625FC72-8BC2-49B6-8CB6-84792D4B2D76}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Effects"><UniqueIdentifier>{849519AD-2B4F-4ABF-B1FB-8DB8EEB68B83}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Damage"><UniqueIdentifier>{F367B0DC-9401-4380-AF6D-D48330FE380B}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Diagnostics"><UniqueIdentifier>{71532135-74D1-4728-8AEE-A02AAB953841}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Cockpit"><UniqueIdentifier>{E73497A9-9EA6-4E4E-BC39-D9371F1AB5B9}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Weapons"><UniqueIdentifier>{DCFC1A67-751E-41C1-8257-02A5E01475D7}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Aero"><UniqueIdentifier>{65D001AB-54C7-4684-A3E4-36E46DB49727}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Systems"><UniqueIdentifier>{DF29FB8B-5372-47DA-A282-7B63C9FE3623}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Commands"><UniqueIdentifier>{E667722A-7B2A-4B09-9EAE-1A931959C3B8}</UniqueIdentifier></Filter>
   </ItemGroup>
 </Project>

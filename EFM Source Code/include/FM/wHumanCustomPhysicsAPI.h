@@ -864,7 +864,13 @@ enum ed_fm_param_enum
 
 	ED_FM_COCKPIT_ALTIMETER_PRESSURE_SETTING_MM_HG, // baro altimeter setting in mm hg
 
-	ED_FM_INTERRUPT_REFUEL,    //called when refueling process active , return positive value if you want  to stop refuleing process by internal reasons 
+	ED_FM_INTERRUPT_REFUEL,    //called when refueling process active , return positive value if you want  to stop refuleing process by internal reasons
+
+	//FFB for rudder pedals , same meaning as for stick
+	ED_FM_PEDALS_FORCE_CENTRAL,  // i.e. trimmered position where force felt by pilot is zero
+	ED_FM_PEDALS_FORCE_FACTOR,
+	ED_FM_PEDALS_FORCE_SHAKE_AMPLITUDE,
+	ED_FM_PEDALS_FORCE_SHAKE_FREQUENCY,
 
 	//params to integrate with old FC style cockpits
 	ED_FM_FC3_RESERVED_SPACE 	 = 10000,

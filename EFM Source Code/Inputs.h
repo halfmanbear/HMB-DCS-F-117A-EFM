@@ -1,114 +1,116 @@
 #pragma once
-// Used in ed_fm_set_command() 
-enum InputCommands
-{
-	// commands from command_defs.lua
 
-	//general controls
-	resetTrim = 97,
-	FBW_override = 121,
+// Wire IDs are persisted in DCS bindings. Keep them stable when adding commands.
+// Custom IDs follow Cockpit/Scripts/command_defs.lua in the aircraft mod.
+// These integer constants are also consumed by CockpitBase_Interop.cpp.
 
-	EnginesOn = 309,
-	LeftEngineOn = 311,
-	RightEngineOn = 312,
+// Flight axes.
+constexpr int joystick_pitch = 2001;
+constexpr int joystick_roll = 2002;
+constexpr int joystick_yaw = 2003;
+constexpr int joystick_throttle = 2004;
+constexpr int throttle_axis_left = 2005;
+constexpr int throttle_axis_right = 2006;
 
-	EnginesOff = 310,
-	LeftEngineOff = 313,
-	RightEngineOff = 314,
+// Discrete stick and pedal inputs.
+constexpr int pitch_down = 193;
+constexpr int pitch_down_stop = 194;
+constexpr int pitch_up = 195;
+constexpr int pitch_up_stop = 196;
+constexpr int roll_left = 197;
+constexpr int roll_left_stop = 198;
+constexpr int roll_right = 199;
+constexpr int roll_right_stop = 200;
+constexpr int rudderleft = 201;
+constexpr int rudderleftend = 202;
+constexpr int rudderright = 203;
+constexpr int rudderrightend = 204;
 
-	//Pitch
-	PitchUp = 195,
-	PitchUpStop = 196,
-	PitchDown = 193,
-	PitchDownStop = 194,
-	trimUp = 95,
-	trimDown = 96,
+// Trim and flight control override.
+constexpr int trim_left = 93;
+constexpr int trim_right = 94;
+constexpr int trim_up = 95;
+constexpr int trim_down = 96;
+constexpr int reset_trim = 97;
+constexpr int ruddertrim_left = 98;
+constexpr int ruddertrim_right = 99;
+constexpr int fbw_override = 121;
 
-	//Roll
-	RollLeft = 197,
-	RollLeftStop = 198,
-	RollRight = 199,
-	RollRightStop = 200,
-	trimLeft = 93,
-	trimRight = 94,
+// Engine switches and throttle steps.
+constexpr int engines_on = 309;
+constexpr int engines_off = 310;
+constexpr int left_engine_on = 311;
+constexpr int right_engine_on = 312;
+constexpr int left_engine_off = 313;
+constexpr int right_engine_off = 314;
+constexpr int throttleup_left = 161;
+constexpr int throttledown_left = 162;
+constexpr int throttleup_right = 163;
+constexpr int throttledown_right = 164;
+constexpr int throttle_increase = 1032;
+constexpr int throttle_decrease = 1033;
+constexpr int throttle_stop = 1034;
 
-	//Yaw
-	rudderleft = 201,
-	rudderleftend = 202,
-	rudderright = 203,
-	rudderrightend = 204,
-	ruddertrimLeft = 98,
-	ruddertrimRight = 99,
+// Airframe mechanisms.
+constexpr int geartoggle = 68;
+constexpr int gearup = 430;
+constexpr int geardown = 431;
+constexpr int wheel_brake_on = 74;
+constexpr int wheel_brake_off = 75;
+constexpr int tailhook = 69;
+constexpr int air_refuel = 155;
+constexpr int drag_chute = 76;
 
-	//throttle,
-	//throttle = 3002,
-	throttleAxis = 2004, //3006
-	ThrottleAxisLeft = 2005,
-	ThrottleAxisRight = 2006,
-	throttleupLeft = 161, 
-	throttleupRight = 163,
-	throttledownLeft = 162,
-	throttledownRight = 164,
-	ThrottleIncrease = 1032,
-	ThrottleDecrease = 1033,
-	ThrottleStop = 1034,
+// Stock avionics and hold modes.
+constexpr int nav = 105;
+constexpr int bvr = 106;
+constexpr int vs = 107;
+constexpr int bore = 108;
+constexpr int helm = 109;
+constexpr int fi0 = 110;
+constexpr int a2g = 111;
+constexpr int gun = 113;
+constexpr int autopilot_alt = 59;
+constexpr int autopilot_horiz = 62;
+constexpr int autopilot_alt_roll = 387;
+constexpr int autopilot_reset = 408;
+constexpr int tv_sensor_zoom_in = 103;
+constexpr int tv_sensor_zoom_out = 104;
 
-	//gear commands
-	geartoggle = 68,
-	gearup = 430,
-	geardown = 431,
-	WheelBrakeOn = 74,
-	WheelBrakeOff = 75,
-	tailhook = 69,
+// F-117 bay and release protocol.
+constexpr int pickle_on = 350;
+constexpr int pickle_off = 351;
+constexpr int bombay = 10100;
+constexpr int bombay_open = 10101;
+constexpr int bombay_close = 10102;
+constexpr int bombay_selected = 10130;  // toggle the bay of the selected store
+constexpr int bombay_left = 10131;      // toggle the left bay (station 1)
+constexpr int bombay_right = 10132;     // toggle the right bay (station 2)
+constexpr int weapon_release_hold_on = 10103;
+constexpr int weapon_release_hold_off = 10104;
+constexpr int master_arm_toggle = 10122;
+constexpr int lua_damage_hit = 10200;
 
-	//air brake commands
-	AirRefuel = 155,
+// IRADS protocol (Keys, hotas_commands and f117_commands).
+constexpr int irads_zoom_in = 10008;
+constexpr int irads_zoom_out = 10009;
+constexpr int irads_slew_left = 10110;
+constexpr int irads_slew_right = 10111;
+constexpr int irads_slew_up = 10112;
+constexpr int irads_slew_down = 10113;
+constexpr int irads_slew_stop = 10114;
+constexpr int irads_designation_clear = 10117;
+constexpr int irads_laser_arm_toggle = 10118;
+constexpr int irads_slew_horizontal_axis = 10119;
+constexpr int irads_slew_vertical_axis = 10120;
+constexpr int irads_zoom_axis = 10121;
 
-	//AirBrakes = 73,
-	//AirBrakesOn = 147,
-	//AirBrakesOff = 148,
+// F-117 automatic controls and steering.
+constexpr int autothrottle_engage = 10125;
+constexpr int autothrottle_disconnect = 10126;
+constexpr int paars_toggle = 10127;
+constexpr int nws_authority_on = 10128;
+constexpr int nws_authority_off = 10129;
 
-	//Misc commands
-
-	bombay = 10100,
-	bombayOpen = 10101,
-	bombayClose = 10102,
-	pickleOn = 350,
-	pickleOff = 351,
-	weaponReleaseHoldOn = 10103,
-	weaponReleaseHoldOff = 10104,
-	luaDamageHit = 10200,	// Lua damage monitor -> EFM: value = damage fraction (0-1)
-	dragChute = 76,
-
-	//flap commands
-	//flapstoggle = 72,
-	//flapsup = 145,
-	//flapsdown = 146,
-
-	// joystick axis commands
-	JoystickPitch = 2001,
-	JoystickRoll = 2002,
-	JoystickYaw = 2003,
-	JoystickThrottle = 2004,
-
-	// modes
-	nav	= 105,
-	bvr	= 106,
-	vs	= 107,
-	bore	= 108,
-	helm	= 109,
-	fi0	= 110,
-	a2g	= 111,
-	gun	= 113,
-
-	// autopilot modes
-	//autopilot = 62, // [A]
-	//route_follow = 429,// [Left alt + 6] 
-	autopilot_horiz = 62,  // [A]
-	autopilot_alt = 59,  // [H]
-	autopilot_alt_roll = 387,  // [Left alt + 6]
-	autopilot_reset = 408,  // [Left alt + 9]
-
-	Reserved // placeholder
-};
-
+// Alternate name retained for callers using the common throttle axis.
+constexpr int throttle_axis = joystick_throttle;

@@ -1,199 +1,156 @@
-<?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" DefaultTargets="Build">
   <ItemGroup Label="ProjectConfigurations">
-    <ProjectConfiguration Include="Debug|Win32">
-      <Configuration>Debug</Configuration>
-      <Platform>Win32</Platform>
-    </ProjectConfiguration>
     <ProjectConfiguration Include="Debug|x64">
-      <Configuration>Debug</Configuration>
-      <Platform>x64</Platform>
-    </ProjectConfiguration>
-    <ProjectConfiguration Include="Release|Win32">
-      <Configuration>Release</Configuration>
-      <Platform>Win32</Platform>
+      <Configuration>Debug</Configuration><Platform>x64</Platform>
     </ProjectConfiguration>
     <ProjectConfiguration Include="Release|x64">
-      <Configuration>Release</Configuration>
-      <Platform>x64</Platform>
+      <Configuration>Release</Configuration><Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{30A7F19A-ED9B-4E78-99E7-C40FB579973A}</ProjectGuid>
-    <Keyword>Win32Proj</Keyword>
-    <RootNamespace>ED_FM_Template</RootNamespace>
+    <ProjectGuid>{78419BC7-3B9E-4F92-8C3B-0A44EC0BC265}</ProjectGuid>
     <ProjectName>F_117_NightHawk</ProjectName>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <RootNamespace>F117</RootNamespace>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>$([Microsoft.Build.Utilities.ToolLocationHelper]::GetLatestSDKTargetPlatformVersion('Windows', '10.0'))</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+  <PropertyGroup Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <UseDebugLibraries>true</UseDebugLibraries>
-    <CharacterSet>Unicode</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <UseDebugLibraries>true</UseDebugLibraries>
-    <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <UseDebugLibraries>false</UseDebugLibraries>
-    <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <UseDebugLibraries>false</UseDebugLibraries>
-    <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <ImportGroup Label="ExtensionSettings">
-  </ImportGroup>
-  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+  <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
-  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="PropertySheets">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="PropertySheets">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <DcsSavedGamesRoot Condition="'$(DcsSavedGamesRoot)'==''">$(USERPROFILE)\Saved Games</DcsSavedGamesRoot>
-    <DcsSavedGamesModBinDir Condition="'$(DcsSavedGamesModBinDir)'==''">$(DcsSavedGamesRoot)\DCS\Mods\aircraft\F-117-NightHawk\bin\</DcsSavedGamesModBinDir>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <LinkIncremental>true</LinkIncremental>
-    <OutDir>.\bin\</OutDir>
     <TargetName>F_117_NightHawk</TargetName>
+    <OutDir>$(ProjectDir)bin\</OutDir>
+    <IntDir>$(ProjectDir)..\build\obj\$(Platform)\$(Configuration)\</IntDir>
+    <!-- Deployment remains available as an explicit local build override. -->
+    <DcsSavedGamesModBinDir Condition="'$(DcsSavedGamesModBinDir)'=='' and '$(DcsSavedGamesRoot)'!=''">$(DcsSavedGamesRoot)\DCS\Mods\aircraft\F-117-NightHawk\bin\</DcsSavedGamesModBinDir>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64' and '$(DcsSavedGamesModBinDir)'!=''">$(DcsSavedGamesModBinDir)</OutDir>
+    <LinkIncremental Condition="'$(Configuration)'=='Debug'">true</LinkIncremental>
+    <LinkIncremental Condition="'$(Configuration)'=='Release'">false</LinkIncremental>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <LinkIncremental>true</LinkIncremental>
-    <OutDir>.\bin\</OutDir>
-    <TargetName>F_117_NightHawk</TargetName>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <LinkIncremental>false</LinkIncremental>
-    <OutDir>.\bin\</OutDir>
-    <TargetName>F_117_NightHawk</TargetName>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <LinkIncremental>false</LinkIncremental>
-    <TargetName>F_117_NightHawk</TargetName>
-    <OutDir>$(DcsSavedGamesModBinDir)</OutDir>
-  </PropertyGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+  <ItemDefinitionGroup>
     <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <WarningLevel>Level4</WarningLevel>
+      <ConformanceMode>true</ConformanceMode>
+      <TreatWarningAsError>true</TreatWarningAsError>
       <PrecompiledHeader>Use</PrecompiledHeader>
-      <WarningLevel>Level3</WarningLevel>
-      <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;ED_FM_TEMPLATE_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PrecompiledHeaderFile>stdafx.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)include;$(ProjectDir)Avionics;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;_USRDLL;ED_FM_TEMPLATE_EXPORTS;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>lib\x86\GeneralFilter.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
-      <PrecompiledHeader>Use</PrecompiledHeader>
-      <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;ED_FM_TEMPLATE_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
-    <Link>
-      <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>lib\x64\GeneralFilter.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
-      <PrecompiledHeader>Use</PrecompiledHeader>
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;ED_FM_TEMPLATE_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>GeneralFilter.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>./lib/x86/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-    </Link>
-  </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <ClCompile>
-      <WarningLevel>Level3</WarningLevel>
-      <PrecompiledHeader>Use</PrecompiledHeader>
-      <Optimization>MaxSpeed</Optimization>
-      <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;ED_FM_TEMPLATE_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-    </ClCompile>
-    <Link>
-      <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>GeneralFilter.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>./lib/x64/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="Actuators\Actuators.h" />
-    <ClInclude Include="Aerodynamics\Aero.h" />
-    <ClInclude Include="Aerodynamics\AeroData.h" />
-    <ClInclude Include="Atmosphere\Atmosphere.h" />
-    <ClInclude Include="Engine\Engine.h" />
-    <ClInclude Include="FlightControls\FlightControls.h" />
-    <ClInclude Include="F_117_NightHawk.h" />
-    <ClInclude Include="ED_API.h" />
-    <ClInclude Include="ED_FM_Utility.h" />
-    <ClInclude Include="param_functions.h" />
-    <ClInclude Include="Inputs.h" />
-    <ClInclude Include="include\FM\wHumanCustomPhysicsAPI.h" />
-    <ClInclude Include="stdafx.h" />
-    <ClInclude Include="targetver.h" />
-    <ClInclude Include="UtilityFunctions.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="dllmain.cpp">
-      <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</CompileAsManaged>
-      <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</CompileAsManaged>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-      </PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-      </PrecompiledHeader>
-      <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</CompileAsManaged>
-      <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</CompileAsManaged>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-      </PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-      </PrecompiledHeader>
-    </ClCompile>
+    <ClCompile Include="Avionics\Weapons_Interop.cpp" />
+    <ClCompile Include="dllmain.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="F_117_NightHawk.cpp" />
     <ClCompile Include="FlightControls\FlightControls.cpp" />
-    <ClCompile Include="stdafx.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
-    </ClCompile>
+    <ClCompile Include="stdafx.cpp"><PrecompiledHeader>Create</PrecompiledHeader></ClCompile>
+    <ClCompile Include="Effects/LerxVortex.cpp" />
+    <ClCompile Include="Damage/Damage.cpp" />
+    <ClCompile Include="Diagnostics/Paths.cpp" />
+    <ClCompile Include="Cockpit/ParamBridge.cpp" />
+    <ClCompile Include="Weapons/Ccrp.cpp" />
+    <ClCompile Include="Weapons/ReleaseSequence.cpp" />
+    <ClCompile Include="Aero/AeroAssembly.cpp" />
+    <ClCompile Include="Systems/Propulsion.cpp" />
+    <ClCompile Include="Systems/Gear.cpp" />
+    <ClCompile Include="Commands/CommandHandlers.cpp" />
+    <ClCompile Include="Avionics/Interop/Log.cpp" />
+    <ClCompile Include="Avionics/Interop/Loader.cpp" />
+    <ClCompile Include="Avionics/Interop/SensorInjection.cpp" />
+    <ClCompile Include="Avionics/Interop/SensorFrame.cpp" />
+    <ClCompile Include="Avionics/Interop/InputHandler.cpp" />
+    <ClCompile Include="Avionics/Interop/LockAndTerrain.cpp" />
+    <ClCompile Include="Avionics/Interop/CameraBridge.cpp" />
+    <ClCompile Include="Avionics/Interop/Session.cpp" />
+    <ClCompile Include="FlightControls/Yaw.cpp" />
+    <ClCompile Include="FlightControls/Pitch.cpp" />
+    <ClCompile Include="FlightControls/Roll.cpp" />
+    <ClCompile Include="FlightControls/PitchLog.cpp" />
+    <ClCompile Include="FlightModel/ControlLaws.cpp" />
+    <ClCompile Include="FlightModel/AirData.cpp" />
+    <ClCompile Include="Diagnostics/EngineLog.cpp" />
+    <ClCompile Include="Diagnostics/LogFile.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Actuators/Actuators.h" />
+    <ClInclude Include="Aerodynamics/AeroModel.h" />
+    <ClInclude Include="Atmosphere/Atmosphere.h" />
+    <ClInclude Include="Avionics/Autothrottle.h" />
+    <ClInclude Include="Avionics/CockpitBase_Interop.h" />
+    <ClInclude Include="Avionics/CockpitBase_Layouts.h" />
+    <ClInclude Include="Avionics/JdamEnvelope.h" />
+    <ClInclude Include="Avionics/Paars.h" />
+    <ClInclude Include="Avionics/Weapons_Interop.h" />
+    <ClInclude Include="./ED_API.h" />
+    <ClInclude Include="./EfmMath.h" />
+    <ClInclude Include="Engine/Engine.h" />
+    <ClInclude Include="Engine/EngineStart.h" />
+    <ClInclude Include="./F_117_NightHawk.h" />
+    <ClInclude Include="FlightControls/FlightControls.h" />
+    <ClInclude Include="FlightControls/TustinFilter.h" />
+    <ClInclude Include="./Inputs.h" />
+    <ClInclude Include="include/Cockpit/CockpitAPI_Declare.h" />
+    <ClInclude Include="include/Cockpit/ccParametersAPI.h" />
+    <ClInclude Include="include/FM/wHumanCustomPhysicsAPI.h" />
+    <ClInclude Include="include/FM/wHumanCustomPhysicsAPI_ImplementationDeclare.h" />
+    <ClInclude Include="include/ed_object_access.h" />
+    <ClInclude Include="./param_functions.h" />
+    <ClInclude Include="./stdafx.h" />
+    <ClInclude Include="./targetver.h" />
+    <ClInclude Include="FlightModel/State.h" />
+    <ClInclude Include="Damage/Damage.h" />
+    <ClInclude Include="Diagnostics/Paths.h" />
+    <ClInclude Include="Cockpit/ParamBridge.h" />
+    <ClInclude Include="Weapons/Ccrp.h" />
+    <ClInclude Include="Weapons/ReleaseSequence.h" />
+    <ClInclude Include="Aero/AeroAssembly.h" />
+    <ClInclude Include="FlightModel/Forces.h" />
+    <ClInclude Include="Systems/Propulsion.h" />
+    <ClInclude Include="Systems/Gear.h" />
+    <ClInclude Include="Commands/CommandHandlers.h" />
+    <ClInclude Include="Avionics/Interop/IradsInternal.h" />
+    <ClInclude Include="FlightControls/PitchLog.h" />
+    <ClInclude Include="FlightControls/Config.h" />
+    <ClInclude Include="FlightControls/Internal.h" />
+    <ClInclude Include="FlightModel/ControlLaws.h" />
+    <ClInclude Include="FlightModel/AirData.h" />
+    <ClInclude Include="Diagnostics/EngineLog.h" />
+    <ClInclude Include="Diagnostics/LogFile.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ImportGroup Label="ExtensionTargets">
-  </ImportGroup>
 </Project>

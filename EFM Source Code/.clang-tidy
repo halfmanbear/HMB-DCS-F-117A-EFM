@@ -1,0 +1,23 @@
+# JSF AV 45-52 naming: words separated by '_', types and namespaces start with a capital and are otherwise
+# lowercase, functions/variables/constants/enumerators are lowercase. Private data members end with '_'.
+# Run: python tools/make_compile_commands.py, then
+#   clang-tidy -p build --header-filter="EFM Source Code" <file>   (from a Visual Studio developer prompt)
+Checks: '-*,readability-identifier-naming'
+CheckOptions:
+  - { key: readability-identifier-naming.NamespaceCase, value: Leading_upper_snake_case }
+  - { key: readability-identifier-naming.ClassCase, value: Leading_upper_snake_case }
+  - { key: readability-identifier-naming.StructCase, value: Leading_upper_snake_case }
+  - { key: readability-identifier-naming.EnumCase, value: Leading_upper_snake_case }
+  - { key: readability-identifier-naming.UnionCase, value: Leading_upper_snake_case }
+  - { key: readability-identifier-naming.TypedefCase, value: Leading_upper_snake_case }
+  - { key: readability-identifier-naming.TypeAliasCase, value: Leading_upper_snake_case }
+  - { key: readability-identifier-naming.FunctionCase, value: lower_case }
+  - { key: readability-identifier-naming.FunctionIgnoredRegexp, value: '^(DllMain|ed_fm_.*)$' }
+  - { key: readability-identifier-naming.MethodCase, value: lower_case }
+  - { key: readability-identifier-naming.VariableCase, value: lower_case }
+  - { key: readability-identifier-naming.ParameterCase, value: lower_case }
+  - { key: readability-identifier-naming.MemberCase, value: lower_case }
+  - { key: readability-identifier-naming.MemberIgnoredRegexp, value: '^[a-z][a-z0-9_]*_$' }
+  - { key: readability-identifier-naming.ConstantCase, value: lower_case }
+  - { key: readability-identifier-naming.ConstexprVariableCase, value: lower_case }
+  - { key: readability-identifier-naming.EnumConstantCase, value: lower_case }
