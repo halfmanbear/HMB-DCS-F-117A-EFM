@@ -84,6 +84,8 @@
     <ClCompile Include="Damage/Damage.cpp" />
     <ClCompile Include="Diagnostics/Paths.cpp" />
     <ClCompile Include="Cockpit/ParamBridge.cpp" />
+    <ClCompile Include="Weapons/Ccrp.cpp" />
+    <ClCompile Include="Weapons/ReleaseSequence.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Actuators/Actuators.h" />
@@ -115,6 +117,8 @@
     <ClInclude Include="Damage/Damage.h" />
     <ClInclude Include="Diagnostics/Paths.h" />
     <ClInclude Include="Cockpit/ParamBridge.h" />
+    <ClInclude Include="Weapons/Ccrp.h" />
+    <ClInclude Include="Weapons/ReleaseSequence.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

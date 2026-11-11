@@ -135,3 +135,10 @@ namespace F117 {
         double engineAsymmetry = 0.0;  // leftEngine - rightEngine
     };
 }
+
+// World-axis state captured from DCS and reused during the simulation step.
+inline double ax_world{};
+inline double az_world{};
+inline double vx_world{};
+inline double vy_world{};
+inline double vz_world{};

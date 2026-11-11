@@ -4,12 +4,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.sources import load_source  # noqa: E402
 repo=Path(__file__).resolve().parents[1];out=Path(sys.argv[1]);out.mkdir(parents=True,exist_ok=True)
 fm=load_source()
+ccrp_h=load_source('Weapons/Ccrp.h')
 def extract(name):
  start=fm.index(name);brace=fm.index('{',start);end=brace+1;depth=1
  while depth:depth+=(fm[end]=='{')-(fm[end]=='}');end+=1
  return fm[start:end]
-constants=fm[fm.index('    enum class StoreKind'):fm.index('    constexpr double kGearCommandDown')]
-start=fm.index('    constexpr double kGravity_MPS2');end=fm.index('    constexpr size_t kMirroredGearDrawArgRequiredSize')
+constants=ccrp_h[ccrp_h.index('    enum class StoreKind'):ccrp_h.index('    constexpr double kGravity_MPS2')]
+start=ccrp_h.index('    constexpr double kGravity_MPS2');end=ccrp_h.index('    constexpr double kWeaponBayOpenThreshold')
 code=r'''
 #include <cmath>
 #include <cassert>
@@ -28,7 +29,7 @@ namespace CockpitInterop {
  void Log_(const char*){}
 }
 int get_ccrp_profile_index(){return profileIndex;}
-'''+constants+fm[start:end]+r'''
+'''+constants+ccrp_h[start:end]+r'''
 const CcrpStoreModel& get_ccrp_profile(){return kCcrpStoreModels[profileIndex];}
 bool g_releaseAlignmentValid=false;
 double g_releaseMinRange=0,g_releaseMaxRange=0;

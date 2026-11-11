@@ -57,6 +57,7 @@ assert 'dispatch_action' not in (mod/'Cockpit/Scripts/Systems/bomb_bay.lua').rea
 print('PASS: deployed Lua parses; no untargeted release fallback')
 # Actual production gate/sequence functions with controlled cockpit and native outcomes.
 fm=load_source()
+ccrp_h=load_source('Weapons/Ccrp.h')
 names=['bool weapon_bay_valid(int bay)','bool weapon_bay_is_open(int bay)','bool weapon_bay_is_closed(int bay)','void command_weapon_bay_open(int bay)','void command_weapon_bay_close(int bay)','int selected_weapon_bay()','void forget_weapon_bay_ownership(int bay)','void reset_weapon_release_sequence()','void handle_weapon_release_pressed()','void handle_weapon_release_released()','void update_laser(double dt)','void update_weapon_release_sequence(double dt)']
 code=r'''
 #include <cassert>
@@ -101,7 +102,7 @@ void publish_named_param(void*&,const char* name,double value){if(std::string(na
 void setBay(bool open){F117::bay_state[0]=open?1.f:0.f;}
 void publish_weapon_release_gate_param(){}void publish_release_cue_params(){}
 int get_ccrp_profile_index(){return profile;}
-'''+fm[fm.index('    enum class StoreKind'):fm.index('    constexpr double kGearCommandDown')]+r'''
+'''+ccrp_h[ccrp_h.index('    enum class StoreKind'):ccrp_h.index('    constexpr double kGravity_MPS2')]+r'''
 const CcrpStoreModel& get_ccrp_profile(){return kCcrpStoreModels[profile];}
 bool compute_release_solution(double*,double*,double*,bool* z){*z=zone;return solution;}
 '''+ '\n'.join(extract(fm,n) for n in names)+r'''
