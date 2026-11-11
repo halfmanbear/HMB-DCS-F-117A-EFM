@@ -24,6 +24,10 @@
     <ClCompile Include="Avionics/Interop/LockAndTerrain.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
     <ClCompile Include="Avionics/Interop/CameraBridge.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
     <ClCompile Include="Avionics/Interop/Session.cpp"><Filter>Flight model\Avionics</Filter></ClCompile>
+    <ClCompile Include="FlightControls/Yaw.cpp"><Filter>Flight model\FlightControls</Filter></ClCompile>
+    <ClCompile Include="FlightControls/Pitch.cpp"><Filter>Flight model\FlightControls</Filter></ClCompile>
+    <ClCompile Include="FlightControls/Roll.cpp"><Filter>Flight model\FlightControls</Filter></ClCompile>
+    <ClCompile Include="FlightControls/PitchLog.cpp"><Filter>Flight model\FlightControls</Filter></ClCompile>
     <ClInclude Include="Actuators/Actuators.h"><Filter>Flight model\Actuators</Filter></ClInclude>
     <ClInclude Include="Aerodynamics/AeroModel.h"><Filter>Flight model\Aerodynamics</Filter></ClInclude>
     <ClInclude Include="Atmosphere/Atmosphere.h"><Filter>Flight model\Atmosphere</Filter></ClInclude>
@@ -61,6 +65,9 @@
     <ClInclude Include="Systems/Gear.h"><Filter>Flight model\Systems</Filter></ClInclude>
     <ClInclude Include="Commands/CommandHandlers.h"><Filter>Flight model\Commands</Filter></ClInclude>
     <ClInclude Include="Avionics/Interop/IradsInternal.h"><Filter>Flight model\Avionics</Filter></ClInclude>
+    <ClInclude Include="FlightControls/PitchLog.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
+    <ClInclude Include="FlightControls/Config.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
+    <ClInclude Include="FlightControls/Internal.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Flight model"><UniqueIdentifier>{D9B8AD70-751F-576C-9EDF-491D8778187B}</UniqueIdentifier></Filter>

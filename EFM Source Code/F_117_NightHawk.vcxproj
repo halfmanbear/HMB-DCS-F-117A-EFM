@@ -97,6 +97,10 @@
     <ClCompile Include="Avionics/Interop/LockAndTerrain.cpp" />
     <ClCompile Include="Avionics/Interop/CameraBridge.cpp" />
     <ClCompile Include="Avionics/Interop/Session.cpp" />
+    <ClCompile Include="FlightControls/Yaw.cpp" />
+    <ClCompile Include="FlightControls/Pitch.cpp" />
+    <ClCompile Include="FlightControls/Roll.cpp" />
+    <ClCompile Include="FlightControls/PitchLog.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Actuators/Actuators.h" />
@@ -136,6 +140,9 @@
     <ClInclude Include="Systems/Gear.h" />
     <ClInclude Include="Commands/CommandHandlers.h" />
     <ClInclude Include="Avionics/Interop/IradsInternal.h" />
+    <ClInclude Include="FlightControls/PitchLog.h" />
+    <ClInclude Include="FlightControls/Config.h" />
+    <ClInclude Include="FlightControls/Internal.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
