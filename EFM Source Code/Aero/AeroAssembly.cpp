@@ -38,6 +38,50 @@ double lift_ground_effect_gain()
     return gain_on_wheels * exp2(-(clearance - height_on_wheels_m) / (halving_spans * F117::wing_span_m));
 }
 
+namespace
+{
+// Wave drag rise: starts at the divergence Mach and steepens into a barrier near the level-speed limit.
+double wave_drag_coefficient(double mach)
+{
+    double cd_wave = 0.0;
+    const double mdiv = 0.85;
+    // TO 1F-117A-1 limits the aircraft to Mach 0.90 and has no data above it. Published figures put the
+    // maximum level speed between Mach 0.92 and 0.95; this barrier sets it near 0.92 at its best altitude.
+    const double mlimit = 0.91;
+
+    if (mach > mdiv)
+    {
+        if (mach < 1.05)
+        {
+            const double div_factor = (mach - mdiv) / (1.05 - mdiv);
+            cd_wave = 0.007159 * div_factor * div_factor;
+
+            if (mach > mlimit)
+            {
+                const double barrier_factor = (mach - mlimit) / (1.05 - mlimit);
+                cd_wave += 0.096098 * barrier_factor * barrier_factor;
+            }
+        }
+        else
+        {
+            cd_wave = 0.12;
+        }
+    }
+    return cd_wave;
+}
+
+// One door open more than the other yaws the nose toward it (positive left-bay excess gives a nose-left moment,
+// which is negative Cn here). The size is the Cn that holds one degree of sideslip.
+double bay_door_yaw_coefficient(const F117::Aero::Output& aero)
+{
+    const double left_door =
+        limit(F117::Actuators::weapon_bay[0].position / F117::weapon_bay_door_fully_open_arg, 0.0, 1.0);
+    const double right_door =
+        limit(F117::Actuators::weapon_bay[1].position / F117::weapon_bay_door_fully_open_arg, 0.0, 1.0);
+    return -std::fabs(aero.cn_per_beta_deg) * F117::weapon_bay_one_door_sideslip_deg * (left_door - right_door);
+}
+}  // namespace
+
 void update_aerodynamic_coefficients()
 {
     // On wing area. Set with the brakes by the landing distances in TO 1F-117A-1 (Figure A8-2).
@@ -94,43 +138,13 @@ void update_aerodynamic_coefficients()
     const double cd_induced =
         ((1.0 - phi_ge) * cz + cz_ground_effect) * tan(limit(alpha1_deg_limited, -89.0, 89.0) * F117::pi / 180.0);
 
-    double cd_wave = 0.0;
-    const double mdiv = 0.85;
-    // TO 1F-117A-1 limits the aircraft to Mach 0.90 and has no data above it. Published figures put the
-    // maximum level speed between Mach 0.92 and 0.95; this barrier sets it near 0.92 at its best altitude.
-    const double mlimit = 0.91;
-
-    if (F117::mach > mdiv)
-    {
-        if (F117::mach < 1.05)
-        {
-            const double div_factor = (F117::mach - mdiv) / (1.05 - mdiv);
-            cd_wave = 0.007159 * div_factor * div_factor;
-
-            if (F117::mach > mlimit)
-            {
-                const double barrier_factor = (F117::mach - mlimit) / (1.05 - mlimit);
-                cd_wave += 0.096098 * barrier_factor * barrier_factor;
-            }
-        }
-        else
-        {
-            cd_wave = 0.12;
-        }
-    }
+    const double cd_wave = wave_drag_coefficient(F117::mach);
 
     F117::Aero::cx_total = cd0 + cd_induced + cd_wave + cx_gear + cxchute + cxbay;
     F117::Aero::cz_total = cz + cz_ground_effect + cz_gear + czbay;
     F117::Aero::cm_total = aero.cm;
     F117::Aero::cy_total = aero.cy;
-    // One door open more than the other yaws the nose toward it (positive left-bay excess gives a nose-left moment,
-    // which is negative Cn here). The size is the Cn that holds one degree of sideslip.
-    const double left_door =
-        limit(F117::Actuators::weapon_bay[0].position / F117::weapon_bay_door_fully_open_arg, 0.0, 1.0);
-    const double right_door =
-        limit(F117::Actuators::weapon_bay[1].position / F117::weapon_bay_door_fully_open_arg, 0.0, 1.0);
-    const double cn_bay =
-        -std::fabs(aero.cn_per_beta_deg) * F117::weapon_bay_one_door_sideslip_deg * (left_door - right_door);
+    const double cn_bay = bay_door_yaw_coefficient(aero);
     F117::Aero::cn_total = aero.cn + cn_bay;
     F117::Aero::cl_total = aero.cl;
     F117::Aero::cl_per_aileron_deg = aero.cl_per_aileron_deg;
@@ -138,9 +152,16 @@ void update_aerodynamic_coefficients()
     F117::Aero::cn_per_rudder_deg = aero.cn_per_rudder_deg;
     F117::Aero::clp = aero.clp;
 
-    F117::Flight_controls::update_aero_debug_snapshot(aero.cy_per_rudder_deg, aero.cn_per_rudder_deg,
-                                                      aero.cl_per_rudder_deg, aero.cn_per_beta_deg,
-                                                      aero.cl_per_beta_deg, aero.cy, aero.cn, aero.cl);
+    F117::Flight_controls::Aero_snapshot snapshot;
+    snapshot.cy_delta_rudder = aero.cy_per_rudder_deg;
+    snapshot.cn_delta_rudder = aero.cn_per_rudder_deg;
+    snapshot.cl_delta_rudder = aero.cl_per_rudder_deg;
+    snapshot.cn_delta_beta = aero.cn_per_beta_deg;
+    snapshot.cl_delta_beta = aero.cl_per_beta_deg;
+    snapshot.cy_total = aero.cy;
+    snapshot.cn_total = aero.cn;
+    snapshot.cl_total = aero.cl;
+    F117::Flight_controls::update_aero_debug_snapshot(snapshot);
 }
 
 void apply_aerodynamic_forces_and_thrust()

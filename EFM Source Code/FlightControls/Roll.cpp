@@ -26,23 +26,6 @@ bool roll_controller_initialized = false;
 double roll_control_accumulator = 0.0;
 double roll_held_output = 0.0;
 
-struct Roll_inputs
-{
-    double lat_stick_input_command;
-    double long_stick_force_command;
-    double ay;
-    double ped_input;
-    double beta_deg;
-    double roll_angle_deg;
-    double roll_rate;
-    double roll_rate_trim;
-    double dyn_pressure_pa;
-    double roll_accel_per_surface_deg;
-    double surface_per_roll_rate;
-    bool gear_down;
-    bool air_refuel_door_open;
-};
-
 void init_roll_filters(double dt)
 {
     double numerators[2] = {0.0, cfg::lat_force_filter_pole};
@@ -196,10 +179,7 @@ void reset_roll_state()
 
 }  // namespace Detail
 
-double fcs_roll_controller(double lat_stick_input_command, double long_stick_force_command, double ay, double ped_input,
-                           double beta_deg, double roll_angle_deg, double roll_rate, double roll_rate_trim,
-                           double dyn_pressure_pa, double roll_accel_per_surface_deg, double surface_per_roll_rate,
-                           bool gear_down, bool air_refuel_door_open, double dt)
+double fcs_roll_controller(const Roll_inputs& in, double dt)
 {
     const bool needs_init = !roll_controller_initialized;
     if (needs_init)
@@ -213,23 +193,10 @@ double fcs_roll_controller(double lat_stick_input_command, double long_stick_for
         roll_control_accumulator = fixed_control_time_step;
     }
 
-    const Roll_inputs inputs = {lat_stick_input_command,
-                                long_stick_force_command,
-                                ay,
-                                ped_input,
-                                beta_deg,
-                                roll_angle_deg,
-                                roll_rate,
-                                roll_rate_trim,
-                                dyn_pressure_pa,
-                                roll_accel_per_surface_deg,
-                                surface_per_roll_rate,
-                                gear_down,
-                                air_refuel_door_open};
     bool reset_filters = needs_init;
     while (roll_control_accumulator >= fixed_control_time_step)
     {
-        roll_held_output = fcs_roll_controller_step(inputs, reset_filters);
+        roll_held_output = fcs_roll_controller_step(in, reset_filters);
         reset_filters = false;
         roll_control_accumulator -= fixed_control_time_step;
     }

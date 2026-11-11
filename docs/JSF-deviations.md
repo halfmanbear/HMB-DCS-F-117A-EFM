@@ -20,7 +20,21 @@ checked mechanically; run `python tools/check_jsf.py --files` to see the current
 | AV 206 | Allocation during start-up | cockpit interop | Camera bridge and sensor storage are allocated once and never freed. |
 | AV 49 against 51 | Lowercase acronyms | all code | The two rules conflict; AV 51 wins. |
 | AV 98 | Exported `ed_fm_*` and `DllMain` stay global | `F_117_NightHawk.cpp`, `dllmain.cpp` | DCS resolves them by name. |
+| AV 22, 23 | C stdio (`fopen_s`, `vfprintf`, `vsnprintf`) | `Diagnostics/LogFile.cpp` only | One small `LogFile` class wraps it; no other file includes `<cstdio>`. `tools/check_jsf.py` allows this file. |
+| AV 24 | Win32 `GetEnvironmentVariableA` | `Diagnostics/Paths.cpp` | The `F117_LOG_ROOT` override and the profile folder. `getenv` is not used. |
+| AV 45-52 | Names set by DCS or the SDK keep their spelling | `ed_fm_*`, `DllMain`, `include/` | They are resolved by name or declared by the SDK. |
+| AV 110 | More than 7 parameters | `ed_fm_set_atmosphere`, `ed_fm_set_current_state`, `ed_fm_set_current_state_body_axis` | The DCS ABI fixes these signatures. |
+| AV 45 | Private data members end with `_` | `Avionics/Autothrottle.h`, `Engine/EngineStart.h`, `FlightControls/TustinFilter.h` | Separates a member from its accessor of the same name. `.clang-tidy` ignores the suffix. |
+| AV 50 | `F117` namespace keeps its designation | all code | A digit-bearing designation, not a word. |
+| AV 206 | `new void*[]` copy of the indicator vtable | `Avionics/Interop/CameraBridge.cpp` | Allocated once when the camera hook is installed and never freed; the indicator keeps pointing at it. |
 
-Status: the structural refactor, the rule check script and this table are in place. Remaining
-violations are tracked by `tools/check_jsf.py`; the rename to AV 45-52 naming and the cast, tab,
-line-length and one-declaration-per-line cleanup are still to do.
+Status: the structural split, the rule check script, the formatting config and the AV 45-52 renames
+are done. `python tools/check_jsf.py` reports no violations of the adopted rules, `clang-tidy`
+(`EFM Source Code/.clang-tidy`) reports no naming violations, and no function exceeds 100 lines. The
+only functions over 7 parameters are `ed_fm_set_atmosphere`, `ed_fm_set_current_state` and
+`ed_fm_set_current_state_body_axis`, whose signatures the DCS ABI fixes (AV 110).
+
+Not done: AV 135-142 ask for each global to have a single owner behind accessors. The shared
+flight-model state is kept as `inline` variables in `FlightModel/State.h`, grouped by subsystem,
+and the per-unit state is file-local. Replacing the shared variables with accessor objects would touch
+nearly every call site and was left out of this refactor.

@@ -221,18 +221,30 @@ public:
         engaged_ = false;
     }
 
+    // Aircraft state the recovery law reads.
+    struct Flight_state
+    {
+        double pitch_deg;
+        double bank_deg;
+        double roll_rate_deg_s;
+        double pitch_rate_deg_s;
+        bool gear_down;
+        bool weight_on_wheels;
+        bool air_refuel_door_open;
+    };
+
     // Returns false (and disengages) when PAARS is not functional.
-    bool update(double pitch_deg, double bank_deg, double roll_rate_deg_s, double pitch_rate_deg_s, bool gear_down,
-                bool weight_on_wheels, bool air_refuel_door_open, Command* command)
+    bool update(const Flight_state& state, Command* command)
     {
         if (!engaged_)
             return false;
-        if (inhibited(pitch_deg, bank_deg, weight_on_wheels, air_refuel_door_open))
+        if (inhibited(state.pitch_deg, state.bank_deg, state.weight_on_wheels, state.air_refuel_door_open))
         {
             engaged_ = false;
             return false;
         }
-        *command = compute_command(pitch_deg, bank_deg, roll_rate_deg_s, pitch_rate_deg_s, gear_down);
+        *command = compute_command(state.pitch_deg, state.bank_deg, state.roll_rate_deg_s, state.pitch_rate_deg_s,
+                                   state.gear_down);
         return true;
     }
 

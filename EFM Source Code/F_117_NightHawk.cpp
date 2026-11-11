@@ -133,9 +133,15 @@ void ed_fm_add_local_moment(double& mx, double& my, double& mz)
 static void simulate_aircraft_frame(double dt)
 {
     Cockpit_interop::force_irads_indicator_active();
-    Cockpit_interop::update_irads_sensor_frame(dt, position_world_cs.x, position_world_cs.y, position_world_cs.z,
-                                               F117::aircraft_quaternion_x, F117::aircraft_quaternion_y,
-                                               F117::aircraft_quaternion_z, F117::aircraft_quaternion_w);
+    Cockpit_interop::Aircraft_pose pose{};
+    pose.x = position_world_cs.x;
+    pose.y = position_world_cs.y;
+    pose.z = position_world_cs.z;
+    pose.qx = F117::aircraft_quaternion_x;
+    pose.qy = F117::aircraft_quaternion_y;
+    pose.qz = F117::aircraft_quaternion_z;
+    pose.qw = F117::aircraft_quaternion_w;
+    Cockpit_interop::update_irads_sensor_frame(dt, pose);
     Weapons::publish_irads_lock_params();
 
     log_simulation_frame(dt, sqrt(ax_world * ax_world + F117::ay_world * F117::ay_world + az_world * az_world));

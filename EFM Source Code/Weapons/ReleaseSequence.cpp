@@ -200,28 +200,23 @@ void reset_laser()
     Weapons_interop::reset();
 }
 
-void update_weapon_release_sequence(double dt)
+namespace
 {
-    update_laser(dt);
-    F117::release_retry_delay = std::max(0.0, F117::release_retry_delay - dt);
-    double error_meters = 0.0;
-    double time_to_go_seconds = 0.0;
-    double range_meters = 0.0;
-    bool in_zone = false;
-    const bool has_solution = Cockpit_interop::has_irads_lock() &&
-                              compute_release_solution(&error_meters, &time_to_go_seconds, &range_meters, &in_zone);
-    static void* profile_valid_param = nullptr;
-    static void* station_param = nullptr;
-    if (!profile_valid_param)
-        profile_valid_param = F117::cockpit_api.getParamHandle("F117_STORE_VALID");
-    if (!station_param)
-        station_param = F117::cockpit_api.getParamHandle("F117_RELEASE_STATION");
-    const bool store_valid = profile_valid_param && F117::cockpit_api.getParamNumber(profile_valid_param) > 0.5;
-    const double station_raw = station_param ? F117::cockpit_api.getParamNumber(station_param) : -1.0;
-    const int station =
-        std::isfinite(station_raw) && station_raw >= 0.0 && station_raw <= 8.0 ? static_cast<int>(station_raw) : -1;
-    const bool efm_launch_available = Weapons_interop::is_launch_available();
-    const bool laser_required = store_needs_laser(get_ccrp_profile().kind);
+// Everything the status ladder looks at.
+struct Release_inputs
+{
+    bool has_solution;
+    bool in_zone;
+    bool store_valid;
+    int station;
+    bool efm_launch_available;
+    bool laser_required;
+};
+
+// Release status shown to the cockpit: 1 safe, 2 IRADS off, 3 no lock, 4 no store, 5 laser, 7 no solution,
+// 8 out of zone, 9 ready, 12 on the ground, 13 launch unavailable, 14 misaligned.
+int compute_release_status(const Release_inputs& in)
+{
     int status = 9;  // ready: hold consent to release at computed CCRP point
     if (!F117::master_armed)
         status = 1;
@@ -231,22 +226,41 @@ void update_weapon_release_sequence(double dt)
         status = 2;
     else if (!Cockpit_interop::has_irads_lock())
         status = 3;
-    else if (!store_valid || station < 0 || station > 8)
+    else if (!in.store_valid || in.station < 0 || in.station > 8)
         status = 4;
-    else if (laser_required && (!F117::laser_armed || !Weapons_interop::is_laser_firing()))
+    else if (in.laser_required && (!F117::laser_armed || !Weapons_interop::is_laser_firing()))
         status = 5;
     // The pickle opens the selected store's bay itself, so bay position is not a fault. The store
     // is only let go once that bay is open (see the launch condition below).
-    else if (!has_solution)
+    else if (!in.has_solution)
         status = 7;
     else if (!g_release_alignment_valid)
         status = 14;
-    else if (!in_zone)
+    else if (!in.in_zone)
         status = 8;
-    else if (!efm_launch_available)
+    else if (!in.efm_launch_available)
         status = 13;
-    F117::weapon_release_gate_hold = std::max(0.0, F117::weapon_release_gate_hold - dt);
-    // Consent held while the selection moves to another store (station keys): open that store's bay too.
+    return status;
+}
+
+// The store selection comes from the cockpit Lua: whether the selected station holds a releasable store, and which.
+void read_store_selection(bool& store_valid, int& station)
+{
+    static void* profile_valid_param = nullptr;
+    static void* station_param = nullptr;
+    if (!profile_valid_param)
+        profile_valid_param = F117::cockpit_api.getParamHandle("F117_STORE_VALID");
+    if (!station_param)
+        station_param = F117::cockpit_api.getParamHandle("F117_RELEASE_STATION");
+    store_valid = profile_valid_param && F117::cockpit_api.getParamNumber(profile_valid_param) > 0.5;
+    const double station_raw = station_param ? F117::cockpit_api.getParamNumber(station_param) : -1.0;
+    station =
+        std::isfinite(station_raw) && station_raw >= 0.0 && station_raw <= 8.0 ? static_cast<int>(station_raw) : -1;
+}
+
+// Consent held while the selection moves to another store (station keys): open that store's bay too.
+void open_bay_for_held_consent(int station)
+{
     if (F117::weapon_release_pickle_held && !F117::weapon_release_gate_fired && weapon_bay_valid(station) &&
         F117::bay_cmd[station] < 0.5f)
     {
@@ -255,6 +269,12 @@ void update_weapon_release_sequence(double dt)
         F117::weapon_bay_close_pending[station] = false;
         F117::weapon_bay_close_delay[station] = 0.0;
     }
+}
+
+// Releases the store once the status is ready, consent is held and the bay is open. A failed native
+// attempt retries after a short delay and does not consume consent.
+void attempt_release(int station, int& status)
+{
     if (status == 9 && F117::weapon_release_pickle_held && !F117::weapon_release_gate_fired &&
         F117::release_retry_delay <= 0.0 && weapon_bay_is_open(station))
     {
@@ -276,14 +296,10 @@ void update_weapon_release_sequence(double dt)
             F117::release_retry_delay = 0.25;  // failed native attempt does not consume consent
         }
     }
-    if (F117::weapon_release_gate_fired)
-        status = 10;
-    if (status != F117::release_status)
-    {
-        Cockpit_interop::log_format("DELIVERY: status=%d station=%d profile=%d consent=%d", status, station,
-                                    get_ccrp_profile_index(), F117::weapon_release_pickle_held);
-        F117::release_status = status;
-    }
+}
+
+void publish_release_state(int status)
+{
     static void* status_param = nullptr;
     static void* arm_param = nullptr;
     static void* flight_param = nullptr;
@@ -296,10 +312,12 @@ void update_weapon_release_sequence(double dt)
     publish_named_param(status_param, "F117_RELEASE_STATUS", status);
     publish_named_param(arm_param, "F117_MASTER_ARM", F117::master_armed ? 1.0 : 0.0);
     publish_named_param(flight_param, "F117_STORE_FLIGHT_TIME", F117::weapon_flight_time_remaining);
-    F117::weapon_release_gate = F117::weapon_release_gate_hold > 0.0;
+}
 
-    // Each bay's auto-close runs on its own timer, so the first store's door shuts while the pilot
-    // pickles the next store.
+// Each bay's auto-close runs on its own timer, so the first store's door shuts while the pilot
+// pickles the next store.
+void update_bay_close_timers(double dt)
+{
     for (int bay = 0; bay < F117::weapon_bay_count; ++bay)
     {
         if (!F117::weapon_release_pickle_held && F117::weapon_bay_owned_by_release[bay] && weapon_bay_is_closed(bay))
@@ -315,11 +333,52 @@ void update_weapon_release_sequence(double dt)
             }
         }
     }
+}
 
+void publish_bay_positions()
+{
     static void* bay_params[F117::weapon_bay_count] = {};
     static const char* const bay_param_names[F117::weapon_bay_count] = {"F117_BAY_L", "F117_BAY_R"};
     for (int bay = 0; bay < F117::weapon_bay_count; ++bay)
         publish_named_param(bay_params[bay], bay_param_names[bay], F117::bay_state[bay]);
+}
+}  // namespace
+
+void update_weapon_release_sequence(double dt)
+{
+    update_laser(dt);
+    F117::release_retry_delay = std::max(0.0, F117::release_retry_delay - dt);
+    double error_meters = 0.0;
+    double time_to_go_seconds = 0.0;
+    double range_meters = 0.0;
+    bool in_zone = false;
+    const bool has_solution = Cockpit_interop::has_irads_lock() &&
+                              compute_release_solution(&error_meters, &time_to_go_seconds, &range_meters, &in_zone);
+    Release_inputs inputs{has_solution,
+                          in_zone,
+                          false,
+                          -1,
+                          Weapons_interop::is_launch_available(),
+                          store_needs_laser(get_ccrp_profile().kind)};
+    read_store_selection(inputs.store_valid, inputs.station);
+    const int station = inputs.station;
+    int status = compute_release_status(inputs);
+    F117::weapon_release_gate_hold = std::max(0.0, F117::weapon_release_gate_hold - dt);
+    open_bay_for_held_consent(station);
+    attempt_release(station, status);
+    if (F117::weapon_release_gate_fired)
+        status = 10;
+    if (status != F117::release_status)
+    {
+        Cockpit_interop::log_format("DELIVERY: status=%d station=%d profile=%d consent=%d", status, station,
+                                    get_ccrp_profile_index(), F117::weapon_release_pickle_held);
+        F117::release_status = status;
+    }
+    publish_release_state(status);
+    F117::weapon_release_gate = F117::weapon_release_gate_hold > 0.0;
+
+    update_bay_close_timers(dt);
+    publish_bay_positions();
 
     static void* s_efm_launch_active_param = nullptr;
     publish_named_param(s_efm_launch_active_param, efm_launch_active_param_name, 1.0);

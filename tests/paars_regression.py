@@ -86,7 +86,7 @@ int main() {
     assert(!ars.engage(0, 10, false, true) && !ars.engage(5, 0, true, false) && !ars.engaged());
     assert(ars.engage(0, 60, false, true));
     Command c{};
-    assert(!ars.update(0, 10, 0, 0, false, false, true, &c) && !ars.engaged());
+    assert(!ars.update({0, 10, 0, 0, false, false, true}, &c) && !ars.engaged());
     assert(ars.engage(30, 0, true, false)); ars.disengage(); assert(!ars.engaged());
 
     // Commands: vertical sectors pull with zero roll rate, inverted nose-low pushes.

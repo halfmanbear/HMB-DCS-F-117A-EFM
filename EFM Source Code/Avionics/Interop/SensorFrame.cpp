@@ -9,14 +9,13 @@ namespace Cockpit_interop
 static bool s_pose_seed_logged = false;
 static bool s_carrier_link_disabled_logged = false;
 
-static void build_world_pose_from_aircraft(double out_mat[16], double aircraft_x, double aircraft_y, double aircraft_z,
-                                           double quat_x, double quat_y, double quat_z, double quat_w)
+static void build_world_pose_from_aircraft(double out_mat[16], const Aircraft_pose& pose)
 {
-    const double norm = std::sqrt(quat_x * quat_x + quat_y * quat_y + quat_z * quat_z + quat_w * quat_w);
-    const double qx = (norm > 1.0e-9) ? (quat_x / norm) : 0.0;
-    const double qy = (norm > 1.0e-9) ? (quat_y / norm) : 0.0;
-    const double qz = (norm > 1.0e-9) ? (quat_z / norm) : 0.0;
-    const double qw = (norm > 1.0e-9) ? (quat_w / norm) : 1.0;
+    const double norm = std::sqrt(pose.qx * pose.qx + pose.qy * pose.qy + pose.qz * pose.qz + pose.qw * pose.qw);
+    const double qx = (norm > 1.0e-9) ? (pose.qx / norm) : 0.0;
+    const double qy = (norm > 1.0e-9) ? (pose.qy / norm) : 0.0;
+    const double qz = (norm > 1.0e-9) ? (pose.qz / norm) : 0.0;
+    const double qw = (norm > 1.0e-9) ? (pose.qw / norm) : 1.0;
     const double xx = qx * qx;
     const double yy = qy * qy;
     const double zz = qz * qz;
@@ -42,14 +41,13 @@ static void build_world_pose_from_aircraft(double out_mat[16], double aircraft_x
     out_mat[10] = 1.0 - 2.0 * (xx + yy);
     out_mat[11] = 0.0;
 
-    out_mat[12] = aircraft_x + irads_pos_x * out_mat[0] + irads_pos_y * out_mat[4] + irads_pos_z * out_mat[8];
-    out_mat[13] = aircraft_y + irads_pos_x * out_mat[1] + irads_pos_y * out_mat[5] + irads_pos_z * out_mat[9];
-    out_mat[14] = aircraft_z + irads_pos_x * out_mat[2] + irads_pos_y * out_mat[6] + irads_pos_z * out_mat[10];
+    out_mat[12] = pose.x + irads_pos_x * out_mat[0] + irads_pos_y * out_mat[4] + irads_pos_z * out_mat[8];
+    out_mat[13] = pose.y + irads_pos_x * out_mat[1] + irads_pos_y * out_mat[5] + irads_pos_z * out_mat[9];
+    out_mat[14] = pose.z + irads_pos_x * out_mat[2] + irads_pos_y * out_mat[6] + irads_pos_z * out_mat[10];
     out_mat[15] = 1.0;
 }
 
-static void seed_injected_sensor_pose(double aircraft_x, double aircraft_y, double aircraft_z, double quat_x,
-                                      double quat_y, double quat_z, double quat_w)
+static void seed_injected_sensor_pose(const Aircraft_pose& pose)
 {
     if (!g_av_tv_sensor_instance)
         return;
@@ -58,7 +56,7 @@ static void seed_injected_sensor_pose(double aircraft_x, double aircraft_y, doub
     Av_platform_layout* root = as_platform(sensor->platform_root ? sensor->platform_root : g_av_tv_sensor_instance);
     double world_pose[16] = {};
 
-    build_world_pose_from_aircraft(world_pose, aircraft_x, aircraft_y, aircraft_z, quat_x, quat_y, quat_z, quat_w);
+    build_world_pose_from_aircraft(world_pose, pose);
 
     std::memcpy(sensor->platform_world_pose.m, world_pose, sizeof(world_pose));
     std::memcpy(sensor->platform_initial_world_pose.m, world_pose, sizeof(world_pose));
@@ -68,14 +66,14 @@ static void seed_injected_sensor_pose(double aircraft_x, double aircraft_y, doub
         std::memcpy(root->platform_initial_world_pose.m, world_pose, sizeof(world_pose));
     }
 
-    s_last_aircraft_pos[0] = aircraft_x;
-    s_last_aircraft_pos[1] = aircraft_y;
-    s_last_aircraft_pos[2] = aircraft_z;
+    s_last_aircraft_pos[0] = pose.x;
+    s_last_aircraft_pos[1] = pose.y;
+    s_last_aircraft_pos[2] = pose.z;
 
     if (!s_pose_seed_logged)
     {
-        log_format("SeedInjectedSensorPose: aircraft=(%.2f, %.2f, %.2f) sensor=(%.2f, %.2f, %.2f)", aircraft_x,
-                   aircraft_y, aircraft_z, world_pose[12], world_pose[13], world_pose[14]);
+        log_format("SeedInjectedSensorPose: aircraft=(%.2f, %.2f, %.2f) sensor=(%.2f, %.2f, %.2f)", pose.x, pose.y,
+                   pose.z, world_pose[12], world_pose[13], world_pose[14]);
         s_pose_seed_logged = true;
     }
 }
@@ -136,8 +134,7 @@ bool aim_pose_at_world_point(double pose[16], const double target[3])
     return true;
 }
 
-void update_irads_sensor_frame(double dt, double aircraft_x, double aircraft_y, double aircraft_z, double quat_x,
-                               double quat_y, double quat_z, double quat_w)
+void update_irads_sensor_frame(double dt, const Aircraft_pose& pose)
 {
     if (std::isfinite(dt) && dt > 0)
         s_irads_ray_age += dt;
@@ -155,7 +152,7 @@ void update_irads_sensor_frame(double dt, double aircraft_x, double aircraft_y, 
             log_message("IRADS terrain request timed out; no lock");
         }
     }
-    seed_injected_sensor_pose(aircraft_x, aircraft_y, aircraft_z, quat_x, quat_y, quat_z, quat_w);
+    seed_injected_sensor_pose(pose);
     // Do not call set_carrier for the injected sensor: it leads to an unsafe
     // carrier chain during the sensor update and crashed DCS. Keeping
     // platformRoot self-referential preserves the native update path without

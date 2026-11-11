@@ -71,12 +71,21 @@ void command_pitch_axis(double dt, double control_degradation)
     Flight_controls::update_ground_contact(
         gear_down > 0.5 && (suspension_wow[0] || suspension_wow[1] || suspension_wow[2]), dt);
 
-    elevator_deg_commanded =
-        -(Flight_controls::fcs_pitch_controller(
-            Flight_controls::long_stick_input * control_degradation, 0.0, alpha_deg,
-            pitch_rate_rps * radians_to_degrees, (az / standard_gravity_mps2), 0.0, dynamic_pressure_pa, dt, roll_angle,
-            pitch_angle, roll_rate_rps * radians_to_degrees, total_velocity_mps, mach, thrust_n, Aero::cx_total)) *
-        pitch_law_elevon_scale();
+    Flight_controls::Pitch_inputs pitch_in{};
+    pitch_in.long_stick_input_command = Flight_controls::long_stick_input * control_degradation;
+    pitch_in.pitch_trim = 0.0;
+    pitch_in.angle_of_attack_ind = alpha_deg;
+    pitch_in.pitch_rate_deg_s = pitch_rate_rps * radians_to_degrees;
+    pitch_in.az = az / standard_gravity_mps2;
+    pitch_in.dyn_pressure_pa = dynamic_pressure_pa;
+    pitch_in.roll_angle_deg = roll_angle;
+    pitch_in.pitch_angle_deg = pitch_angle;
+    pitch_in.roll_rate_deg_s = roll_rate_rps * radians_to_degrees;
+    pitch_in.velocity_mps = total_velocity_mps;
+    pitch_in.mach = mach;
+    pitch_in.thrust_n = thrust_n;
+    pitch_in.cx_total = Aero::cx_total;
+    elevator_deg_commanded = -Flight_controls::fcs_pitch_controller(pitch_in, dt) * pitch_law_elevon_scale();
     elevator_deg_commanded += pitch_damper_elevator_deg();
     elevator_deg = limit(elevator_deg_commanded + pitch_trim, elevator_nose_up_limit_deg, elevator_nose_down_limit_deg);
 }
@@ -93,12 +102,21 @@ void command_roll_axis(double dt, double control_degradation)
                                          (2.0 * (std::max)(total_velocity_mps, min_control_speed_mps)) /
                                          radians_to_degrees / roll_moment_per_surface_deg;
 
-    aileron_deg_commanded = Flight_controls::fcs_roll_controller(
-        Flight_controls::lat_stick_input * control_degradation, Flight_controls::long_stick_force,
-        ay / standard_gravity_mps2, ped_input, beta_deg, roll_angle, roll_rate_rps * radians_to_degrees,
-        g_paars_roll_rate_deg_s,  // PAARS roll-rate command, added to the pilot's
-        dynamic_pressure_pa, roll_accel_per_surface_deg, surface_per_roll_rate, gear_down > 0.5, air_refuel_door_open,
-        dt);
+    Flight_controls::Roll_inputs roll_in{};
+    roll_in.lat_stick_input_command = Flight_controls::lat_stick_input * control_degradation;
+    roll_in.long_stick_force_command = Flight_controls::long_stick_force;
+    roll_in.ay = ay / standard_gravity_mps2;
+    roll_in.ped_input = ped_input;
+    roll_in.beta_deg = beta_deg;
+    roll_in.roll_angle_deg = roll_angle;
+    roll_in.roll_rate = roll_rate_rps * radians_to_degrees;
+    roll_in.roll_rate_trim = g_paars_roll_rate_deg_s;  // PAARS roll-rate command, added to the pilot's
+    roll_in.dyn_pressure_pa = dynamic_pressure_pa;
+    roll_in.roll_accel_per_surface_deg = roll_accel_per_surface_deg;
+    roll_in.surface_per_roll_rate = surface_per_roll_rate;
+    roll_in.gear_down = gear_down > 0.5;
+    roll_in.air_refuel_door_open = air_refuel_door_open;
+    aileron_deg_commanded = Flight_controls::fcs_roll_controller(roll_in, dt);
 
     // Real F-117 pitch/roll mixer: pitch has priority.
     // Each elevon physical stop is 45 deg. Pitch occupies elevator_DEG of that travel.
@@ -126,10 +144,18 @@ void command_yaw_axis(double dt)
         static_cast<float>(1.0 + (beta_magnitude_deg * beta_magnitude_deg) / rudder_limiter_beta_scale *
                                      (1.0 + yaw_rate_magnitude_deg_s / rudder_limiter_yaw_rate_scale_degps));
 
-    rudder_deg_commanded = Flight_controls::fcs_yaw_controller(
-        ped_input, 0.0, beta_deg, yaw_rate_rps * radians_to_degrees, level_turn_yaw_rate_degps(),
-        roll_rate_rps * radians_to_degrees, pitch_rate_rps * radians_to_degrees, Flight_controls::alpha_filtered,
-        dynamic_pressure_pa, gear_down > 0.5, dt);
+    Flight_controls::Yaw_inputs yaw_in{};
+    yaw_in.ped_input = ped_input;
+    yaw_in.ped_trim = 0.0;
+    yaw_in.beta_deg = beta_deg;
+    yaw_in.yaw_rate = yaw_rate_rps * radians_to_degrees;
+    yaw_in.turn_yaw_rate = level_turn_yaw_rate_degps();
+    yaw_in.roll_rate = roll_rate_rps * radians_to_degrees;
+    yaw_in.pitch_rate = pitch_rate_rps * radians_to_degrees;
+    yaw_in.aoa_filtered = Flight_controls::alpha_filtered;
+    yaw_in.dyn_pressure_pa = dynamic_pressure_pa;
+    yaw_in.gear_down = gear_down > 0.5;
+    rudder_deg_commanded = Flight_controls::fcs_yaw_controller(yaw_in, dt);
     rudder_deg = yaw_trim + rudder_deg_commanded;
     rudder_deg = limit(rudder_deg, -rudder_limit_deg / rudder_limiter_scale, rudder_limit_deg / rudder_limiter_scale);
 }

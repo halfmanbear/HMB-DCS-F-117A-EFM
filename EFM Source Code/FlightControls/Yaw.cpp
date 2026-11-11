@@ -26,20 +26,6 @@ double yaw_held_output = 0.0;
 double auto_beta_trim_state = 0.0;   // automatic Beta trim accumulator (deg)
 double auto_beta_trim_wait_s = 0.0;  // time left before the automatic Beta trim may act
 
-struct Yaw_inputs
-{
-    double ped_input;
-    double ped_trim;
-    double beta_deg;
-    double yaw_rate;
-    double turn_yaw_rate;
-    double roll_rate;
-    double pitch_rate;
-    double aoa_filtered;
-    double dyn_pressure_pa;
-    bool gear_down;
-};
-
 void init_yaw_filters(double dt)
 {
     // Beta command low-pass filter
@@ -63,7 +49,7 @@ void init_yaw_filters(double dt)
     auto_beta_trim_state = 0.0;
     auto_beta_trim_wait_s = 0.0;
     Detail::debug_snapshot.yaw = Detail::Yaw_snapshot{};
-    Detail::debug_snapshot.aero = Detail::Aero_snapshot{};
+    Detail::debug_snapshot.aero = Aero_snapshot{};
     yaw_controller_initialized = true;
 }
 
@@ -174,9 +160,7 @@ void reset_yaw_state()
 
 }  // namespace Detail
 
-double fcs_yaw_controller(double ped_input, double ped_trim, double beta_deg, double yaw_rate, double turn_yaw_rate,
-                          double roll_rate, double pitch_rate, double aoa_filtered, double dyn_pressure_pa,
-                          bool gear_down, double dt)
+double fcs_yaw_controller(const Yaw_inputs& in, double dt)
 {
     const bool needs_init = !yaw_controller_initialized;
     if (needs_init)
@@ -190,12 +174,10 @@ double fcs_yaw_controller(double ped_input, double ped_trim, double beta_deg, do
         yaw_control_accumulator = fixed_control_time_step;
     }
 
-    const Yaw_inputs inputs = {ped_input, ped_trim,   beta_deg,     yaw_rate,        turn_yaw_rate,
-                               roll_rate, pitch_rate, aoa_filtered, dyn_pressure_pa, gear_down};
     bool reset_filters = needs_init;
     while (yaw_control_accumulator >= fixed_control_time_step)
     {
-        yaw_held_output = fcs_yaw_controller_step(inputs, fixed_control_time_step, reset_filters);
+        yaw_held_output = fcs_yaw_controller_step(in, fixed_control_time_step, reset_filters);
         reset_filters = false;
         yaw_control_accumulator -= fixed_control_time_step;
     }

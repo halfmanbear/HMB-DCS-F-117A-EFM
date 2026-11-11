@@ -11,7 +11,12 @@ Log_file::~Log_file()
 bool Log_file::open(const char* path, bool append)
 {
     close();
-    m_file = std::fopen(path, append ? "a" : "w");
+    std::FILE* file = nullptr;
+    if (fopen_s(&file, path, append ? "a" : "w") != 0)
+    {
+        file = nullptr;
+    }
+    m_file = file;
     return m_file != nullptr;
 }
 

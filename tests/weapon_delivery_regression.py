@@ -58,7 +58,7 @@ print('PASS: deployed Lua parses; no untargeted release fallback')
 # Actual production gate/sequence functions with controlled cockpit and native outcomes.
 fm=load_source()
 ccrp_h=load_source('Weapons/Ccrp.h')
-names=['bool weapon_bay_valid(int bay)','bool weapon_bay_is_open(int bay)','bool weapon_bay_is_closed(int bay)','void command_weapon_bay_open(int bay)','void command_weapon_bay_close(int bay)','int selected_weapon_bay()','void forget_weapon_bay_ownership(int bay)','void reset_weapon_release_sequence()','void handle_weapon_release_pressed()','void handle_weapon_release_released()','void update_laser(double dt)','void update_weapon_release_sequence(double dt)']
+names=['bool weapon_bay_valid(int bay)','bool weapon_bay_is_open(int bay)','bool weapon_bay_is_closed(int bay)','void command_weapon_bay_open(int bay)','void command_weapon_bay_close(int bay)','int selected_weapon_bay()','void forget_weapon_bay_ownership(int bay)','void reset_weapon_release_sequence()','void handle_weapon_release_pressed()','void handle_weapon_release_released()','void update_laser(double dt)','struct Release_inputs','int compute_release_status(','void read_store_selection(','void open_bay_for_held_consent(','void attempt_release(','void publish_release_state(','void update_bay_close_timers(','void publish_bay_positions(','void update_weapon_release_sequence(double dt)']
 code=r'''
 #include <cassert>
 #include <cmath>
@@ -105,7 +105,7 @@ int get_ccrp_profile_index(){return profile;}
 '''+ccrp_h[ccrp_h.index('enum class Store_kind'):ccrp_h.index('constexpr double gravity_mps2')]+r'''
 const Ccrp_store_model& get_ccrp_profile(){return ccrp_store_models[profile];}
 bool compute_release_solution(double*,double*,double*,bool* z){*z=zone;return solution;}
-'''+ '\n'.join(extract(fm,n) for n in names)+r'''
+'''+ '\n'.join(extract(fm,n)+(';' if n.startswith('struct') else '') for n in names)+r'''
 int main(){
  setBay(true);handle_weapon_release_pressed();update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==1);
  F117::master_armed=true;lockValid=false;update_weapon_release_sequence(.01);assert(launches==0&&F117::release_status==3);

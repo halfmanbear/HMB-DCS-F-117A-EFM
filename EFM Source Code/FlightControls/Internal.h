@@ -42,18 +42,6 @@ struct Yaw_snapshot
     double rudder_pct{};
 };
 
-struct Aero_snapshot
-{
-    double cy_delta_rudder{};
-    double cn_delta_rudder{};
-    double cl_delta_rudder{};
-    double cn_delta_beta{};
-    double cl_delta_beta{};
-    double cy_total{};
-    double cn_total{};
-    double cl_total{};
-};
-
 struct Debug_snapshot
 {
     Roll_snapshot roll;

@@ -264,6 +264,174 @@ bool guided_release_in_zone(Store_kind kind, double ballistic_range, double alon
            horizontal_range <= ballistic_range + range_margin;
 }
 
+namespace
+{
+// Flight geometry of the release relative to the locked target, in world axes.
+struct Release_geometry
+{
+    Vec3 velocity;
+    Vec3 wind;
+    double dx;  // target offset from the aircraft, east-west
+    double dz;  // target offset from the aircraft, north-south
+    double horiz_speed;
+    double horiz_range;
+    double drop_meters;  // height above the target
+    double vx;           // unit ground-track direction
+    double vz;
+    double along_track;  // distance to the target along the ground track
+    double cross_track;
+    double air_speed;
+};
+
+// What the zone evaluation produces besides the published range window.
+struct Zone_result
+{
+    bool in_zone;
+    double error_meters;
+    double time_to_go;
+    double impact_along_track;
+};
+
+// False when the aircraft is too slow, too low, or past the target.
+bool compute_release_geometry(const double target_world[3], const Ccrp_store_model& profile, Release_geometry& g)
+{
+    g.velocity = Vec3{vx_world, vy_world, vz_world};
+    g.dx = target_world[0] - position_world_cs.x;
+    g.dz = target_world[2] - position_world_cs.z;
+    g.horiz_speed = sqrt((g.velocity.x * g.velocity.x) + (g.velocity.z * g.velocity.z));
+    g.horiz_range = sqrt((g.dx * g.dx) + (g.dz * g.dz));
+    g.drop_meters = position_world_cs.y - target_world[1];
+
+    if (g.horiz_speed < std::max(release_cue_min_speed_mps, profile.min_speed_mps) ||
+        g.drop_meters < std::max(release_cue_min_drop_meters, profile.min_drop_meters))
+    {
+        return false;
+    }
+
+    g.vx = g.velocity.x / g.horiz_speed;
+    g.vz = g.velocity.z / g.horiz_speed;
+    g.along_track = (g.dx * g.vx) + (g.dz * g.vz);
+    if (g.along_track <= 0.0)
+    {
+        return false;
+    }
+
+    const double cross_track_sq = (g.horiz_range * g.horiz_range) - (g.along_track * g.along_track);
+    g.cross_track = sqrt((cross_track_sq > 0.0) ? cross_track_sq : 0.0);
+    g.wind = get_world_wind_vector();
+    const double air_x = g.velocity.x - g.wind.x, air_y = g.velocity.y - g.wind.y, air_z = g.velocity.z - g.wind.z;
+    g.air_speed = std::sqrt(air_x * air_x + air_y * air_y + air_z * air_z);
+    return true;
+}
+
+// Free-fall stores: where the store would land if released now, and how far short of that the aircraft is.
+bool predict_ballistic_release(const Ccrp_store_model& profile, const Release_geometry& g, double target_height,
+                               Zone_result& result)
+{
+    Vec3 impact_pos{};
+    double impact_time = 0.0;
+    if (!simulate_bomb_impact_point(profile, position_world_cs, g.velocity, g.wind, target_height, &impact_pos,
+                                    &impact_time))
+    {
+        return false;
+    }
+    F117::ccrp_time_of_flight = impact_time;
+    const Vec3 impact_delta{impact_pos.x - position_world_cs.x, impact_pos.y - position_world_cs.y,
+                            impact_pos.z - position_world_cs.z};
+    result.impact_along_track = (impact_delta.x * g.vx) + (impact_delta.z * g.vz);
+    result.error_meters = g.along_track - result.impact_along_track;
+    result.time_to_go =
+        (result.error_meters > 0.0) ? (result.error_meters / std::max(g.horiz_speed, profile.min_speed_mps)) : 0.0;
+    return true;
+}
+
+// JDAM and glide weapons: weapon-authored launch tables, interpolated in target-relative
+// height and true airspeed. No extrapolation outside the table domain.
+bool evaluate_tabled_zone(const Ccrp_store_model& profile, const Release_geometry& g, Zone_result& result)
+{
+    const Store_kind kind = profile.kind;
+    const bool tabled = kind == Store_kind::jdam ? Jdam_envelope::lookup(profile.envelope, g.drop_meters, g.air_speed,
+                                                                         &g_release_min_range, &g_release_max_range)
+                                                 : Glide_envelope::lookup(profile.envelope, g.drop_meters, g.air_speed,
+                                                                          &g_release_min_range, &g_release_max_range);
+    if (!tabled)
+        return false;
+    g_release_alignment_valid = g.cross_track <= std::max(50.0, g.along_track * 0.577350269);
+    result.in_zone =
+        g_release_alignment_valid && g.horiz_range >= g_release_min_range && g.horiz_range <= g_release_max_range;
+    if (kind == Store_kind::glide)
+    {
+        // A glide weapon has no ballistic impact: cue the distance still to close
+        // to the maximum range, and time the flight at a typical glide speed.
+        result.error_meters = std::max(0.0, g.horiz_range - g_release_max_range);
+        result.time_to_go = result.error_meters / std::max(g.horiz_speed, profile.min_speed_mps);
+        F117::ccrp_time_of_flight = g.horiz_range / glide_weapon_speed_mps;
+    }
+    return true;
+}
+
+// True CCRP: the release fires as the predicted impact crosses the target.
+void evaluate_unguided_zone(const Ccrp_store_model& profile, const Release_geometry& g, Zone_result& result)
+{
+    g_release_alignment_valid = g.cross_track <= unguided_max_cross_track_meters;
+    result.in_zone = g_release_alignment_valid && fabs(result.error_meters) <= profile.release_window_meters;
+    g_release_min_range = std::max(1.0, result.impact_along_track - profile.release_window_meters);
+    g_release_max_range = result.impact_along_track + profile.release_window_meters;
+}
+
+// Powered missile: target inside the seeker cone around the flight path
+// and slant range inside the stock launch limits.
+void evaluate_missile_zone(const Ccrp_store_model& profile, const Release_geometry& g, Zone_result& result)
+{
+    const Vec3& v = g.velocity;
+    const double slant = sqrt(g.horiz_range * g.horiz_range + g.drop_meters * g.drop_meters);
+    const double speed = sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    const double cosine =
+        (slant > 1.0 && speed > 1.0) ? (g.dx * v.x - g.drop_meters * v.y + g.dz * v.z) / (slant * speed) : -1.0;
+    g_release_alignment_valid = cosine >= cos(profile.seeker_half_angle_rad);
+    g_release_min_range = profile.min_range_meters;
+    g_release_max_range = profile.max_range_meters;
+    result.in_zone = g_release_alignment_valid && slant >= g_release_min_range && slant <= g_release_max_range;
+    result.error_meters = std::max(0.0, slant - g_release_max_range);
+    result.time_to_go = result.error_meters / std::max(g.horiz_speed, profile.min_speed_mps);
+    F117::ccrp_time_of_flight = slant / missile_average_speed_mps;
+}
+
+// Other guided stores: a provisional envelope around the ballistic prediction.
+void evaluate_guided_zone(const Ccrp_store_model& profile, const Release_geometry& g, Zone_result& result)
+{
+    result.in_zone = guided_release_in_zone(profile.kind, result.impact_along_track, g.along_track, g.cross_track,
+                                            profile.release_window_meters, &g_release_alignment_valid);
+    g_release_min_range = std::max(1.0, result.impact_along_track -
+                                            std::max(profile.release_window_meters, result.impact_along_track * 0.20));
+    g_release_max_range =
+        result.impact_along_track + std::max(profile.release_window_meters, result.impact_along_track * 0.20);
+}
+
+// Logs the first solution and every change of zone or alignment, then every 600 frames while the pickle is held.
+void log_release_zone(const Release_geometry& g, const Zone_result& zone)
+{
+    static bool logged = false;
+    static bool last_zone = false;
+    static bool last_aligned = false;
+    static unsigned diagnostic_frames = 0;
+    if (!logged || zone.in_zone != last_zone || g_release_alignment_valid != last_aligned ||
+        (F117::weapon_release_pickle_held && ++diagnostic_frames >= 600))
+    {
+        Cockpit_interop::log_format(
+            "DELIVERY ZONE: profile=%d along=%.1f cross=%.1f ballistic=%.1f error=%.1f aligned=%d zone=%d "
+            "min=%.1f max=%.1f drop=%.1f speed=%.1f",
+            get_ccrp_profile_index(), g.along_track, g.cross_track, zone.impact_along_track, zone.error_meters,
+            g_release_alignment_valid, zone.in_zone, g_release_min_range, g_release_max_range, g.drop_meters,
+            g.horiz_speed);
+        logged = true;
+        last_zone = zone.in_zone;
+        last_aligned = g_release_alignment_valid;
+        diagnostic_frames = 0;
+    }
+}
+}  // namespace
+
 bool compute_release_solution(double* out_error_meters, double* out_time_to_go_seconds, double* out_range_meters,
                               bool* out_in_zone)
 {
@@ -289,133 +457,41 @@ bool compute_release_solution(double* out_error_meters, double* out_time_to_go_s
         !std::isfinite(position_world_cs.z))
         return false;
     const Ccrp_store_model& profile = get_ccrp_profile();
-    const Vec3 release_vel{vx_world, vy_world, vz_world};
-    const double dx = target_world[0] - position_world_cs.x;
-    const double dz = target_world[2] - position_world_cs.z;
-    const double horiz_speed = sqrt((release_vel.x * release_vel.x) + (release_vel.z * release_vel.z));
-    const double horiz_range = sqrt((dx * dx) + (dz * dz));
-    const double drop_meters = position_world_cs.y - target_world[1];
-
-    if (horiz_speed < std::max(release_cue_min_speed_mps, profile.min_speed_mps) ||
-        drop_meters < std::max(release_cue_min_drop_meters, profile.min_drop_meters))
+    Release_geometry geometry{};
+    if (!compute_release_geometry(target_world, profile, geometry))
     {
         return false;
     }
 
-    const double vx = release_vel.x / horiz_speed;
-    const double vz = release_vel.z / horiz_speed;
-    const double along_track = (dx * vx) + (dz * vz);
-    if (along_track <= 0.0)
-    {
-        return false;
-    }
-
-    const double cross_track_sq = (horiz_range * horiz_range) - (along_track * along_track);
-    const double cross_track = sqrt((cross_track_sq > 0.0) ? cross_track_sq : 0.0);
-    const Vec3 world_wind = get_world_wind_vector();
-    const double air_x = release_vel.x - world_wind.x, air_y = release_vel.y - world_wind.y,
-                 air_z = release_vel.z - world_wind.z;
-    const double air_speed = std::sqrt(air_x * air_x + air_y * air_y + air_z * air_z);
     const Store_kind kind = profile.kind;
-    double impact_along_track = 0.0;
-    double error_meters = 0.0;
-    double time_to_go = 0.0;
-    if (store_falls_ballistic(kind))
+    Zone_result zone{false, 0.0, 0.0, 0.0};
+    if (store_falls_ballistic(kind) && !predict_ballistic_release(profile, geometry, target_world[1], zone))
     {
-        Vec3 impact_pos{};
-        double impact_time = 0.0;
-        if (!simulate_bomb_impact_point(profile, position_world_cs, release_vel, world_wind, target_world[1],
-                                        &impact_pos, &impact_time))
-        {
-            return false;
-        }
-        F117::ccrp_time_of_flight = impact_time;
-        const Vec3 impact_delta{impact_pos.x - position_world_cs.x, impact_pos.y - position_world_cs.y,
-                                impact_pos.z - position_world_cs.z};
-        impact_along_track = (impact_delta.x * vx) + (impact_delta.z * vz);
-        error_meters = along_track - impact_along_track;
-        time_to_go = (error_meters > 0.0) ? (error_meters / std::max(horiz_speed, profile.min_speed_mps)) : 0.0;
+        return false;
     }
-    bool in_zone = false;
     if (kind == Store_kind::jdam || kind == Store_kind::glide)
     {
-        // Weapon-authored launch tables, interpolated in target-relative
-        // height and true airspeed. No extrapolation outside the table domain.
-        const bool tabled = kind == Store_kind::jdam
-                                ? Jdam_envelope::lookup(profile.envelope, drop_meters, air_speed, &g_release_min_range,
-                                                        &g_release_max_range)
-                                : Glide_envelope::lookup(profile.envelope, drop_meters, air_speed, &g_release_min_range,
-                                                         &g_release_max_range);
-        if (!tabled)
+        if (!evaluate_tabled_zone(profile, geometry, zone))
             return false;
-        g_release_alignment_valid = cross_track <= std::max(50.0, along_track * 0.577350269);
-        in_zone = g_release_alignment_valid && horiz_range >= g_release_min_range && horiz_range <= g_release_max_range;
-        if (kind == Store_kind::glide)
-        {
-            // A glide weapon has no ballistic impact: cue the distance still to close
-            // to the maximum range, and time the flight at a typical glide speed.
-            error_meters = std::max(0.0, horiz_range - g_release_max_range);
-            time_to_go = error_meters / std::max(horiz_speed, profile.min_speed_mps);
-            F117::ccrp_time_of_flight = horiz_range / glide_weapon_speed_mps;
-        }
     }
     else if (kind == Store_kind::unguided)
     {
-        // True CCRP: the release fires as the predicted impact crosses the target.
-        g_release_alignment_valid = cross_track <= unguided_max_cross_track_meters;
-        in_zone = g_release_alignment_valid && fabs(error_meters) <= profile.release_window_meters;
-        g_release_min_range = std::max(1.0, impact_along_track - profile.release_window_meters);
-        g_release_max_range = impact_along_track + profile.release_window_meters;
+        evaluate_unguided_zone(profile, geometry, zone);
     }
     else if (store_is_missile(kind))
     {
-        // Powered missile: target inside the seeker cone around the flight path
-        // and slant range inside the stock launch limits.
-        const double slant = sqrt(horiz_range * horiz_range + drop_meters * drop_meters);
-        const double speed =
-            sqrt(release_vel.x * release_vel.x + release_vel.y * release_vel.y + release_vel.z * release_vel.z);
-        const double cosine =
-            (slant > 1.0 && speed > 1.0)
-                ? (dx * release_vel.x - drop_meters * release_vel.y + dz * release_vel.z) / (slant * speed)
-                : -1.0;
-        g_release_alignment_valid = cosine >= cos(profile.seeker_half_angle_rad);
-        g_release_min_range = profile.min_range_meters;
-        g_release_max_range = profile.max_range_meters;
-        in_zone = g_release_alignment_valid && slant >= g_release_min_range && slant <= g_release_max_range;
-        error_meters = std::max(0.0, slant - g_release_max_range);
-        time_to_go = error_meters / std::max(horiz_speed, profile.min_speed_mps);
-        F117::ccrp_time_of_flight = slant / missile_average_speed_mps;
+        evaluate_missile_zone(profile, geometry, zone);
     }
     else
     {
-        in_zone = guided_release_in_zone(kind, impact_along_track, along_track, cross_track,
-                                         profile.release_window_meters, &g_release_alignment_valid);
-        g_release_min_range =
-            std::max(1.0, impact_along_track - std::max(profile.release_window_meters, impact_along_track * 0.20));
-        g_release_max_range = impact_along_track + std::max(profile.release_window_meters, impact_along_track * 0.20);
+        evaluate_guided_zone(profile, geometry, zone);
     }
-    static bool logged = false;
-    static bool last_zone = false;
-    static bool last_aligned = false;
-    static unsigned diagnostic_frames = 0;
-    if (!logged || in_zone != last_zone || g_release_alignment_valid != last_aligned ||
-        (F117::weapon_release_pickle_held && ++diagnostic_frames >= 600))
-    {
-        Cockpit_interop::log_format(
-            "DELIVERY ZONE: profile=%d along=%.1f cross=%.1f ballistic=%.1f error=%.1f aligned=%d zone=%d "
-            "min=%.1f max=%.1f drop=%.1f speed=%.1f",
-            get_ccrp_profile_index(), along_track, cross_track, impact_along_track, error_meters,
-            g_release_alignment_valid, in_zone, g_release_min_range, g_release_max_range, drop_meters, horiz_speed);
-        logged = true;
-        last_zone = in_zone;
-        last_aligned = g_release_alignment_valid;
-        diagnostic_frames = 0;
-    }
+    log_release_zone(geometry, zone);
 
-    *out_error_meters = error_meters;
-    *out_time_to_go_seconds = time_to_go;
-    *out_range_meters = along_track;
-    *out_in_zone = in_zone;
+    *out_error_meters = zone.error_meters;
+    *out_time_to_go_seconds = zone.time_to_go;
+    *out_range_meters = geometry.along_track;
+    *out_in_zone = zone.in_zone;
     return true;
 }
 

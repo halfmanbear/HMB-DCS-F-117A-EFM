@@ -65,7 +65,8 @@ bool s_carrier_link_disabled_logged=false;
 void* s_our_ind=nullptr;
 double s_irads_lock_world[3]={10000,0,2000};float s_irads_horizontal_axis=0,s_irads_vertical_axis=0;
 void log_message(const char*){}template<class...T>void log_format(const char*,T...){}
-void seed_injected_sensor_pose(double x,double y,double z,double,double,double,double){
+struct Aircraft_pose{double x,y,z,qx,qy,qz,qw;};
+void seed_injected_sensor_pose(const Aircraft_pose& pose){double x=pose.x,y=pose.y,z=pose.z;
  double m[16]={1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1};std::memcpy(sensor.platform_world_pose.m,m,sizeof(m));}
 void laggingNative(void*,double){sensor.platform_world_pose.m[0]=.99;sensor.platform_world_pose.m[1]=-.01;}
 void laggingFrame(void*){sensor.platform_world_pose.m[2]=.01;}
@@ -96,7 +97,7 @@ int main(){
  sensor.active_flag=1;sensor.current_zoom=80;
  for(int frame=0;frame<3600;++frame){
   double x=frame*3.0,y=3000+100*std::sin(frame*.01),z=300*std::cos(frame*.01);
-  update_irads_sensor_frame(1.0/60,x,y,z,0,0,0,1);
+  update_irads_sensor_frame(1.0/60,Aircraft_pose{x,y,z,0,0,0,1});
   checkAim(sensor.platform_world_pose.m,s_irads_lock_world);
   assert(sensor.current_zoom==80&&sensor.platform_world_pose.m[12]==x&&sensor.platform_world_pose.m[13]==y);
   // Another native update between EFM and rendering cannot reintroduce aim lag.
@@ -106,9 +107,9 @@ int main(){
  assert(aim_pose_at_world_point(vertical,t));checkAim(vertical,t);
  double before[16];std::memcpy(before,vertical,sizeof(before));t[0]=std::numeric_limits<double>::quiet_NaN();
  assert(!aim_pose_at_world_point(vertical,t)&&std::memcmp(before,vertical,sizeof(before))==0);
- s_irads_lock_valid=false;update_irads_sensor_frame(.01,0,3000,0,0,0,0,1);
+ s_irads_lock_valid=false;update_irads_sensor_frame(.01,Aircraft_pose{0,3000,0,0,0,0,1});
  assert(sensor.platform_world_pose.m[0]==.99); // free slew stays native
- s_irads_terrain_pending=true;s_irads_terrain_wait=.995;update_irads_sensor_frame(.01,0,3000,0,0,0,0,1);assert(!s_irads_terrain_pending);
+ s_irads_terrain_pending=true;s_irads_terrain_wait=.995;update_irads_sensor_frame(.01,Aircraft_pose{0,3000,0,0,0,0,1});assert(!s_irads_terrain_pending);
  puts("PASS: actual update/render lock holds fixed-world LOS over 3600 moving frames despite native lag; orthonormal pose, vertical target, invalid input, zoom/origin and unlocked native slew preserved");
 }
 '''

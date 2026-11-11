@@ -20,6 +20,18 @@ static constexpr double irads_pos_x = 4.0;   // 4 m forward (same default as the
 static constexpr double irads_pos_y = 0.0;   // centreline
 static constexpr double irads_pos_z = -0.3;  // 0.3 m below centreline (belly mount)
 
+// Aircraft position and attitude quaternion in world axes, as DCS reports them each frame.
+struct Aircraft_pose
+{
+    double x;
+    double y;
+    double z;
+    double qx;
+    double qy;
+    double qz;
+    double qw;
+};
+
 extern HMODULE g_h_dll;             // this module; set by DllMain, used for the log path
 extern void** g_contexts_ptr_addr;  // address of the cockpit context table
 
@@ -32,8 +44,7 @@ bool inject_irads_sensor_late();   // Phase B: ed_fm_start - ensure init + camer
 bool handle_irads_command(int command, float value);
 int get_irads_zoom_level();
 bool is_irads_powered();
-void update_irads_sensor_frame(double dt, double aircraft_x, double aircraft_y, double aircraft_z, double quat_x,
-                               double quat_y, double quat_z, double quat_w);
+void update_irads_sensor_frame(double dt, const Aircraft_pose& pose);
 void force_irads_indicator_active();  // Phase C: called every frame from ed_fm_simulate to keep
                                       // screenCondition/cameraCondition live
 bool get_irads_terrain_request(unsigned* sequence, double ray[6]);

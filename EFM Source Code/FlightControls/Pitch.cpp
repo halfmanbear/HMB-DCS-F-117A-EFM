@@ -38,23 +38,6 @@ bool pitch_mode_air_refuel_door_open = false;
 double aoa_limiter_integrator = 0.0;  // P+I AOA limiter integrator state
 bool aoa_limiter_active = false;      // Limiter overrode the g command on the last step
 
-struct Pitch_inputs
-{
-    double long_stick_input_command;
-    double pitch_trim;
-    double angle_of_attack_ind;
-    double pitch_rate_deg_s;
-    double az;
-    double dyn_pressure_pa;
-    double roll_angle_deg;
-    double pitch_angle_deg;
-    double roll_rate_deg_s;
-    double velocity_mps;
-    double mach;
-    double thrust_n;
-    double cx_total;
-};
-
 // Everything the P+I law produces for one step; the debug log records the intermediate values.
 struct Nz_law_output
 {
@@ -417,14 +400,8 @@ void update_pitch_mode_auto_inputs(double gear_down, bool air_refuel_door_open)
     pitch_mode_air_refuel_door_open = air_refuel_door_open;
 }
 
-double fcs_pitch_controller(double long_stick_input_command, double pitch_trim, double angle_of_attack_ind,
-                            double pitch_rate_deg_s, double az, double differential_command, double dyn_pressure_pa,
-                            double dt, double roll_angle_deg, double pitch_angle_deg, double roll_rate_deg_s,
-                            double velocity_mps, double mach, double thrust_n, double cx_total)
+double fcs_pitch_controller(const Pitch_inputs& in, double dt)
 {
-    // TODO: differentialCommand (elevon differential for pitch/roll mixing) is not yet implemented.
-    (void)differential_command;
-
     const bool needs_init = !pitch_controller_initialized;
     if (needs_init)
     {
@@ -437,23 +414,10 @@ double fcs_pitch_controller(double long_stick_input_command, double pitch_trim, 
         pitch_control_accumulator = fixed_control_time_step;
     }
 
-    const Pitch_inputs inputs = {long_stick_input_command,
-                                 pitch_trim,
-                                 angle_of_attack_ind,
-                                 pitch_rate_deg_s,
-                                 az,
-                                 dyn_pressure_pa,
-                                 roll_angle_deg,
-                                 pitch_angle_deg,
-                                 roll_rate_deg_s,
-                                 velocity_mps,
-                                 mach,
-                                 thrust_n,
-                                 cx_total};
     bool reset_filters = needs_init;
     while (pitch_control_accumulator >= fixed_control_time_step)
     {
-        pitch_held_output = fcs_pitch_controller_step(inputs, fixed_control_time_step, reset_filters);
+        pitch_held_output = fcs_pitch_controller_step(in, fixed_control_time_step, reset_filters);
         reset_filters = false;
         pitch_control_accumulator -= fixed_control_time_step;
     }

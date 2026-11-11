@@ -319,10 +319,15 @@ bool handle_paars_command(int command)
 void update_paars()
 {
     Paars::Command command{};
-    const bool active =
-        g_paars.update(F117::pitch_angle, F117::roll_angle, F117::roll_rate_rps * F117::radians_to_degrees,
-                       F117::pitch_rate_rps * F117::radians_to_degrees, F117::gear_down > 0.5, F117::weight_on_wheels,
-                       F117::air_refuel_door_open, &command);
+    Paars::Controller::Flight_state state{};
+    state.pitch_deg = F117::pitch_angle;
+    state.bank_deg = F117::roll_angle;
+    state.roll_rate_deg_s = F117::roll_rate_rps * F117::radians_to_degrees;
+    state.pitch_rate_deg_s = F117::pitch_rate_rps * F117::radians_to_degrees;
+    state.gear_down = F117::gear_down > 0.5;
+    state.weight_on_wheels = F117::weight_on_wheels;
+    state.air_refuel_door_open = F117::air_refuel_door_open;
+    const bool active = g_paars.update(state, &command);
     if (!active && g_paars_engaged_autothrottle)
     {
         release_paars();

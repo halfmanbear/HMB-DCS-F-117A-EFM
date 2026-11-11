@@ -44,19 +44,9 @@ void update_yaw_debug_snapshot(double beta_deg, double yaw_rate_rps, double rudd
     yaw.rudder_pct = rudder_pct;
 }
 
-void update_aero_debug_snapshot(double cy_delta_rudder, double cn_delta_rudder, double cl_delta_rudder,
-                                double cn_delta_beta, double cl_delta_beta, double cy_total, double cn_total,
-                                double cl_total)
+void update_aero_debug_snapshot(const Aero_snapshot& aero)
 {
-    Detail::Aero_snapshot& aero = Detail::debug_snapshot.aero;
-    aero.cy_delta_rudder = cy_delta_rudder;
-    aero.cn_delta_rudder = cn_delta_rudder;
-    aero.cl_delta_rudder = cl_delta_rudder;
-    aero.cn_delta_beta = cn_delta_beta;
-    aero.cl_delta_beta = cl_delta_beta;
-    aero.cy_total = cy_total;
-    aero.cn_total = cn_total;
-    aero.cl_total = cl_total;
+    Detail::debug_snapshot.aero = aero;
 }
 
 }  // namespace Flight_controls
