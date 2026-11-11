@@ -16,6 +16,7 @@
     <ClCompile Include="Aero/AeroAssembly.cpp"><Filter>Flight model\Aero</Filter></ClCompile>
     <ClCompile Include="Systems/Propulsion.cpp"><Filter>Flight model\Systems</Filter></ClCompile>
     <ClCompile Include="Systems/Gear.cpp"><Filter>Flight model\Systems</Filter></ClCompile>
+    <ClCompile Include="Commands/CommandHandlers.cpp"><Filter>Flight model\Commands</Filter></ClCompile>
     <ClInclude Include="Actuators/Actuators.h"><Filter>Flight model\Actuators</Filter></ClInclude>
     <ClInclude Include="Aerodynamics/AeroModel.h"><Filter>Flight model\Aerodynamics</Filter></ClInclude>
     <ClInclude Include="Atmosphere/Atmosphere.h"><Filter>Flight model\Atmosphere</Filter></ClInclude>
@@ -51,6 +52,7 @@
     <ClInclude Include="FlightModel/Forces.h"><Filter>Flight model\State</Filter></ClInclude>
     <ClInclude Include="Systems/Propulsion.h"><Filter>Flight model\Systems</Filter></ClInclude>
     <ClInclude Include="Systems/Gear.h"><Filter>Flight model\Systems</Filter></ClInclude>
+    <ClInclude Include="Commands/CommandHandlers.h"><Filter>Flight model\Commands</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Flight model"><UniqueIdentifier>{D9B8AD70-751F-576C-9EDF-491D8778187B}</UniqueIdentifier></Filter>
@@ -72,5 +74,6 @@
     <Filter Include="Flight model\Weapons"><UniqueIdentifier>{DCFC1A67-751E-41C1-8257-02A5E01475D7}</UniqueIdentifier></Filter>
     <Filter Include="Flight model\Aero"><UniqueIdentifier>{65D001AB-54C7-4684-A3E4-36E46DB49727}</UniqueIdentifier></Filter>
     <Filter Include="Flight model\Systems"><UniqueIdentifier>{DF29FB8B-5372-47DA-A282-7B63C9FE3623}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\Commands"><UniqueIdentifier>{E667722A-7B2A-4B09-9EAE-1A931959C3B8}</UniqueIdentifier></Filter>
   </ItemGroup>
 </Project>

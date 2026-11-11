@@ -89,6 +89,7 @@
     <ClCompile Include="Aero/AeroAssembly.cpp" />
     <ClCompile Include="Systems/Propulsion.cpp" />
     <ClCompile Include="Systems/Gear.cpp" />
+    <ClCompile Include="Commands/CommandHandlers.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Actuators/Actuators.h" />
@@ -126,6 +127,7 @@
     <ClInclude Include="FlightModel/Forces.h" />
     <ClInclude Include="Systems/Propulsion.h" />
     <ClInclude Include="Systems/Gear.h" />
+    <ClInclude Include="Commands/CommandHandlers.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
