@@ -32,6 +32,7 @@
     <ClInclude Include="./param_functions.h"><Filter>Flight model</Filter></ClInclude>
     <ClInclude Include="./stdafx.h"><Filter>Flight model</Filter></ClInclude>
     <ClInclude Include="./targetver.h"><Filter>Flight model</Filter></ClInclude>
+    <ClInclude Include="FlightModel/State.h"><Filter>Flight model\State</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Flight model"><UniqueIdentifier>{D9B8AD70-751F-576C-9EDF-491D8778187B}</UniqueIdentifier></Filter>
@@ -45,5 +46,6 @@
     <Filter Include="SDK\include"><UniqueIdentifier>{EE00C992-24C7-526E-AF93-1C6BFCAB73F9}</UniqueIdentifier></Filter>
     <Filter Include="SDK\include\Cockpit"><UniqueIdentifier>{4D6481AE-5678-55A9-97CD-C9BCBBD34C3B}</UniqueIdentifier></Filter>
     <Filter Include="SDK\include\FM"><UniqueIdentifier>{2BCBCC9A-D704-5227-AE92-697DC8BBC770}</UniqueIdentifier></Filter>
+    <Filter Include="Flight model\State"><UniqueIdentifier>{7625FC72-8BC2-49B6-8CB6-84792D4B2D76}</UniqueIdentifier></Filter>
   </ItemGroup>
 </Project>

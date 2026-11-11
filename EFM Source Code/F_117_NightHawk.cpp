@@ -16,6 +16,7 @@
 #include "Aerodynamics/AeroModel.h"
 #include "Actuators/Actuators.h" // Airframe motion
 #include "Atmosphere/Atmosphere.h" // Air data
+#include "FlightModel/State.h" // Shared flight-model state
 #include "Engine/Engine.h" // Installed propulsion
 #include "Engine/EngineStart.h"
 #include "FlightControls/FlightControls.h" // Control laws
@@ -28,133 +29,6 @@
 using namespace F117; // Shared names used by the subsystem adapters below.
 
 
-// Totals from the last aerodynamic update, with gear, chute, bay and ground effect included.
-namespace F117
-{
-	namespace AERO
-	{
-		double Cx_total = 0.0;              // Drag along the body axis, positive aft
-		double Cz_total = 0.0;              // Normal force, negative up
-		double Cm_total = 0.0;
-		double Cy_total = 0.0;
-		double Cn_total = 0.0;
-		double Cl_total = 0.0;
-		double ClPerAileronDeg = 0.0;       // For the roll law
-		double CmPerElevatorDeg = -0.0028;  // For the pitch law
-		double CnPerRudderDeg = -0.002;     // For the yaw damper
-		double Clp = 0.0;
-	}
-}
-
-// Body-frame totals are returned at the DCS centre of mass. Moments are supplied separately.
-Vec3 common_force{}, common_moment{}, center_of_gravity{}, inertia{};
-Vec3 wind{}, wind_world_cs{}, position_world_cs{}, velocity_world_cs{};
-
-namespace F117 {
-    // Environment and measured motion (SI unless a suffix states otherwise).
-    double ambientTemperature_DegK{}, ambientDensity_KgPerM3{};
-    double ambientPressure_PA{101325.0}, altitude_m{};
-    double calibratedAirspeed_KT{}, totalVelocity_MPS{}, dynamicPressure_PA{}, mach{};
-    double alpha_DEG{}, beta_DEG{}, rollRate_RPS{}, pitchRate_RPS{}, yawRate_RPS{};
-    double aircraftQuaternionX{}, aircraftQuaternionY{}, aircraftQuaternionZ{}, aircraftQuaternionW{1.0};
-    double pitch_angle{}, roll_angle{}, vspeed{}, az{}, ay{}, ay_world{};
-    double weight_N{131222.538};
-    double surface_height_m{};
-    bool surface_height_valid{}, altitude_valid{}, weight_on_wheels{}, wow_from_draw_args{};
-    bool suspension_wow[3]{};
-
-    // Geometry and unit conversions used by the current aero and controller models.
-    constexpr double pi = 3.14159265358979323846;
-    constexpr double radiansToDegrees = 180.0 / pi;
-    constexpr double wingSpan_M = 13.205, wingArea_M2 = 84.77, meanChord_M = 6.422;
-
-    // Pilot requests, commanded surfaces and actual surface feedback.
-    double pitchTrim{}, rollTrim{}, yawTrim{}, roll_cmd{}, pedInput{};
-    double elevator_DEG{}, aileron_DEG{}, rudder_DEG{};
-    double elevator_DEG_commanded{}, aileron_DEG_commanded{}, rudder_DEG_commanded{};
-    double aileron_PCT{}, rudder_PCT{}, elevator_PCT{};
-    float elev_pos{}, rudder_pos{};
-    int alt_hold{}, altroll_hold{}, horiz_hold{};
-    double DeltaTime{};
-    bool simInitialized{};
-
-    // Landing gear, steering and ancillary mechanisms.
-    double gearDown{}, GearCommand{}, WheelBrakeCommand{};
-    double rolling_friction{0.015};
-    // Normal/high-authority steering: TO 1F-117A-1, page 1-29.
-    constexpr double kNoseWheelYawLow_RAD = 0.1745;
-    constexpr double kNoseWheelYawHigh_RAD = 0.7854;
-    constexpr double kNoseWheelYawRangeRate_RADPS = 0.6;
-    double noseWheelYawRange_RAD{kNoseWheelYawLow_RAD};
-    bool nwsAuthorityHeld{}, airRefuelDoorOpen{};
-    double tailhook_command{}, tailhook_pos{}, dragchute_command{}, dragchute{};
-    // Weapon bays: 0 is the left bay (station 1, arg 27), 1 is the right bay (station 2, arg 28).
-    // 0 is closed and 1 is door open with the trapeze fully lowered.
-    constexpr int kWeaponBayCount = 2;
-    float bay_cmd[kWeaponBayCount]{}, bay_state[kWeaponBayCount]{};
-
-    // Engine telemetry and the fuel mass already acknowledged by DCS.
-    bool engineswitch{true};
-    double throttle_state{0.1}, throttleInput{0.1}, thrust_N{};
-    ENGINE::EngineState engines[2]{};
-    double engine_thrust_N[2]{}, engine_fuel_flow_kg_s[2]{}, engine_egt_C[2]{}, engine_oil_psi[2]{};
-    double fuel_mass_in_dcs{}, internal_fuel{}, external_fuel{};
-    EDPARAM cockpitAPI{};
-    param_stuff param_class{};
-
-    // Weapon delivery state belongs to one aircraft session.
-    bool weapon_release_pickle_held{}, weapon_release_gate{}, weapon_release_gate_fired{};
-    // A bay is owned by the release when the pickle opened it, so the pickle closes it again.
-    // A bay the pilot opened by hand is never owned and stays open until the pilot closes it.
-    bool weapon_bay_owned_by_release[kWeaponBayCount]{}, weapon_bay_close_pending[kWeaponBayCount]{};
-    bool master_armed{}, laser_armed{};
-    double weapon_bay_close_delay[kWeaponBayCount]{};
-    double weapon_release_gate_hold{}, release_retry_delay{};
-    int release_status{};
-    unsigned release_sequence{};
-    double release_target[3]{};
-    double laser_window{}, weapon_flight_time_remaining{}, ccrp_time_of_flight{};
-
-	struct DamageState {
-		double leftWing    = 1.0;   // Remaining component integrity; damage is monotonic until repair.
-		double rightWing   = 1.0;   // Remaining component integrity; damage is monotonic until repair.
-		double leftEngine  = 1.0;   // Remaining component integrity; damage is monotonic until repair.
-		double rightEngine = 1.0;   // Remaining component integrity; damage is monotonic until repair.
-		double leftTail    = 1.0;   // Remaining component integrity; damage is monotonic until repair.
-		double rightTail   = 1.0;   // Remaining component integrity; damage is monotonic until repair.
-		double cockpit     = 1.0;   // Remaining component integrity; damage is monotonic until repair.
-
-        double leftOuterElevon = 1.0;
-        double rightOuterElevon = 1.0;
-        double leftInnerElevon = 1.0;
-        double rightInnerElevon = 1.0;
-
-        double nose = 1.0;
-        double leftFuselage = 1.0;
-        double rightFuselage = 1.0;
-        double belly = 1.0;
-        double leftTailStructure = 1.0;
-        double rightTailStructure = 1.0;
-        double leftWingInner = 1.0;
-        double rightWingInner = 1.0;
-        double leftWingOuter = 1.0;
-        double rightWingOuter = 1.0;
-        double noseGear = 1.0;
-        double leftGear = 1.0;
-        double rightGear = 1.0;
-        double noseWheel = 1.0;
-        double leftWheel = 1.0;
-        double rightWheel = 1.0;
-        bool fireActive[9] = {};
-
-		// Derived values (updated each frame in ed_fm_simulate)
-		double structuralDragFactor = 1.0;  // Cx multiplier from airframe section damage
-		double wingAsymmetry   = 0.0;  // leftWing - rightWing
-		double totalWingLoss   = 0.0;  // average damage across both wings
-		double totalTailLoss   = 0.0;  // average damage across both tails
-		double engineAsymmetry = 0.0;  // leftEngine - rightEngine
-	};
-}
 
 static F117::DamageState g_damage;
 static std::queue<ed_fm_simulation_event> g_simEvents;
