@@ -9,6 +9,7 @@
 #include "../Avionics/Paars.h"
 #include "../Engine/EngineStart.h"
 #include "../param_functions.h"
+#include "../Systems/FuelTanks.h"
 #include "../include/Cockpit/CockpitAPI_Declare.h"
 
 // Totals from the last aerodynamic update, with gear, chute, bay and ground effect included.
@@ -142,7 +143,7 @@ inline double engine_thrust_n[2]{};
 inline double engine_fuel_flow_kg_s[2]{};
 inline double engine_egt_c[2]{};
 inline double engine_oil_psi[2]{};
-inline double fuel_mass_in_dcs{};
+inline double fuel_in_dcs_kg[Fuel_tanks::tank_count]{};  // each tank as last reported to DCS
 inline double internal_fuel{};
 inline double external_fuel{};
 inline EDPARAM cockpit_api{};

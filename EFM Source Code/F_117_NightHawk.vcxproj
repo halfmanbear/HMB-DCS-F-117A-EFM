@@ -105,6 +105,7 @@
     <ClCompile Include="FlightModel/AirData.cpp" />
     <ClCompile Include="Diagnostics/EngineLog.cpp" />
     <ClCompile Include="Diagnostics/LogFile.cpp" />
+    <ClCompile Include="Diagnostics/MassLog.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Actuators/Actuators.h" />
@@ -151,6 +152,8 @@
     <ClInclude Include="FlightModel/ControlLaws.h" />
     <ClInclude Include="FlightModel/AirData.h" />
     <ClInclude Include="Diagnostics/EngineLog.h" />
+    <ClInclude Include="Diagnostics/MassLog.h" />
+    <ClInclude Include="Systems/FuelTanks.h" />
     <ClInclude Include="Diagnostics/LogFile.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

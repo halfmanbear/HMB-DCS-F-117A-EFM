@@ -38,10 +38,16 @@ code = r'''
 #include "Atmosphere/Atmosphere.h"
 #include "param_functions.h"
 #include "include/Cockpit/CockpitAPI_Declare.h"
+#include "Systems/FuelTanks.h"
+#include "Diagnostics/MassLog.h"
 
+void mass_log_state(double,double,double,double,double,double,double){}
+void mass_log_piece(int,double,double,double,double,double,double,double){}
+void mass_log_event(const char*,double){}
+void mass_log_release(double){}
 Vec3 common_force, common_moment, center_of_gravity, inertia, wind_world_cs;
 namespace F117 {
-double weight_n=0, internal_fuel=0, fuel_mass_in_dcs=0;
+double weight_n=0, internal_fuel=0, fuel_in_dcs_kg[Fuel_tanks::tank_count]={};
 double altitude_m=0, ambient_pressure_pa=0, ambient_density_kg_per_m3=0, ambient_temperature_deg_k=0;
 bool altitude_valid=false;
 int alt_hold=0,horiz_hold=0,altroll_hold=0;
@@ -105,10 +111,21 @@ int main() {
     ed_fm_set_internal_fuel(123);assert(ed_fm_get_internal_fuel()==123);
     ed_fm_set_external_fuel(1,50,1,2,3);assert(ed_fm_get_external_fuel()==0);
     assert(ed_fm_get_internal_fuel()==123);
-    assert(ed_fm_change_mass(x,px,py,pz,y,z,parameter)&&x==123&&py==0.1);
-    assert(!ed_fm_change_mass(x,px,py,pz,y,z,parameter)&&x==0);
-    ed_fm_refueling_add_fuel(10);assert(ed_fm_get_internal_fuel()==133);
-    assert(ed_fm_change_mass(x,px,py,pz,y,z,parameter)&&x==10);
+    // A small load sits in the feed tanks: one piece per tank, at the tank, with its own inertia.
+    {
+        using namespace Fuel_tanks;
+        double total=0;int pieces=0;
+        while(ed_fm_change_mass(x,px,py,pz,y,z,parameter)){
+            const Tank& t=tanks[left_feed+pieces];
+            assert(px==t.x&&py==t.y&&pz==t.z&&std::abs(x-61.5)<1e-9);
+            assert(std::abs(y-x*own_roll_inertia_per_kg(t))<1e-9&&std::abs(parameter-x*own_pitch_inertia_per_kg(t))<1e-9);
+            total+=x;++pieces;
+        }
+        assert(pieces==2&&std::abs(total-123)<1e-9&&x==0&&px==0&&y==0);
+        ed_fm_refueling_add_fuel(10);assert(ed_fm_get_internal_fuel()==133);
+        total=0;pieces=0;while(ed_fm_change_mass(x,px,py,pz,y,z,parameter)){total+=x;++pieces;}
+        assert(pieces==2&&std::abs(total-10)<1e-9);
+    }
 
     assert(!handle_autopilot_command(-1));
     assert(handle_autopilot_command(autopilot_alt)&&alt_hold==1&&!horiz_hold&&!altroll_hold);
@@ -134,7 +151,7 @@ int main() {
     api.ed_param_api={};
     assert(api.getParamHandle("test")==nullptr&&api.getParamNumber(handle)==0&&api.getParamString(handle,8).empty());
     api.setParamNumber(handle,1);api.setParamString(handle,"unused");
-    puts("PASS: ED force/moment, atmosphere, mass/fuel adapters, command IDs, exclusive hold toggles, option polarity, cockpit API guards and owned strings");
+    puts("PASS: ED force/moment, atmosphere, mass/fuel adapters with per-tank pieces, command IDs, exclusive hold toggles, option polarity, cockpit API guards and owned strings");
 }
 '''
 p = out / 'efm_adapters_tests.cpp'

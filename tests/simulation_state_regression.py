@@ -36,12 +36,13 @@ code = r"""
 #include "AUTOTHROTTLE_HEADER"
 #include "PAARS_HEADER"
 #include "ENGINE_START_HEADER"
+#include "FUELTANKS_HEADER"
 using std::max;
 struct v {double x=0,y=0,z=0;};
 v wind_world_cs;
 double vx_world=0,vy_world=0,vz_world=0;
 namespace F117 {
-double fuel_mass_in_dcs=0,internal_fuel=100,thrust_n=0,mach=0;
+double fuel_in_dcs_kg[Fuel_tanks::tank_count]={},internal_fuel=100,thrust_n=0,mach=0;
 Param_stuff param_class;
 double surface_height_m=0,altitude_m=0,wing_span_m=13.21;
 bool surface_height_valid=false,altitude_valid=false;
@@ -80,12 +81,16 @@ double publishedPullout=0;
 void publish_named_param(void*&,const char* name,double value){if(!std::strcmp(name,"F117_ARS_MIN_ALT"))publishedPullout=value;}
 void reset_damage_and_events(){}namespace Weapons{void reset_weapon_release_sequence(){}void reset_laser(){}}
 namespace Cockpit_interop {void reset_irads_session(){}}
+void mass_log_piece(int,double,double,double,double,double,double,double){}
+void mass_log_event(const char*,double){}
+void mass_log_release(double){}
 """
 for marker, path in [('ACTUATORS_HEADER', src/'Actuators/Actuators.h'),
                      ('PARAM_HEADER', src/'param_functions.h'),
                      ('AUTOTHROTTLE_HEADER', src/'Avionics/Autothrottle.h'),
                      ('PAARS_HEADER', src/'Avionics/Paars.h'),
-                     ('ENGINE_START_HEADER', src/'Engine/EngineStart.h')]:
+                     ('ENGINE_START_HEADER', src/'Engine/EngineStart.h'),
+                     ('FUELTANKS_HEADER', src/'Systems/FuelTanks.h')]:
     code = code.replace(marker, path.as_posix())
 for name in ['wheel_brake_off_friction','gear_command_down','gear_command_up',
              'ground_start_idle_n2','air_start_throttle','air_start_n2',
@@ -103,19 +108,25 @@ for name in ['void update_fuel_system(double dt)', 'bool ed_fm_change_mass(',
              'void set_gear_command(', 'void update_weight_on_wheels()']:
     code += '\n'+extract(name)+'\n'
 code += r"""
+// Collects every piece DCS would drain and checks each one sits at a tank with that tank's own inertia.
 void check_mass(double expected) {
-    double mass=99,x=99,y=99,z=99,ix=99,iy=99,iz=99;
-    const bool changed=ed_fm_change_mass(mass,x,y,z,ix,iy,iz);
-    assert(changed==(expected!=0));assert(std::fabs(mass-expected)<1e-10);
-    assert(ix==0&&iy==0&&iz==0&&z==0);
-    if(changed)assert(x==0&&y==.1);
+    double total=0,mass=99,x=99,y=99,z=99,ix=99,iy=99,iz=99;
+    while(ed_fm_change_mass(mass,x,y,z,ix,iy,iz)){
+        bool found=false;
+        for(const auto& t:Fuel_tanks::tanks)
+            if(x==t.x&&y==t.y&&z==t.z&&std::fabs(ix-mass*Fuel_tanks::own_roll_inertia_per_kg(t))<1e-9&&
+               std::fabs(iy-mass*Fuel_tanks::own_yaw_inertia_per_kg(t))<1e-9&&std::fabs(iz-mass*Fuel_tanks::own_pitch_inertia_per_kg(t))<1e-9)found=true;
+        assert(found&&mass!=0);total+=mass;
+    }
+    assert(mass==0&&ix==0&&iy==0&&iz==0);
+    assert(std::fabs(total-expected)<1e-9);
 }
 void dirty_session() {
     alt_hold=altroll_hold=horiz_hold=1;air_refuel_door_open=true;
     pitch_trim_position=pitch_trim_elevon_deg=autopilot_pitch_bias_deg=roll_trim=yaw_trim=3;pitch_trim_direction=1;surface_height_valid=altitude_valid=true;
     Actuators::drag_chute.position=1;Actuators::gear.position=.4;Actuators::weapon_bay[0].position=Actuators::weapon_bay[1].position=1;bay_cmd[0]=bay_cmd[1]=bay_state[0]=bay_state[1]=1;
     thrust_n=80000;elev_pos=rudder_pos=1;
-    Flight_controls::long_stick_input=1;fuel_mass_in_dcs=3;
+    Flight_controls::long_stick_input=1;fuel_in_dcs_kg[0]=3;
     g_autothrottle.engage(300,50,true,true);g_paars.engage(-30,0,false,false);
 }
 void check_clean_session() {
@@ -132,7 +143,7 @@ int main() {
     // and collected once even when DCS's inertia does not match an FM constant.
     // Both engines running, sharing the thrust.
     g_engine_starts.reset(true);
-    engine_thrust_n[0]=engine_thrust_n[1]=9.81*3600/0.9928/2;internal_fuel=100;
+    engine_thrust_n[0]=engine_thrust_n[1]=9.81*3600/1.0142/2;internal_fuel=100;
     check_mass(100);check_mass(0); // Loaded fuel is added to the DCS mass once.
     assert(param_class.fuelvalue);
     update_fuel_system(.25);update_fuel_system(.75);
@@ -198,9 +209,9 @@ int main() {
 
     // Reused modules are safe on release and on every start path, independently
     // of whether a preceding release callback ran.
-    dirty_session();ed_fm_release();check_clean_session();assert(fuel_mass_in_dcs==0);
+    dirty_session();ed_fm_release();check_clean_session();for(double reported:fuel_in_dcs_kg)assert(reported==0);
     // DCS collects the loaded fuel before it calls the start functions, so they must not forget it.
-    dirty_session();apply_ground_start_state(false);check_clean_session();assert(fuel_mass_in_dcs==3);
+    dirty_session();apply_ground_start_state(false);check_clean_session();assert(fuel_in_dcs_kg[0]==3);fuel_in_dcs_kg[0]=0;
     assert(gear_down==1&&Actuators::gear.position==1&&weight_on_wheels&&!engineswitch&&engines[0].n2==0&&engines[1].n2==0);
     assert(g_engine_starts.engine[0].phase==Engine_start::phase_off&&g_engine_starts.engine[1].phase==Engine_start::phase_off);
     dirty_session();apply_ground_start_state(true);check_clean_session();

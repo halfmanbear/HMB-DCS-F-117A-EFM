@@ -39,6 +39,9 @@ struct Yaw_inputs
     double pitch_rate;
     double aoa_filtered;
     double dyn_pressure_pa;
+    // Yaw inertia DCS reports over the inertia the gains were tuned with. The feedback scales with it, so the
+    // loop keeps its bandwidth and damping when the inertia changes with fuel, or with FM/config.lua.
+    double yaw_inertia_scale;
     bool gear_down;
 };
 

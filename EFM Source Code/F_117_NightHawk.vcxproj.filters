@@ -32,6 +32,7 @@
     <ClCompile Include="FlightModel/AirData.cpp"><Filter>Flight model\State</Filter></ClCompile>
     <ClCompile Include="Diagnostics/EngineLog.cpp"><Filter>Flight model\Diagnostics</Filter></ClCompile>
     <ClCompile Include="Diagnostics/LogFile.cpp"><Filter>Flight model\Diagnostics</Filter></ClCompile>
+    <ClCompile Include="Diagnostics/MassLog.cpp"><Filter>Flight model\Diagnostics</Filter></ClCompile>
     <ClInclude Include="Actuators/Actuators.h"><Filter>Flight model\Actuators</Filter></ClInclude>
     <ClInclude Include="Aerodynamics/AeroModel.h"><Filter>Flight model\Aerodynamics</Filter></ClInclude>
     <ClInclude Include="Atmosphere/Atmosphere.h"><Filter>Flight model\Atmosphere</Filter></ClInclude>
@@ -68,6 +69,7 @@
     <ClInclude Include="FlightModel/Forces.h"><Filter>Flight model\State</Filter></ClInclude>
     <ClInclude Include="Systems/Propulsion.h"><Filter>Flight model\Systems</Filter></ClInclude>
     <ClInclude Include="Systems/Gear.h"><Filter>Flight model\Systems</Filter></ClInclude>
+    <ClInclude Include="Systems/FuelTanks.h"><Filter>Flight model\Systems</Filter></ClInclude>
     <ClInclude Include="Commands/CommandHandlers.h"><Filter>Flight model\Commands</Filter></ClInclude>
     <ClInclude Include="Avionics/Interop/IradsInternal.h"><Filter>Flight model\Avionics</Filter></ClInclude>
     <ClInclude Include="FlightControls/PitchLog.h"><Filter>Flight model\FlightControls</Filter></ClInclude>
@@ -76,6 +78,7 @@
     <ClInclude Include="FlightModel/ControlLaws.h"><Filter>Flight model\State</Filter></ClInclude>
     <ClInclude Include="FlightModel/AirData.h"><Filter>Flight model\State</Filter></ClInclude>
     <ClInclude Include="Diagnostics/EngineLog.h"><Filter>Flight model\Diagnostics</Filter></ClInclude>
+    <ClInclude Include="Diagnostics/MassLog.h"><Filter>Flight model\Diagnostics</Filter></ClInclude>
     <ClInclude Include="Diagnostics/LogFile.h"><Filter>Flight model\Diagnostics</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>

@@ -26,6 +26,7 @@ TESTS = [
     ("damage_sections_regression.py", OUT_ONLY, None),
     ("efm_adapters_regression.py", OUT_ONLY, None),
     ("engine_start_regression.py", OUT_ONLY, None),
+    ("fuel_tanks_regression.py", OUT_ONLY, None),
     ("lerx_vortex_regression.py", OUT_ONLY, None),
     ("paars_regression.py", OUT_ONLY, None),
     ("pitch_trim_regression.py", OUT_ONLY, None),

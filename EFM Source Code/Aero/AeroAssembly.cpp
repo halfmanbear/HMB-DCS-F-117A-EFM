@@ -59,7 +59,7 @@ double wave_drag_coefficient(double mach)
         if (mach < 1.05)
         {
             const double div_factor = (mach - mdiv) / (1.05 - mdiv);
-            cd_wave = 0.007159 * div_factor * div_factor;
+            cd_wave = 0.007156 * div_factor * div_factor;
 
             if (mach > mlimit)
             {
@@ -135,7 +135,7 @@ void update_aerodynamic_coefficients()
     // mod repository. Normal force acts along the body axis here, so tilting it with AOA supplies most of the
     // induced drag the data shows, as on a sharp-edged wing. Cz is negative for upward lift, so the lift terms are
     // the remainder: less drag than the tilt alone at low lift and more at high lift.
-    const double cd0 = 0.017152 + 0.038229 * cz + 0.012645 * cz * cz;
+    const double cd0 = 0.017086 + 0.038950 * cz + 0.010778 * cz * cz;
 
     // Ground effect relieves part of that tilted normal force.
     const double phi_ge = induced_drag_ground_effect();

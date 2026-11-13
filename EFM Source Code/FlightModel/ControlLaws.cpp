@@ -30,6 +30,9 @@ constexpr double elevon_physical_stop_deg = 45.0;
 constexpr double rudder_limit_deg = 25.0;  // Lets full pedal reach 8 deg of steady sideslip (TO 1F-117A-1 page 6-3).
 constexpr double min_control_speed_mps = 30.0;    // Floor for speed in the damper and turn-rate terms.
 constexpr double default_roll_inertia = 40000.0;  // kg m^2, when DCS has not yet reported one
+// The yaw law's gains were tuned with this yaw inertia (kg m^2). Below about 0.85 of it, unscaled, the yaw and roll
+// loops lost their damping at 500 KCAS.
+constexpr double yaw_law_tuned_inertia = 260000.0;
 constexpr double max_pitch_law_elevon_scale = 8.0;
 // Elevon degrees of trim or autopilot bias that add 1.0 to the elevator actuator input.
 constexpr double pitch_trim_stick_scale = 15.0;
@@ -204,6 +207,7 @@ void command_yaw_axis(double dt)
     yaw_in.pitch_rate = pitch_rate_rps * radians_to_degrees;
     yaw_in.aoa_filtered = Flight_controls::alpha_filtered;
     yaw_in.dyn_pressure_pa = dynamic_pressure_pa;
+    yaw_in.yaw_inertia_scale = inertia.y > 1.0 ? limit(inertia.y / yaw_law_tuned_inertia, 0.5, 1.5) : 1.0;
     yaw_in.gear_down = gear_down > 0.5;
     rudder_deg_commanded = Flight_controls::fcs_yaw_controller(yaw_in, dt);
     rudder_deg = yaw_trim + rudder_deg_commanded;
