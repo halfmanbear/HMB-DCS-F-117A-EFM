@@ -588,7 +588,8 @@ void reset_session_controls()
     for (double* input : {&F117::Flight_controls::lat_stick_input, &F117::Flight_controls::long_stick_input,
                           &F117::Flight_controls::long_stick_force})
         *input = 0.0;
-    F117::throttle_input = F117::throttle_state = F117::thrust_n = 0.0;
+    set_throttle_levers(0.0);
+    F117::throttle_state = F117::thrust_n = 0.0;
     F117::engineswitch = false;
     g_engine_starts.reset(false);
     for (int side = 0; side < 2; ++side)
@@ -623,7 +624,7 @@ void apply_ground_start_state(bool engines_running)
     F117::gear_down = gear_command_down;
     F117::gear_command = gear_command_down;
     F117::weight_on_wheels = F117::wow_from_draw_args = true;
-    F117::throttle_input = 0.0;
+    set_throttle_levers(0.0);
     F117::engineswitch = engines_running;
     g_engine_starts.reset(engines_running);
     F117::rolling_friction = wheel_brake_off_friction;
@@ -639,7 +640,7 @@ void apply_air_start_state()
     F117::gear_down = gear_command_up;
     F117::gear_command = gear_command_up;
     F117::weight_on_wheels = F117::wow_from_draw_args = false;
-    F117::throttle_input = air_start_throttle;
+    set_throttle_levers(air_start_throttle);
     F117::throttle_state = air_start_throttle;
     g_engine_starts.reset(true);
     F117::engineswitch = g_engine_starts.any_running();

@@ -53,6 +53,7 @@ bool sim_initialized=false;int alt_hold=0,horiz_hold=0,altroll_hold=0;
 constexpr double nose_wheel_yaw_low_rad=0.1745;bool nws_authority_held=false;double nose_wheel_yaw_range_rad=0;
 double delta_time=0,ped_input=0,throttle_input=0,elevator_deg=0,aileron_deg=0,rudder_deg=0;
 double elevator_deg_commanded=0,aileron_deg_commanded=0,rudder_deg_commanded=0;
+double throttle_side_input[2]={};
 float elev_pos=0,rudder_pos=0;
 double elevator_pct=0,aileron_pct=0,rudder_pct=0,throttle_state=0,rolling_friction=0,wheel_brake_command=0;
 double pitch_trim=0,roll_trim=0,yaw_trim=0,tailhook_command=0,tailhook_pos=0,dragchute_command=0,dragchute=0;
@@ -68,6 +69,7 @@ namespace Flight_controls {
 }
 using namespace F117;
 bool engines_running(){return true;}
+void set_throttle_levers(double p){throttle_side_input[0]=throttle_side_input[1]=throttle_input=p;}
 Autothrottle::Controller g_autothrottle;
 Paars::Controller g_paars;
 Engine_start::Starts g_engine_starts;

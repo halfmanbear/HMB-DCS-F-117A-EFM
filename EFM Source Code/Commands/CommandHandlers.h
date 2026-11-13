@@ -17,6 +17,8 @@ bool handle_roll_command(int command, float value);
 bool handle_pitch_command(int command, float value);
 bool handle_yaw_command(int command, float value);
 bool handle_engine_and_throttle_command(int command, float value);
+// Sets both engine throttle inputs and the combined lever to one position (percent).
+void set_throttle_levers(double percent);
 bool handle_actuator_toggle_command(int command);
 bool handle_autopilot_command(int command);
 bool engines_running();

@@ -12,6 +12,11 @@
 #include "../Actuators/Actuators.h"
 #include "../Engine/EngineStart.h"
 
+// Lateral distance from the centreline to each engine's thrust, in metres. The manual gives no engine spacing: this is
+// the midpoint of each exhaust slot on the exterior model (inboard end 0.66 m, outboard end 2.48 m). It sets how
+// strongly one-engine thrust yaws the aircraft; TO 1F-117A-1 page 6-7 gives the response to check it against.
+constexpr double engine_thrust_arm_m = 1.57;
+
 // Fraction of induced drag remaining near the ground (Wieselberger): 0 on the ground, 1 in free air.
 double induced_drag_ground_effect()
 {
@@ -190,7 +195,6 @@ void apply_aerodynamic_forces_and_thrust()
     double yaw_moment = -F117::Aero::cn_total * q_s_span;
     const double tail_asym_damage = g_damage.left_tail - g_damage.right_tail;
     yaw_moment += tail_asym_damage * q_s_span * 0.03;
-    add_local_moment({roll_moment, yaw_moment, pitch_moment});
 
     const double thrust_cant_up_deg = 0.1;
     const double thrust_toe_out_deg = 10;
@@ -199,6 +203,11 @@ void apply_aerodynamic_forces_and_thrust()
 
     const double left_thrust = F117::engine_thrust_n[F117::Engine_start::left] * g_damage.left_engine;
     const double right_thrust = F117::engine_thrust_n[F117::Engine_start::right] * g_damage.right_engine;
+
+    // Thrust acts at the centre of mass above, so the offset between the engines is added as a yaw moment: more
+    // thrust on the right yaws the nose left (body +y is up). The arm is the exhaust slot midpoint from the model.
+    yaw_moment += (right_thrust - left_thrust) * engine_thrust_arm_m;
+    add_local_moment({roll_moment, yaw_moment, pitch_moment});
 
     const double thrust_x_l = left_thrust * cos(cant_up_rad) * cos(toe_out_rad);
     const double thrust_y_l = left_thrust * sin(cant_up_rad);

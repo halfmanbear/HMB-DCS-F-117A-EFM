@@ -62,6 +62,7 @@
     <ClInclude Include="Diagnostics/Paths.h"><Filter>Flight model\Diagnostics</Filter></ClInclude>
     <ClInclude Include="Cockpit/ParamBridge.h"><Filter>Flight model\Cockpit</Filter></ClInclude>
     <ClInclude Include="Weapons/Ccrp.h"><Filter>Flight model\Weapons</Filter></ClInclude>
+    <ClInclude Include="Weapons/LgbBallistics.h"><Filter>Flight model\Weapons</Filter></ClInclude>
     <ClInclude Include="Weapons/ReleaseSequence.h"><Filter>Flight model\Weapons</Filter></ClInclude>
     <ClInclude Include="Aero/AeroAssembly.h"><Filter>Flight model\Aero</Filter></ClInclude>
     <ClInclude Include="FlightModel/Forces.h"><Filter>Flight model\State</Filter></ClInclude>

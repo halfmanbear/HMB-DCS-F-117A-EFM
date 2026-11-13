@@ -137,6 +137,7 @@
     <ClInclude Include="Diagnostics/Paths.h" />
     <ClInclude Include="Cockpit/ParamBridge.h" />
     <ClInclude Include="Weapons/Ccrp.h" />
+    <ClInclude Include="Weapons/LgbBallistics.h" />
     <ClInclude Include="Weapons/ReleaseSequence.h" />
     <ClInclude Include="Aero/AeroAssembly.h" />
     <ClInclude Include="FlightModel/Forces.h" />

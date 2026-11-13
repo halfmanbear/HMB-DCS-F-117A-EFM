@@ -205,6 +205,101 @@ bool kill_raw(void* suicide)
     }
 }
 
+// Stock time-of-flight predictor, exported by the weapons library as a small handle object. Resolved lazily.
+using Pfn_tof_ctor = void*(__fastcall*)(void* self);
+using Pfn_gbu_tof = double(__fastcall*)(void* self, double a, double b, double c, double d, double e);
+bool s_tof_resolved = false;
+Pfn_tof_ctor s_tof_ctor = nullptr;
+Pfn_gbu_tof s_gbu_tof = nullptr;
+
+bool resolve_tof()
+{
+    if (s_tof_resolved)
+        return s_tof_ctor && s_gbu_tof;
+    s_tof_resolved = true;
+    HMODULE h = GetModuleHandleA("WeaponsBase.dll");
+    if (h)
+    {
+        s_tof_ctor = reinterpret_cast<Pfn_tof_ctor>(GetProcAddress(h, "??0TOFEstimator@@QEAA@XZ"));
+        s_gbu_tof =
+            reinterpret_cast<Pfn_gbu_tof>(GetProcAddress(h, "?getGBU24TOF@TOFEstimator@@QEAANNNNNN@Z"));
+    }
+    log_format("WeaponsInterop: tof predictor ctor=%p call=%p", reinterpret_cast<void*>(s_tof_ctor),
+               reinterpret_cast<void*>(s_gbu_tof));
+    return s_tof_ctor && s_gbu_tof;
+}
+
+bool call_gbu_tof_raw(double a, double b, double c, double d, double e, double* out)
+{
+    alignas(16) unsigned char handle[64] = {};
+    __try
+    {
+        s_tof_ctor(handle);
+        *out = s_gbu_tof(handle, a, b, c, d, e);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        s_tof_ctor = nullptr;  // stop calling after a fault
+        return false;
+    }
+}
+
+// Stock GPS-bomb time-of-flight predictor, a larger state object with its own constructor. Resolved lazily.
+using Pfn_jdam_tof = double(__fastcall*)(void* self, double alt, double speed, double pitch, double bank_a,
+                                         double bank_b, double azimuth, double range, double target_alt,
+                                         double override_a, double override_b, int type);
+bool s_jdam_resolved = false;
+Pfn_tof_ctor s_jdam_ctor = nullptr;
+Pfn_tof_ctor s_jdam_dtor = nullptr;
+Pfn_jdam_tof s_jdam_tof = nullptr;
+
+bool resolve_jdam_tof()
+{
+    if (s_jdam_resolved)
+        return s_jdam_ctor && s_jdam_tof;
+    s_jdam_resolved = true;
+    HMODULE h = GetModuleHandleA("WeaponsBase.dll");
+    if (h)
+    {
+        s_jdam_ctor = reinterpret_cast<Pfn_tof_ctor>(GetProcAddress(h, "??0LARBuilder@@QEAA@XZ"));
+        s_jdam_dtor = reinterpret_cast<Pfn_tof_ctor>(GetProcAddress(h, "??1LARBuilder@@QEAA@XZ"));
+        s_jdam_tof = reinterpret_cast<Pfn_jdam_tof>(
+            GetProcAddress(h, "?getJDAMTOF@LARBuilder@@QEAANNNNNNNNNNNW4JDAM_Type@1@@Z"));
+    }
+    log_format("WeaponsInterop: jdam tof predictor ctor=%p call=%p", reinterpret_cast<void*>(s_jdam_ctor),
+               reinterpret_cast<void*>(s_jdam_tof));
+    return s_jdam_ctor && s_jdam_tof;
+}
+
+bool call_jdam_tof_raw(int type, double alt, double speed, double pitch, double range, double target_alt, double* out)
+{
+    alignas(16) unsigned char state[1024] = {};
+    __try
+    {
+        s_jdam_ctor(state);
+        // The predictor refines its release solution over repeated calls; a fresh object answers 0 at first.
+        // Repeat until two consecutive answers agree.
+        double previous = 0.0;
+        *out = 0.0;
+        for (int pass = 0; pass < 60; ++pass)
+        {
+            *out = s_jdam_tof(state, alt, speed, pitch, 0.0, 0.0, 0.0, range, target_alt, -1.0, -1.0, type);
+            if (*out > 0.0 && std::fabs(*out - previous) < 0.01)
+                break;
+            previous = *out;
+        }
+        if (s_jdam_dtor)
+            s_jdam_dtor(state);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        s_jdam_ctor = nullptr;  // stop calling after a fault
+        return false;
+    }
+}
+
 void* weapon_manager()
 {
     if (s_disabled)
@@ -278,6 +373,22 @@ bool launch_at_point(const double world_point[3], int station)
     log_format("WeaponsInterop: launch station=%d target=(%.2f,%.2f,%.2f) result=%d", station, point.x, point.y,
                point.z, result);
     return result != 0;  // matches native avSimpleWeaponSystem acceptance test
+}
+
+bool stock_laser_bomb_tof(double release_alt_m, double release_speed_mps, double pitch_rad, double target_alt_m,
+                          double ground_range_m, double* out)
+{
+    if (!out || !resolve_tof())
+        return false;
+    return call_gbu_tof_raw(release_alt_m, release_speed_mps, pitch_rad, target_alt_m, ground_range_m, out);
+}
+
+bool stock_jdam_tof(int type, double release_alt_m, double release_speed_mps, double pitch_rad, double target_alt_m,
+                    double ground_range_m, double* out)
+{
+    if (!out || !resolve_jdam_tof())
+        return false;
+    return call_jdam_tof_raw(type, release_alt_m, release_speed_mps, pitch_rad, ground_range_m, target_alt_m, out);
 }
 
 void update_laser(bool want_on, const double world_point[3], unsigned int code)

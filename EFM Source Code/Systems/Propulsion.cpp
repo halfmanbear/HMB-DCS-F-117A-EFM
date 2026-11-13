@@ -144,7 +144,7 @@ void update_propulsion_and_control_effectiveness(double dt, double tail_integrit
         else
         {
             F117::engine_thrust_n[side] = F117::Engine::engine_dynamics(
-                engine, F117::throttle_input * integrity[side], F117::mach, F117::altitude_m, dt,
+                engine, F117::throttle_side_input[side] * integrity[side], F117::mach, F117::altitude_m, dt,
                 start.running() && can_run[side], F117::weight_on_wheels);
         }
         F117::thrust_n += F117::engine_thrust_n[side];

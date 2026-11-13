@@ -84,6 +84,18 @@ bool handle_yaw_command(int command, float value)
     return true;
 }
 
+// The combined lever (A/T reference, cockpit lever) is the mean of the two engine inputs.
+static void sync_throttle_lever()
+{
+    F117::throttle_input = 0.5 * (F117::throttle_side_input[0] + F117::throttle_side_input[1]);
+}
+
+void set_throttle_levers(double percent)
+{
+    F117::throttle_side_input[0] = F117::throttle_side_input[1] = percent;
+    sync_throttle_lever();
+}
+
 bool handle_engine_and_throttle_command(int command, float value)
 {
     if (command == engines_off || command == left_engine_off || command == right_engine_off)
@@ -94,7 +106,7 @@ bool handle_engine_and_throttle_command(int command, float value)
             g_engine_starts.request_stop(F117::Engine_start::right);
         F117::engineswitch = g_engine_starts.any_running();
         if (!F117::engineswitch)
-            F117::throttle_input = 0.0;
+            set_throttle_levers(0.0);
         return true;
     }
     if (command == engines_on)
@@ -110,23 +122,66 @@ bool handle_engine_and_throttle_command(int command, float value)
         g_engine_starts.request_start(side, F117::engines[side].n2, external_start_air());
         return true;
     }
-    if (command == joystick_throttle)
+    if (command == joystick_throttle || command == throttle_axis_left || command == throttle_axis_right)
     {
         if (F117::engineswitch)
         {
             const double percent = limit(((-value + 1.0) * 0.5) * 100.0, 0.0, 100.0);
-            if (g_autothrottle.accept_axis(percent))
-                F117::throttle_input = percent;
+            const int channel = command == joystick_throttle ? 0 : (command == throttle_axis_left ? 1 : 2);
+            if (g_autothrottle.accept_axis(percent, channel))
+            {
+                if (channel != 2)
+                    F117::throttle_side_input[F117::Engine_start::left] = percent;
+                if (channel != 1)
+                    F117::throttle_side_input[F117::Engine_start::right] = percent;
+                sync_throttle_lever();
+            }
         }
         return true;
     }
-    if (command != throttle_increase && command != throttle_decrease)
-        return false;
-    if (F117::engineswitch && (command == throttle_decrease || F117::internal_fuel >= 5.0))
+
+    // Common steps move both levers by the same amount; left and right steps move one.
+    bool step_left = true;
+    bool step_right = true;
+    double direction = 0.0;
+    switch (command)
+    {
+        case throttle_increase:
+            direction = 1.0;
+            break;
+        case throttle_decrease:
+            direction = -1.0;
+            break;
+        case throttle_left_increase:
+            direction = 1.0;
+            step_right = false;
+            break;
+        case throttle_left_decrease:
+            direction = -1.0;
+            step_right = false;
+            break;
+        case throttle_right_increase:
+            direction = 1.0;
+            step_left = false;
+            break;
+        case throttle_right_decrease:
+            direction = -1.0;
+            step_left = false;
+            break;
+        default:
+            return false;
+    }
+    if (F117::engineswitch && (direction < 0.0 || F117::internal_fuel >= 5.0))
     {
         g_autothrottle.pilot_throttle_step();
-        const double step = command == throttle_increase ? throttle_step : -throttle_step;
-        F117::throttle_input = limit(F117::throttle_input + step, 0.0, 100.0);
+        const bool step_side[2] = {step_left, step_right};
+        for (int side = 0; side < 2; ++side)
+        {
+            if (step_side[side])
+                F117::throttle_side_input[side] =
+                    limit(F117::throttle_side_input[side] + direction * throttle_step, 0.0, 100.0);
+        }
+        sync_throttle_lever();
     }
     return true;
 }
@@ -214,12 +269,22 @@ bool handle_actuator_toggle_command(int command)
         case weapon_release_hold_off:
             Weapons::handle_weapon_release_released();
             return true;
-        case master_arm_toggle:
-            F117::master_armed = !F117::master_armed;
-            Weapons::reset_weapon_release_sequence();  // require fresh consent after changing arm state
+        case ahcp_master_arm:
+        case ahcp_master_safe:
+        {
+            const bool arm = command == ahcp_master_arm;
+            if (F117::master_armed != arm)
+            {
+                F117::master_armed = arm;
+                Weapons::reset_weapon_release_sequence();  // require fresh consent after changing arm state
+            }
             return true;
-        case irads_laser_arm_toggle:
-            F117::laser_armed = !F117::laser_armed;
+        }
+        case ahcp_laser_arm:
+            F117::laser_armed = true;
+            return true;
+        case ahcp_laser_safe:
+            F117::laser_armed = false;
             return true;
         case lua_damage_hit:
             apply_lua_damage_hit();
@@ -364,8 +429,11 @@ void update_autothrottle(double dt)
     publish_named_param(s_cas_param, "F117_CAS_MPS", air_data_valid ? F117::calibrated_airspeed_kt / 1.943844 : 0.0);
     publish_named_param(s_tas_param, "F117_TAS_MPS", air_data_valid ? F117::total_velocity_mps : 0.0);
     publish_named_param(s_air_data_valid_param, "F117_AIR_DATA_VALID", air_data_valid ? 1.0 : 0.0);
-    F117::throttle_input = g_autothrottle.update(dt, F117::calibrated_airspeed_kt, F117::throttle_input,
-                                                 !F117::weight_on_wheels, engines_running());
+    const double lever = g_autothrottle.update(dt, F117::calibrated_airspeed_kt, F117::throttle_input,
+                                               !F117::weight_on_wheels, engines_running());
+    // An engaged A/T drives both levers together; otherwise each side keeps the pilot's setting.
+    if (g_autothrottle.engaged())
+        set_throttle_levers(lever);
 
     static void* s_engaged_param = nullptr;
     static void* s_disc_param = nullptr;

@@ -118,31 +118,33 @@ public:
     // Physical throttle axis. Returns true when the axis should set the throttle.
     // A fixed axis cannot be driven by the servo, so deliberate travel overpowers
     // an engaged A/T, and a lever held after disengagement waits for axis movement.
-    bool accept_axis(double axis_pct)
+    // Channel 0 is the common axis, 1 the left axis, 2 the right axis; each tracks its own reference.
+    bool accept_axis(double axis_pct, int channel = 0)
     {
-        if (!std::isfinite(axis_pct))
+        if (!std::isfinite(axis_pct) || channel < 0 || channel >= axis_channels)
         {
             return false;
         }
-        if (!std::isfinite(axis_reference_pct_))
+        double& reference = axis_reference_pct_[channel];
+        if (!std::isfinite(reference))
         {
-            axis_reference_pct_ = axis_pct;
+            reference = axis_pct;
             return !engaged_ && !holding_;
         }
         if (engaged_)
         {
-            if (std::fabs(axis_pct - axis_reference_pct_) <= axis_override_pct)
+            if (std::fabs(axis_pct - reference) <= axis_override_pct)
             {
                 return false;
             }
             disengage();
         }
-        else if (holding_ && std::fabs(axis_pct - axis_reference_pct_) <= axis_pickup_pct)
+        else if (holding_ && std::fabs(axis_pct - reference) <= axis_pickup_pct)
         {
             return false;
         }
         holding_ = false;
-        axis_reference_pct_ = axis_pct;
+        reference = axis_pct;
         return true;
     }
 
@@ -209,6 +211,9 @@ private:
     double integral_pct_ = 0.0;
     double accel_kt_s_ = 0.0;
     double previous_cas_kt_ = 0.0;
-    double axis_reference_pct_ = std::numeric_limits<double>::quiet_NaN();
+    static constexpr int axis_channels = 3;
+    double axis_reference_pct_[axis_channels] = {std::numeric_limits<double>::quiet_NaN(),
+                                                 std::numeric_limits<double>::quiet_NaN(),
+                                                 std::numeric_limits<double>::quiet_NaN()};
 };
 }  // namespace Autothrottle

@@ -286,9 +286,17 @@ void attempt_release(int station, int& status)
             F117::weapon_release_gate_hold = weapon_release_gate_min_hold_seconds;
             for (int i = 0; i < 3; ++i)
                 F117::release_target[i] = point[i];
+            refine_release_time_of_flight();
             F117::weapon_flight_time_remaining = F117::ccrp_time_of_flight;
             F117::laser_window = F117::ccrp_time_of_flight + laser_overrun_seconds;
             Cockpit_interop::log_message("DELIVERY: confirmed native launch; target snapshot saved");
+            if (g_release_snapshot.valid)
+            {
+                const Release_snapshot& s = g_release_snapshot;
+                Cockpit_interop::log_format("DELIVERY TOF: drop=%.0f range=%.0f free_fall=%.2f stock=%.2f used=%.2f",
+                                            s.drop_meters, s.horiz_range, s.free_fall_tof, s.stock_tof,
+                                            F117::ccrp_time_of_flight);
+            }
         }
         else
         {

@@ -44,7 +44,7 @@ vm.execute('''log={INFO=1,write=function(...) end}; stations={
  GetSelf=function() return {listen_command=function(_,c) end,get_station_info=function(_,s) return stations[s] end} end''')
 vm.execute((mod/'Cockpit/Scripts/Systems/Weapons.lua').read_text(encoding='utf-8'))
 vm.globals().post_initialize();assert param('F117_CCRP_PROFILE').v==1 and param('F117_RELEASE_STATION').v==0
-vm.globals().SetCommand(10123,0);assert param('F117_CCRP_PROFILE').v==3 and param('F117_RELEASE_STATION').v==1
+vm.globals().SetCommand(101,0);assert param('F117_CCRP_PROFILE').v==3 and param('F117_RELEASE_STATION').v==1
 vm.execute('stations[1].count=0');vm.globals()['update']();assert param('F117_STORE_VALID').v==0 and param('F117_RELEASE_STATION').v==-1
 vm.execute('stations[1]={count=1,CLSID="{GBU_32_V_2B}"}');vm.globals()['update']();assert param('F117_CCRP_PROFILE').v==2
 vm.execute('stations[1]={count=1,CLSID="{GBU-31}"}');vm.globals()['update']();assert param('F117_CCRP_PROFILE').v==0
@@ -82,6 +82,9 @@ void* F117::API::getParamHandle(const char* n){return n[5]=='S'? &profileValid:n
 double F117::API::getParamNumber(void* p){return *static_cast<double*>(p);}
 bool lockValid=true,power=true,solution=true,zone=true,available=true,accept=false,laserLive=false;
 bool g_release_alignment_valid=true; double g_release_min_range=1000,g_release_max_range=10000;
+struct Release_snapshot{bool valid;double drop_meters,horiz_range,horiz_speed,vertical_speed,air_speed,free_fall_tof,stock_tof;};
+Release_snapshot g_release_snapshot{};
+void refine_release_time_of_flight(){}
 int launches=0,profile=0;double handoff[3]{};double publishedFlight=-1;
 namespace Cockpit_interop {
  bool is_irads_powered(){return power;} bool has_irads_lock(){return lockValid;}

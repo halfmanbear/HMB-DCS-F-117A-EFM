@@ -129,7 +129,10 @@ inline float bay_state[weapon_bay_count]{};
 // Engine telemetry and the fuel mass already acknowledged by DCS.
 inline bool engineswitch{true};
 inline double throttle_state{0.1};
+// Combined lever position (mean of the two sides), used by the autothrottle and the cockpit lever. Each engine
+// is driven by its own side input.
 inline double throttle_input{0.1};
+inline double throttle_side_input[2]{0.1, 0.1};
 inline double thrust_n{};
 inline Engine::Engine_state engines[2]{};
 inline double engine_thrust_n[2]{};

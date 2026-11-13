@@ -43,13 +43,15 @@ constexpr int left_engine_on = 311;
 constexpr int right_engine_on = 312;
 constexpr int left_engine_off = 313;
 constexpr int right_engine_off = 314;
-constexpr int throttleup_left = 161;
-constexpr int throttledown_left = 162;
-constexpr int throttleup_right = 163;
-constexpr int throttledown_right = 164;
 constexpr int throttle_increase = 1032;
 constexpr int throttle_decrease = 1033;
 constexpr int throttle_stop = 1034;
+constexpr int throttle_left_increase = 1035;
+constexpr int throttle_left_decrease = 1036;
+constexpr int throttle_left_stop = 1037;
+constexpr int throttle_right_increase = 1038;
+constexpr int throttle_right_decrease = 1039;
+constexpr int throttle_right_stop = 1040;
 
 // Airframe mechanisms.
 constexpr int geartoggle = 68;
@@ -88,7 +90,11 @@ constexpr int bombay_left = 10131;      // toggle the left bay (station 1)
 constexpr int bombay_right = 10132;     // toggle the right bay (station 2)
 constexpr int weapon_release_hold_on = 10103;
 constexpr int weapon_release_hold_off = 10104;
-constexpr int master_arm_toggle = 10122;
+// Stock DCS commands (iCommandPlaneAHCPMasterArm and friends), bound directly by the input profiles.
+constexpr int ahcp_master_arm = 1374;
+constexpr int ahcp_master_safe = 1375;
+constexpr int ahcp_laser_arm = 1380;
+constexpr int ahcp_laser_safe = 1381;
 constexpr int lua_damage_hit = 10200;
 
 // IRADS protocol (Keys, hotas_commands and f117_commands).
@@ -99,8 +105,7 @@ constexpr int irads_slew_right = 10111;
 constexpr int irads_slew_up = 10112;
 constexpr int irads_slew_down = 10113;
 constexpr int irads_slew_stop = 10114;
-constexpr int irads_designation_clear = 10117;
-constexpr int irads_laser_arm_toggle = 10118;
+constexpr int sensor_reset = 1635;  // iCommandSensorReset: undesignate and return the gimbal to its mounted forward axis
 constexpr int irads_slew_horizontal_axis = 10119;
 constexpr int irads_slew_vertical_axis = 10120;
 constexpr int irads_zoom_axis = 10121;

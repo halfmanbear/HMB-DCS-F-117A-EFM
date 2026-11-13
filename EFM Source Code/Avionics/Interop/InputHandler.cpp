@@ -192,6 +192,7 @@ static void clear_slew_demand()
 static void toggle_power()
 {
     s_irads_power = !s_irads_power;
+    s_irads_homing = false;
     clear_slew_demand();
     clear_irads_lock();
     if (g_av_tv_sensor_slew_stop)
@@ -233,12 +234,96 @@ static void stop_slew_and_designate(bool active)
     clear_slew_demand();
     if (g_av_tv_sensor_slew_stop)
         g_av_tv_sensor_slew_stop(g_av_tv_sensor_instance);
-    if (active)
+    if (!active)
+        return;
+    // One switch designates and undesignates: pressing it with a lock held (or one pending) removes the lock.
+    if (s_irads_lock_valid || s_irads_terrain_pending)
     {
         clear_irads_lock();
-        const bool queued = ground_stabilize_irads();
-        log_message(queued ? "IRADS terrain designation queued" : "IRADS designation unavailable: no rendered ray");
+        set_external_designation(false);
+        log_message("IRADS undesignated");
+        return;
     }
+    const bool queued = ground_stabilize_irads();
+    log_message(queued ? "IRADS terrain designation queued" : "IRADS designation unavailable: no rendered ray");
+}
+
+// Sensor Reset: drop the lock and slew the gimbal back to its mounted forward axis.
+static void reset_sensor()
+{
+    clear_slew_demand();
+    clear_irads_lock();
+    set_external_designation(false);
+    if (g_av_tv_sensor_slew_stop)
+        g_av_tv_sensor_slew_stop(g_av_tv_sensor_instance);
+    s_irads_homing = true;
+    log_message("IRADS sensor reset: undesignated, returning to home");
+}
+
+static double dot3(const double* a, const double* b)
+{
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+// Closed loop on the gimbal's pointing error, which is the sensor's line of sight (column 0 of its world
+// pose) measured in the mount's own axes. Runs each frame after the native sensor update while homing.
+void service_irads_home(const double mount[16])
+{
+    static int s_horizontal_state = 0;  // -1 slewing left, 1 slewing right, 0 on target
+    static int s_vertical_state = 0;    // -1 slewing down, 1 slewing up, 0 on target
+    if (!s_irads_homing)
+    {
+        s_horizontal_state = s_vertical_state = 0;
+        return;
+    }
+    if (!g_av_tv_sensor_instance)
+        return;
+    const double* los = as_sensor(g_av_tv_sensor_instance)->platform_world_pose.m;
+    const double ahead = dot3(los, mount);
+    const double los_up = dot3(los, mount + 4);
+    const double los_right = dot3(los, mount + 8);
+    if (!std::isfinite(ahead) || !std::isfinite(los_up) || !std::isfinite(los_right))
+    {
+        s_irads_homing = false;
+        return;
+    }
+    static constexpr double home_tolerance_deg = 0.3;
+    static constexpr double home_gain = 3.0;      // deg/s per degree of error
+    static constexpr double home_min_rate = 3.0;  // deg/s, keeps the last degree moving
+    const double error_azimuth = std::atan2(los_right, ahead) * rad_to_deg;
+    const double error_elevation = std::atan2(los_up, std::sqrt(ahead * ahead + los_right * los_right)) * rad_to_deg;
+    const int h_dir = error_azimuth > home_tolerance_deg ? -1 : (error_azimuth < -home_tolerance_deg ? 1 : 0);
+    const int v_dir = error_elevation > home_tolerance_deg ? -1 : (error_elevation < -home_tolerance_deg ? 1 : 0);
+    // Stopping stops both motors, so only stop when an axis arrives or reverses; every other frame just
+    // re-issues the rate for the axes still moving.
+    const bool changed = (h_dir != s_horizontal_state && s_horizontal_state != 0) ||
+                         (v_dir != s_vertical_state && s_vertical_state != 0);
+    if (changed || (h_dir == 0 && v_dir == 0))
+    {
+        if (g_av_tv_sensor_slew_stop)
+            g_av_tv_sensor_slew_stop(g_av_tv_sensor_instance);
+    }
+    s_horizontal_state = h_dir;
+    s_vertical_state = v_dir;
+    if (h_dir == 0 && v_dir == 0)
+    {
+        s_irads_homing = false;
+        log_message("IRADS sensor reset: home reached");
+        return;
+    }
+    const auto home_rate = [](double error_deg)
+    {
+        const double wanted = std::fabs(error_deg) * home_gain;
+        return wanted < home_min_rate ? home_min_rate : (wanted > slew_rate_at_min_zoom ? slew_rate_at_min_zoom : wanted);
+    };
+    if (h_dir < 0 && g_av_tv_sensor_slew_left)
+        g_av_tv_sensor_slew_left(g_av_tv_sensor_instance, home_rate(error_azimuth));
+    else if (h_dir > 0 && g_av_tv_sensor_slew_right)
+        g_av_tv_sensor_slew_right(g_av_tv_sensor_instance, home_rate(error_azimuth));
+    if (v_dir < 0 && g_av_tv_sensor_slew_down)
+        g_av_tv_sensor_slew_down(g_av_tv_sensor_instance, home_rate(error_elevation));
+    else if (v_dir > 0 && g_av_tv_sensor_slew_up)
+        g_av_tv_sensor_slew_up(g_av_tv_sensor_instance, home_rate(error_elevation));
 }
 
 bool handle_irads_command(int command, float value)
@@ -258,6 +343,8 @@ bool handle_irads_command(int command, float value)
 
     if (is_slew_command(command) && active && (s_irads_lock_valid || s_irads_terrain_pending))
         clear_irads_lock();
+    if (is_slew_command(command) && active)
+        s_irads_homing = false;  // the pilot has taken over the gimbal
 
     switch (command)
     {
@@ -321,9 +408,8 @@ bool handle_irads_command(int command, float value)
             log_message("HandleIRADSCommand: ZoomOut");
             set_zoom_level((s_irads_zoom_level > 1) ? s_irads_zoom_level - 1 : 1);
             return true;
-        case irads_designation_clear:
-            clear_irads_lock();
-            set_external_designation(false);
+        case sensor_reset:
+            reset_sensor();
             return true;
         default:
             return false;

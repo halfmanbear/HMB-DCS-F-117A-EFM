@@ -9,8 +9,8 @@ mod=Path(sys.argv[1]); out=Path(sys.argv[2]); out.mkdir(exist_ok=True)
 inputs=dict((name,int(value)) for name,value in re.findall(r'^\s*constexpr int (\w+)\s*=\s*(\d+)\s*;', (src/'Inputs.h').read_text(encoding="utf-8-sig"),re.M))
 lua=LuaRuntime(); lua.execute((mod/'Cockpit/Scripts/command_defs.lua').read_text(encoding="utf-8-sig"))
 k=lua.globals().Keys; f=lua.globals().f117_commands; h=lua.globals().hotas_commands; fov=lua.globals().irads_fov_commands
-for name,want in [('PanelLight',10140),('BcnLgt',10146),('IRADSZoomIn',10008),('IRADSZoomOut',10009),('MFDOverlayToggle',10010)]: assert k[name]==want,(name,k[name])
-for lua_name,cpp_name in [('WEAPON_RELEASE_ON','weapon_release_hold_on'),('WEAPON_RELEASE_OFF','weapon_release_hold_off'),('IRADS_DESIGNATION_CLEAR','irads_designation_clear'),('IRADS_LASER_ARM_TOGGLE','irads_laser_arm_toggle'),('IRADS_SLEW_HORIZONTAL','irads_slew_horizontal_axis'),('IRADS_SLEW_VERTICAL','irads_slew_vertical_axis'),('IRADS_ZOOM_AXIS','irads_zoom_axis')]: assert f[lua_name]==inputs[cpp_name]
+for name,want in [('IRADSZoomIn',10008),('IRADSZoomOut',10009)]: assert k[name]==want,(name,k[name])
+for lua_name,cpp_name in [('WEAPON_RELEASE_ON','weapon_release_hold_on'),('WEAPON_RELEASE_OFF','weapon_release_hold_off'),('IRADS_SLEW_HORIZONTAL','irads_slew_horizontal_axis'),('IRADS_SLEW_VERTICAL','irads_slew_vertical_axis'),('IRADS_ZOOM_AXIS','irads_zoom_axis')]: assert f[lua_name]==inputs[cpp_name]
 for suffix,cpp_name in [('UP','irads_slew_up'),('DOWN','irads_slew_down'),('LEFT','irads_slew_left'),('RIGHT','irads_slew_right'),('DEPRESS','irads_slew_stop')]: assert h['THROTTLE_DESIGNATOR_CONTROLLER_'+suffix]==inputs[cpp_name]
 assert k.IRADSZoomIn==inputs['irads_zoom_in'] and k.IRADSZoomOut==inputs['irads_zoom_out']
 profile_signatures = {}
@@ -33,19 +33,25 @@ for device in ['keyboard','joystick']:
         assert signature not in seen,(device,'duplicate custom binding',signature)
         seen.add(signature)
     def row(command): return next(r for r in rows if r.down==command)
-    profile_signatures[device] = {command:(row(command).down,row(command).up,row(command).value_down,row(command).value_up) for command in [fov.WIDE,fov.NARROW,10110,10111,10112,10113,10114,87]}
+    profile_signatures[device] = {command:(row(command).down,row(command).up,row(command).value_down,row(command).value_up) for command in ['iCommandPlaneZoomOut','iCommandPlaneZoomIn','iCommandSelecterUp','iCommandSelecterDown','iCommandSelecterLeft','iCommandSelecterRight','iCommandPlane_HOTAS_TDC_depress_on',87]}
     assert row(87).name=='IRADS On/Off'
-    # The FOV buttons go through the Displays device, which turns them into the EFM's zoom axis endpoints.
-    assert row(fov.WIDE).name=='IRADS FOV - Wide' and row(fov.NARROW).name=='IRADS FOV - Narrow'
-    assert row(fov.WIDE).cockpit_device_id==row(fov.NARROW).cockpit_device_id==7
+    # The FOV buttons are the stock zoom commands, sent to the Displays device, which turns them into the EFM's zoom axis endpoints.
+    assert row('iCommandPlaneZoomOut').name=='IRADS FOV - Wide' and row('iCommandPlaneZoomIn').name=='IRADS FOV - Narrow'
+    assert row('iCommandPlaneZoomOut').cockpit_device_id==row('iCommandPlaneZoomIn').cockpit_device_id==7
     assert not any(r.down in [10008,10009] for r in rows)
-    assert row(10010).name=='DLIR MFD Overlay Toggle'
+    assert not any(r.name=='DLIR MFD Overlay Toggle' for r in rows)  # symbology follows IRADS power
     assert row(350).up==351 and row(350).name=='Weapon Release (Pickle)'
     assert not any(r.down==10103 for r in rows)
-    assert row(10118).name=='IRADS Laser Arm/Safe'
-    for command in range(10110,10115):
-        r=row(command); assert r.up==command and r.value_down==1 and r.value_up==0
-    assert not any(r.down in ['iCommandPlaneLaserRangerOnOff','iCommandPlaneZoomIn','iCommandPlaneZoomOut'] for r in rows)
+    # Master arm and laser arm are stock commands the EFM handles itself, so they carry no device id.
+    for command,name in [('iCommandPlaneAHCPMasterArm','Master Arm'),('iCommandPlaneAHCPMasterSafe','Master Safe'),('iCommandPlaneAHCPLaserArm','IRADS Laser Arm'),('iCommandPlaneAHCPLaserSafe','IRADS Laser Safe')]:
+        assert row(command).name==name and row(command).cockpit_device_id is None,command
+    assert not any(r.down in [10118,10122,10011,10117] for r in rows)
+    assert row('iCommandSensorReset').name=='IRADS Scan Return / Undesignate'
+    # The slew keys are stock Selecter commands released by Selecter Stop; the Displays device forwards them to 10110-10113.
+    for command in ['iCommandSelecterUp','iCommandSelecterDown','iCommandSelecterLeft','iCommandSelecterRight']:
+        r=row(command); assert r.up=='iCommandSelecterStop' and r.value_down==1 and r.value_up==0 and r.cockpit_device_id==7
+    r=row('iCommandPlane_HOTAS_TDC_depress_on'); assert r.up=='iCommandPlane_HOTAS_TDC_depress_off' and r.cockpit_device_id==7
+    assert not any(r.down in ['iCommandPlaneLaserRangerOnOff'] for r in rows)
     if device=='joystick':
         axes=list(result.axisCommands.values()); assert {r.action for r in axes}=={3001,3002,3003,3009,3010}; assert all(r.cockpit_device_id==7 for r in axes)
         assert not any(r.name=='Target Box Size' for r in axes)
@@ -75,6 +81,13 @@ vm.execute((mod/'Cockpit/Scripts/Systems/Displays.lua').read_text(encoding="utf-
 param('mainpower').set(1)
 for command in [10008,10009,10110,10111,10112,10113,10114]: vm.globals().SetCommand(command,1)
 assert events==[],events
+# Stock slew and depress commands reach the Displays device and are forwarded to the EFM's own IDs once.
+nc=vm.globals().native_commands
+for stock,efm,value in [(nc.SELECTER_UP,10112,1.0),(nc.SELECTER_DOWN,10113,1.0),(nc.SELECTER_LEFT,10110,1.0),(nc.SELECTER_RIGHT,10111,1.0),
+                        (nc.TDC_DEPRESS_ON,10114,1.0),(nc.TDC_DEPRESS_OFF,10114,0.0)]:
+    events.clear(); vm.globals().SetCommand(stock,1); assert events==[(None,efm,value)],(stock,events)
+events.clear(); vm.globals().SetCommand(nc.SELECTER_STOP,0); assert events==[(None,i,0.0) for i in (10112,10113,10110,10111)],events
+events.clear()
 # Exercise each profile action through the actual deployed SetCommand to the EFM.
 for action,efm in [(3001,10119),(3002,10120)]:
     for value in [-1,-.3,0,.3,1]:
@@ -86,7 +99,7 @@ for value,sent in [(-1,-1),(-.3,-1),(0,-1),(.3,1),(0,1),(1,1),(-.3,-1)]:
     assert events==[(None,10121,sent)], (value,events)
 print('PASS: all device-targeted axis actions forward signed/center values exactly once to custom EFM commands')
 events.clear()
-for command,axis in [(fov.WIDE,-1),(fov.NARROW,1)]:
+for command,axis in [(fov.WIDE,-1),(fov.NARROW,1),(nc.ZOOM_OUT,-1),(nc.ZOOM_IN,1)]:
     events.clear(); vm.globals().SetCommand(command,1)
     assert events==[(None,f['IRADS_ZOOM_AXIS'],axis)],(command,events)
     events.clear(); vm.globals().SetCommand(command,0)
@@ -94,9 +107,7 @@ for command,axis in [(fov.WIDE,-1),(fov.NARROW,1)]:
 print('PASS: FOV buttons select the wide and narrow ends of the EFM zoom axis once, on press only')
 events.clear()
 
-param('MFD_OVERLAY').set(1); vm.globals().SetCommand(10010,0); assert param('MFD_OVERLAY').get()==0
-vm.globals().SetCommand(10010,0); assert param('MFD_OVERLAY').get()==1
-print('PASS: deployed cockpit commands exercised; overlay toggles; no Lua zoom/slew redispatch')
+print('PASS: deployed cockpit commands exercised; no Lua zoom/slew redispatch')
 
 indicator=Path('Cockpit/Scripts/MFD/Indicator/MFD_indication_page.lua')
 page=(mod/indicator).read_text(encoding='utf-8')
@@ -149,6 +160,7 @@ static auto s_sensor_fill_camera=fillCamera;
 static void* s_camera_bridge_indicator=nullptr;
 static bool s_irads_power=true;
 static bool s_irads_lock_valid=false;
+static bool s_irads_homing=false;
 bool s_irads_ray_valid=false,s_irads_terrain_pending=false;double s_irads_render_ray[6]{},s_irads_request_ray[6]{};unsigned s_irads_terrain_sequence=0;double s_irads_terrain_wait=0,s_irads_ray_age=1e9;
 static void* g_av_tv_sensor_instance=sensor;
 static float s_irads_horizontal_axis=0, s_irads_vertical_axis=0;
@@ -241,11 +253,38 @@ int main(){
  handle_irads_command(irads_slew_left,0); assert(horizontal==0&&vertical==1);
  handle_irads_command(irads_slew_stop,1); assert(horizontal==0&&vertical==0&&designations==1);
  handle_irads_command(irads_slew_stop,0); assert(designations==1);
- handle_irads_command(irads_designation_clear,0); assert(clears==2);
+ // One switch designates and undesignates: with a lock held, the next press removes it instead of re-designating.
+ s_irads_lock_valid=true; int beforeClears=clears;
+ handle_irads_command(irads_slew_stop,1); assert(clears==beforeClears+1&&!s_irads_lock_valid&&designations==1);
+ handle_irads_command(irads_slew_stop,0); assert(designations==1);
+ s_irads_terrain_pending=true; beforeClears=clears;
+ handle_irads_command(irads_slew_stop,1); assert(clears==beforeClears+1&&!s_irads_terrain_pending&&designations==1);
+ handle_irads_command(irads_slew_stop,0);
+ // Sensor Reset drops the lock and homes the gimbal: the LOS (column 0 of the sensor pose) is driven back to the mount axes.
+ {
+  double mount[16]={1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+  auto setLos=[&](double azDeg,double elDeg){auto* sensorPose=as_sensor(g_av_tv_sensor_instance)->platform_world_pose.m;
+    const double az=azDeg/rad_to_deg,el=elDeg/rad_to_deg;
+    sensorPose[0]=std::cos(el)*std::cos(az);sensorPose[1]=std::sin(el);sensorPose[2]=std::cos(el)*std::sin(az);};
+  s_irads_lock_valid=true; beforeClears=clears; int beforeStops=stops;
+  assert(handle_irads_command(sensor_reset,1)); assert(clears==beforeClears+1&&!s_irads_lock_valid&&s_irads_homing&&stops==beforeStops+1);
+  setLos(20,10); service_irads_home(mount);   // right of and above home: slew left and down
+  assert(s_irads_homing&&horizontal<0&&vertical<0&&std::abs(lastNativeRate)>2.99);
+  setLos(-20,-10); stops=0; service_irads_home(mount);  // left of and below home: reverses, so the motors stop and re-issue
+  assert(s_irads_homing&&horizontal>0&&vertical>0&&stops==1);
+  setLos(0.1,-10); stops=0; service_irads_home(mount); // azimuth arrives while elevation still moves
+  assert(s_irads_homing&&stops==1&&vertical>0);
+  setLos(0.1,0.1); stops=0; service_irads_home(mount); // both on target: stop and finish
+  assert(!s_irads_homing&&stops==1&&horizontal==0&&vertical==0);
+  setLos(30,0); service_irads_home(mount); assert(!s_irads_homing&&horizontal==0); // not homing: nothing moves
+  handle_irads_command(sensor_reset,1); assert(s_irads_homing);
+  handle_irads_command(irads_slew_left,1); assert(!s_irads_homing); handle_irads_command(irads_slew_left,0); // pilot input takes over
+  handle_irads_command(sensor_reset,1); handle_irads_command(87,0); assert(!s_irads_homing); handle_irads_command(87,0);
+  setLos(0,0);
+ }
  assert(!handle_irads_command(irads_slew_horizontal_axis,std::numeric_limits<float>::quiet_NaN()));
  assert(!handle_irads_command(irads_zoom_axis,std::numeric_limits<float>::infinity()));
  assert(!handle_irads_command(10007,1)); // beacon must never operate IRADS
- assert(!handle_irads_command(10010,1)); // overlay is Lua-only
  handle_irads_command(87,0); assert(!s_irads_power);
  assert(!handle_irads_command(irads_slew_left,1));
  handle_irads_command(87,0); assert(s_irads_power&&horizontal==0&&vertical==0);
