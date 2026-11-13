@@ -54,7 +54,8 @@ static void log_command(int command, float value)
     {
         static unsigned int logged_inputs = 0;
         if (logged_inputs++ < input_log_limit)
-            log_format("IRADS input: command=%d value=%.4f sensor=%p", command, value, g_av_tv_sensor_instance);
+            log_format("IRADS input: command=%d value=%.4f sensor=%s", command, value,
+                       g_av_tv_sensor_instance ? "ok" : "missing");
     }
     if (command >= 10119 && command <= 10121 && std::isfinite(value) && std::abs(value) > axis_log_threshold)
     {
@@ -314,7 +315,8 @@ void service_irads_home(const double mount[16])
     const auto home_rate = [](double error_deg)
     {
         const double wanted = std::fabs(error_deg) * home_gain;
-        return wanted < home_min_rate ? home_min_rate : (wanted > slew_rate_at_min_zoom ? slew_rate_at_min_zoom : wanted);
+        return wanted < home_min_rate ? home_min_rate
+                                      : (wanted > slew_rate_at_min_zoom ? slew_rate_at_min_zoom : wanted);
     };
     if (h_dir < 0 && g_av_tv_sensor_slew_left)
         g_av_tv_sensor_slew_left(g_av_tv_sensor_instance, home_rate(error_azimuth));

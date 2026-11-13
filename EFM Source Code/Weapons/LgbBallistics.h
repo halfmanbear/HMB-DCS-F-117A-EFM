@@ -91,7 +91,8 @@ inline double fall_time(const Store& store, double drag_scale, const Atmosphere&
         return -1.0;
     const double area_per_mass = 0.25 * 3.14159265358979 * store.caliber_m * store.caliber_m / store.mass_kg;
     auto accel = [&](double y, double vx, double vy, double* ax, double* ay) {
-        double rho = 0.0, sound = 1.0;
+        double rho = 0.0;
+        double sound = 1.0;
         air_at(air, y, &rho, &sound);
         const double v = std::sqrt(vx * vx + vy * vy);
         const double d = v > 0.01 ? 0.5 * rho * v * drag_scale * drag_coefficient(store.cx_coeff, v / sound) *
@@ -100,11 +101,22 @@ inline double fall_time(const Store& store, double drag_scale, const Atmosphere&
         *ax = -d * vx;
         *ay = -gravity_mps2 - d * vy;
     };
-    double x = 0.0, y = release_alt_m, vx = horizontal_speed, vy = vertical_speed, t = 0.0;
+    double x = 0.0;
+    double y = release_alt_m;
+    double vx = horizontal_speed;
+    double vy = vertical_speed;
+    double t = 0.0;
     const double h = step_seconds;
     while (t < max_seconds)
     {
-        double ax1, ay1, ax2, ay2, ax3, ay3, ax4, ay4;
+        double ax1 = 0.0;
+        double ay1 = 0.0;
+        double ax2 = 0.0;
+        double ay2 = 0.0;
+        double ax3 = 0.0;
+        double ay3 = 0.0;
+        double ax4 = 0.0;
+        double ay4 = 0.0;
         accel(y, vx, vy, &ax1, &ay1);
         accel(y + 0.5 * h * vy, vx + 0.5 * h * ax1, vy + 0.5 * h * ay1, &ax2, &ay2);
         accel(y + 0.5 * h * (vy + 0.5 * h * ay1), vx + 0.5 * h * ax2, vy + 0.5 * h * ay2, &ax3, &ay3);
@@ -131,7 +143,8 @@ inline double fall_time(const Store& store, double drag_scale, const Atmosphere&
 // Drag scale that makes a fall from 2000 m at 40 m/s in the standard atmosphere take the store's char_time.
 inline double calibrate_drag_scale(const Store& store)
 {
-    double low = 0.0, high = 4.0;
+    double low = 0.0;
+    double high = 4.0;
     for (int i = 0; i < 40; ++i)
     {
         const double mid = 0.5 * (low + high);

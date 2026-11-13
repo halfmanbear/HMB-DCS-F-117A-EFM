@@ -31,7 +31,20 @@ constexpr double rudder_limit_deg = 25.0;  // Lets full pedal reach 8 deg of ste
 constexpr double min_control_speed_mps = 30.0;    // Floor for speed in the damper and turn-rate terms.
 constexpr double default_roll_inertia = 40000.0;  // kg m^2, when DCS has not yet reported one
 constexpr double max_pitch_law_elevon_scale = 8.0;
-constexpr double pitch_trim_stick_scale = 15.0;  // pitch trim units that add 1.0 to the elevator actuator input
+// Elevon degrees of trim or autopilot bias that add 1.0 to the elevator actuator input.
+constexpr double pitch_trim_stick_scale = 15.0;
+
+// Pilot pitch trim, TO 1F-117A-1 page 1-46. Autotrim mode (gear up, A/R closed): trim biases the 1 g
+// reference by up to +1.0 g nose-up and -0.4 g nose-down, slow at neutral and faster with more trim;
+// end to end takes 20 to 25 s. These rates give about 23 s.
+constexpr double autotrim_nose_up_nz = 1.0;
+constexpr double autotrim_nose_down_nz = 0.4;
+constexpr double autotrim_rate_at_neutral = 0.03;  // g/s
+constexpr double autotrim_rate_per_g = 0.1;        // extra g/s per g of trim already applied
+// Autotrim off: a conventional elevon trim, end to end in 6 to 9 s. The manual gives no angle.
+constexpr double manual_trim_travel_s = 7.5;
+constexpr double manual_trim_elevon_deg = 10.0;   // elevon at full trim, either way
+constexpr double manual_trim_elevon_rate = 10.0;  // deg/s, eases the bias in and out as the mode changes
 
 // Rudder limiter: the high-beta, high-yaw-rate rudder limit stays symmetric left vs right.
 constexpr double rudder_limiter_beta_scale = 7500.0;
@@ -56,24 +69,60 @@ double pitch_law_elevon_scale()
 // describes the flight controls as giving essentially dead-beat damping, so the elevons add more.
 // Nose-up pitch rate gives trailing edge down. In a steady pull the pitch law's integrator takes up
 // whatever the damper adds, so the elevon there is set by the airframe's own moments and the damper
-// costs no lift.
+// costs no lift. The pitch rate the hands-off 1 g needs at this attitude isn't damped, so rolling
+// inverted or into a bank doesn't unload while the integrator catches up.
 double pitch_damper_elevator_deg()
 {
     const double speed = (std::max)(total_velocity_mps, min_control_speed_mps);
-    const double added_cm = pitch_damper_cmq * mean_chord_m / (2.0 * speed) * pitch_rate_rps;
+    const double hands_off_rate = Flight_controls::one_g_pitch_rate_rps(roll_angle / radians_to_degrees,
+                                                                        pitch_angle / radians_to_degrees, speed);
+    const double added_cm = pitch_damper_cmq * mean_chord_m / (2.0 * speed) * (pitch_rate_rps - hands_off_rate);
     return added_cm / (std::min)(Aero::cm_per_elevator_deg, -1e-4);
+}
+
+// Pilot trim in g while autotrim is active: position +1 is full nose-up, -1 full nose-down.
+double autotrim_nz(double position)
+{
+    return position >= 0.0 ? position * autotrim_nose_up_nz : position * autotrim_nose_down_nz;
+}
+
+// Moves the pilot's pitch trim at the manual's rate while the switch is held (TO 1F-117A-1 page 1-46),
+// and eases the elevon bias that stands for it when autotrim is off.
+void update_pitch_trim(double dt, bool autotrim)
+{
+    if (pitch_trim_direction != 0)
+    {
+        if (autotrim)
+        {
+            double nz = autotrim_nz(pitch_trim_position);
+            nz += pitch_trim_direction * (autotrim_rate_at_neutral + autotrim_rate_per_g * std::abs(nz)) * dt;
+            nz = limit(nz, -autotrim_nose_down_nz, autotrim_nose_up_nz);
+            pitch_trim_position = nz >= 0.0 ? nz / autotrim_nose_up_nz : nz / autotrim_nose_down_nz;
+        }
+        else
+        {
+            pitch_trim_position =
+                limit(pitch_trim_position + pitch_trim_direction * 2.0 / manual_trim_travel_s * dt, -1.0, 1.0);
+        }
+    }
+    // Nose-up trim is trailing edge up, which is negative elevon.
+    const double elevon_target = autotrim ? 0.0 : -pitch_trim_position * manual_trim_elevon_deg;
+    const double step = manual_trim_elevon_rate * dt;
+    pitch_trim_elevon_deg += limit(elevon_target - pitch_trim_elevon_deg, -step, step);
 }
 
 void command_pitch_axis(double dt, double control_degradation)
 {
     Flight_controls::update_pitch_mode_auto_inputs(gear_down, air_refuel_door_open);
+    const bool autotrim = Flight_controls::pitch_autotrim_active();
+    update_pitch_trim(dt, autotrim);
     // Suspension contact only, with the gear down. The strut draw args in weight_on_wheels aren't used here.
     Flight_controls::update_ground_contact(
         gear_down > 0.5 && (suspension_wow[0] || suspension_wow[1] || suspension_wow[2]), dt);
 
     Flight_controls::Pitch_inputs pitch_in{};
     pitch_in.long_stick_input_command = Flight_controls::long_stick_input * control_degradation;
-    pitch_in.pitch_trim = 0.0;
+    pitch_in.trim_nz = autotrim ? autotrim_nz(pitch_trim_position) : 0.0;
     pitch_in.angle_of_attack_ind = alpha_deg;
     pitch_in.pitch_rate_deg_s = pitch_rate_rps * radians_to_degrees;
     pitch_in.az = az / standard_gravity_mps2;
@@ -87,7 +136,8 @@ void command_pitch_axis(double dt, double control_degradation)
     pitch_in.cx_total = Aero::cx_total;
     elevator_deg_commanded = -Flight_controls::fcs_pitch_controller(pitch_in, dt) * pitch_law_elevon_scale();
     elevator_deg_commanded += pitch_damper_elevator_deg();
-    elevator_deg = limit(elevator_deg_commanded + pitch_trim, elevator_nose_up_limit_deg, elevator_nose_down_limit_deg);
+    elevator_deg = limit(elevator_deg_commanded + autopilot_pitch_bias_deg + pitch_trim_elevon_deg,
+                         elevator_nose_up_limit_deg, elevator_nose_down_limit_deg);
 }
 
 void command_roll_axis(double dt, double control_degradation)
@@ -166,12 +216,15 @@ void update_autopilot_hold_state()
     if (g_damage.cockpit <= autopilot_cockpit_integrity)
     {
         alt_hold = horiz_hold = altroll_hold = 0;
+        autopilot_pitch_bias_deg = 0.0;
         return;
     }
     if (horiz_hold)
-        pitch_trim = horiz_hold_pitch_gain * pitch_angle;
+        autopilot_pitch_bias_deg = horiz_hold_pitch_gain * pitch_angle;
     else if (alt_hold || altroll_hold)
-        pitch_trim = limit(vspeed, -vertical_speed_hold_limit_mps, vertical_speed_hold_limit_mps);
+        autopilot_pitch_bias_deg = limit(vspeed, -vertical_speed_hold_limit_mps, vertical_speed_hold_limit_mps);
+    else
+        autopilot_pitch_bias_deg = 0.0;
     if (horiz_hold || altroll_hold)
         roll_trim = horiz_hold_roll_gain * roll_angle;
 }
@@ -189,7 +242,9 @@ void update_flight_control_commands(double dt, double control_degradation)
 double update_airframe_actuators(double dt)
 {
     elev_pos = static_cast<float>(Actuators::drive(
-        Actuators::elevator, Flight_controls::long_stick_input + (pitch_trim / pitch_trim_stick_scale), dt));
+        Actuators::elevator,
+        Flight_controls::long_stick_input + (autopilot_pitch_bias_deg + pitch_trim_elevon_deg) / pitch_trim_stick_scale,
+        dt));
 
     const double tail_integrity = (g_damage.left_tail + g_damage.right_tail) / 2.0;
     rudder_pos = static_cast<float>(Actuators::drive(Actuators::rudder, ped_input, dt) * tail_integrity);

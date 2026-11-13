@@ -99,8 +99,7 @@ static void locate_camera_indicator()
     s_our_ind = find_camera_indicator(global_ctx, &found_depth);
     if (s_our_ind)
     {
-        log_format("ForceIRADSIndicatorActive: found camera render target @ %p depth=%d via global ctx", s_our_ind,
-                   found_depth);
+        log_format("ForceIRADSIndicatorActive: found camera render target depth=%d via global ctx", found_depth);
         return;
     }
     if (binding_ctx != global_ctx)
@@ -108,15 +107,14 @@ static void locate_camera_indicator()
         s_our_ind = find_camera_indicator(binding_ctx, &found_depth);
         if (s_our_ind)
         {
-            log_format("ForceIRADSIndicatorActive: found camera render target @ %p depth=%d via binding ctx", s_our_ind,
-                       found_depth);
+            log_format("ForceIRADSIndicatorActive: found camera render target depth=%d via binding ctx", found_depth);
             return;
         }
     }
     if (!s_indicator_search_logged)
     {
-        log_format("ForceIRADSIndicatorActive: no indicator found yet (global=%p binding=%p)",
-                   static_cast<void*>(global_ctx), static_cast<void*>(binding_ctx));
+        log_format("ForceIRADSIndicatorActive: no indicator found yet (global=%s binding=%s)",
+                   global_ctx ? "ok" : "missing", binding_ctx ? "ok" : "missing");
         s_indicator_search_logged = true;
     }
 }
@@ -229,8 +227,8 @@ static bool install_irads_camera_bridge(void* indicator)
     copy[slot + 1] = reinterpret_cast<void*>(&irads_get_camera);
     *reinterpret_cast<void***>(indicator) = copy + 1;
     s_camera_bridge_indicator = indicator;
-    log_format("IRADS camera bridge installed: indicator=%p slot=%zu sensor=%p", indicator, slot,
-               g_av_tv_sensor_instance);
+    log_format("IRADS camera bridge installed: indicator=%s slot=%zu sensor=%s", indicator ? "ok" : "missing", slot,
+               g_av_tv_sensor_instance ? "ok" : "missing");
     return true;
 }
 

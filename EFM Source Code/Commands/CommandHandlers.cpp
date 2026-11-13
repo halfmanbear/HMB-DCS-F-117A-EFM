@@ -38,9 +38,16 @@ bool handle_roll_command(int command, float value)
 
 bool handle_pitch_command(int command, float value)
 {
+    // DCS repeats trim up/down every frame while the switch is held, then sends trim_stop. The control laws
+    // move the trim at the manual's rate while a direction is held.
     if (command == trim_up || command == trim_down)
     {
-        F117::pitch_trim += command == trim_up ? -pitch_trim_step : pitch_trim_step;
+        F117::pitch_trim_direction = command == trim_up ? 1 : -1;
+        return true;
+    }
+    if (command == trim_stop)
+    {
+        F117::pitch_trim_direction = 0;
         return true;
     }
     double demand;

@@ -94,8 +94,7 @@ constexpr double ao_a_filter_rate = 35.0;
 // Real F-117: full aft stick = +7g, full forward = -2g.
 constexpr double nz_max = 7.0;
 constexpr double nz_min = -2.0;
-constexpr double nz_stick_deadband = 0.05;
-constexpr double nz_reference_track_rate = 2.0;
+constexpr double nz_reference_track_rate = 2.0;  // 1/s, how fast the reference eases to 1 g plus trim
 // Proportional gain on Nz error (scaled by 1/qbar at runtime).
 constexpr double nz_error_gain = 1.7;
 // Pitch-rate blend: washed-out pitch rate is blended INTO the Nz feedback before the
@@ -139,17 +138,6 @@ constexpr double speed_stability_ao_a_threshold = 7.0;  // deg
 constexpr double speed_stability_gain = 0.3;            // deg per deg AoA excess
 constexpr double pitch_servo_natural_frequency = 52.0;
 constexpr double pitch_servo_damping_ratio = 1.5;
-
-// Gain on the gravity feed-forward that updates nz_reference each frame.
-// Higher = nz_reference follows rapid bank/pitch changes more aggressively;
-// lower = less brief unload/pitch-down during fast roll recoveries, but more gravity-comp lag.
-constexpr double gravity_feed_forward_gain = 1.0;
-
-// When the stick is in the deadband and nz_reference is BELOW the gravity component
-// (e.g. after being clamped at kNzMin by the feed-forward during an aggressive push),
-// snap back up at this faster rate so nz_cmd recovers immediately on stick release
-// rather than lagging behind for ~0.5 s at the -3 G floor.
-constexpr double nz_reference_snap_rate = 20.0;
 
 // Force-to-Nz schedule: target G commands at the piecewise-linear breakpoints.
 // Changing a breakpoint force (above) or a target G (here) automatically

@@ -76,7 +76,10 @@ inline constexpr double mean_chord_m = 6.422;
 
 // Pilot requests, commanded surfaces and actual surface feedback.
 inline constexpr double aileron_full_scale_deg = 25.5;  // Aileron deflection that aileron_PCT = 1 stands for.
-inline double pitch_trim{};
+inline double pitch_trim_position{};       // Pilot pitch trim: -1 full nose-down to +1 full nose-up.
+inline int pitch_trim_direction{};         // Trim switch held: +1 nose-up, -1 nose-down, 0 released.
+inline double pitch_trim_elevon_deg{};     // Elevon bias from pilot trim while autotrim is off.
+inline double autopilot_pitch_bias_deg{};  // Autopilot hold output, elevon degrees added after the pitch law.
 inline double roll_trim{};
 inline double yaw_trim{};
 inline double roll_cmd{};

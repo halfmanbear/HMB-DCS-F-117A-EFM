@@ -56,7 +56,8 @@ double elevator_deg_commanded=0,aileron_deg_commanded=0,rudder_deg_commanded=0;
 double throttle_side_input[2]={};
 float elev_pos=0,rudder_pos=0;
 double elevator_pct=0,aileron_pct=0,rudder_pct=0,throttle_state=0,rolling_friction=0,wheel_brake_command=0;
-double pitch_trim=0,roll_trim=0,yaw_trim=0,tailhook_command=0,tailhook_pos=0,dragchute_command=0,dragchute=0;
+int pitch_trim_direction=0;
+double pitch_trim_position=0,pitch_trim_elevon_deg=0,autopilot_pitch_bias_deg=0,roll_trim=0,yaw_trim=0,tailhook_command=0,tailhook_pos=0,dragchute_command=0,dragchute=0;
 constexpr int weapon_bay_count=2;float bay_cmd[weapon_bay_count]={},bay_state[weapon_bay_count]={};
 namespace Engine {struct Engine_state {double n2=0,thrust_fraction_of_max=0;};}
 Engine::Engine_state engines[2];
@@ -111,7 +112,7 @@ void check_mass(double expected) {
 }
 void dirty_session() {
     alt_hold=altroll_hold=horiz_hold=1;air_refuel_door_open=true;
-    pitch_trim=roll_trim=yaw_trim=3;surface_height_valid=altitude_valid=true;
+    pitch_trim_position=pitch_trim_elevon_deg=autopilot_pitch_bias_deg=roll_trim=yaw_trim=3;pitch_trim_direction=1;surface_height_valid=altitude_valid=true;
     Actuators::drag_chute.position=1;Actuators::gear.position=.4;Actuators::weapon_bay[0].position=Actuators::weapon_bay[1].position=1;bay_cmd[0]=bay_cmd[1]=bay_state[0]=bay_state[1]=1;
     thrust_n=80000;elev_pos=rudder_pos=1;
     Flight_controls::long_stick_input=1;fuel_mass_in_dcs=3;
@@ -119,7 +120,7 @@ void dirty_session() {
 }
 void check_clean_session() {
     assert(alt_hold==0&&altroll_hold==0&&horiz_hold==0&&!air_refuel_door_open);
-    assert(pitch_trim==0&&roll_trim==0&&yaw_trim==0);
+    assert(pitch_trim_position==0&&pitch_trim_elevon_deg==0&&autopilot_pitch_bias_deg==0&&pitch_trim_direction==0&&roll_trim==0&&yaw_trim==0);
     assert(Actuators::drag_chute.position==0&&Actuators::weapon_bay[0].position==0&&Actuators::weapon_bay[1].position==0&&bay_cmd[0]==0&&bay_cmd[1]==0&&bay_state[0]==0&&bay_state[1]==0);
     assert(!Actuators::initialized&&!sim_initialized&&Flight_controls::long_stick_input==0);
     assert(!g_autothrottle.engaged()&&!g_paars.engaged());

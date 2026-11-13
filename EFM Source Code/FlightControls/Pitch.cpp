@@ -121,34 +121,19 @@ double fcs_pitch_controller_force_command(double long_stick_input_command, doubl
     return stick_command_pos_filtered;
 }
 
-// The 1G reference follows gravity's component along the load-factor axis while the stick is
-// centred, then feeds gravity forward as the aircraft rolls and pitches.
-void update_nz_reference(double stick_command_pos, double gravity_component, double roll_rad, double pitch_rad,
-                         const Pitch_inputs& in, double dt)
+// 1 g auto pitch trim (TO 1F-117A-1 pages 1-45 and 6-1). Hands off, the law holds +1 g on the
+// accelerometer whatever the attitude, biased by the pilot's trim; it does not compensate for bank,
+// so a level turn needs aft stick and, rolled inverted, the aircraft pulls toward the ground.
+// PAARS replaces the reference while engaged; after release it eases back to 1 g plus trim.
+void update_nz_reference(const Pitch_inputs& in, double dt)
 {
-    if (std::fabs(stick_command_pos) < cfg::nz_stick_deadband)
-    {
-        const double gravity_error = gravity_component - nz_reference;
-        const double track_rate = (gravity_error > 0.0) ? cfg::nz_reference_snap_rate : cfg::nz_reference_track_rate;
-        const double reference_blend = 1.0 - std::exp(-track_rate * dt);
-        nz_reference += gravity_error * reference_blend;
-    }
-
-    {
-        const double roll_rate_rad_s = in.roll_rate_deg_s * (pi / 180.0);
-        const double pitch_rate_rad_s = in.pitch_rate_deg_s * (pi / 180.0);
-        const double gravity_rate = (-std::sin(roll_rad) * std::cos(pitch_rad) * roll_rate_rad_s) +
-                                    (-std::cos(roll_rad) * std::sin(pitch_rad) * pitch_rate_rad_s);
-        nz_reference += cfg::gravity_feed_forward_gain * gravity_rate * dt;
-        nz_reference = limit(nz_reference, cfg::nz_min, cfg::nz_max);
-    }
-
-    // PAARS commands the load factor; pilot stick still adds on top, and on release
-    // the reference continues from the last commanded value.
     if (recovery_nz_active)
     {
         nz_reference = limit(recovery_nz, cfg::nz_min, cfg::nz_max);
+        return;
     }
+    const double target = limit(1.0 + in.trim_nz, cfg::nz_min, cfg::nz_max);
+    nz_reference += (target - nz_reference) * (1.0 - std::exp(-cfg::nz_reference_track_rate * dt));
 }
 
 bool gear_is_down()
@@ -299,7 +284,7 @@ double speed_stability_correction(double velocity_mps)
 
 double fcs_pitch_controller_step(const Pitch_inputs& in, double dt, bool reset_filters)
 {
-    double stick_command_pos = fcs_pitch_controller_force_command(in.long_stick_input_command, in.pitch_trim, dt);
+    double stick_command_pos = fcs_pitch_controller_force_command(in.long_stick_input_command, 0.0, dt);
 
     // AAR: reduce pitch stick position gain (per Loschke: "stick position input gain is decreased")
     if (pitch_mode_air_refuel_door_open)
@@ -319,11 +304,13 @@ double fcs_pitch_controller_step(const Pitch_inputs& in, double dt, bool reset_f
     const double gravity_component = std::cos(roll_rad) * std::cos(pitch_rad);
     const double nz_measured = az_filtered + gravity_component;
 
-    update_nz_reference(stick_command_pos, gravity_component, roll_rad, pitch_rad, in, dt);
+    update_nz_reference(in, dt);
 
     const double nz_cmd = limit(nz_reference + stick_command_pos, cfg::nz_min, cfg::nz_max);
-    const Nz_law_output law =
-        nz_command_law(nz_cmd, nz_measured, in.dyn_pressure_pa, pitch_rate_rad_s, dt, reset_filters);
+    // The pitch-rate blend leaves out the rate the hands-off 1 g needs at this attitude, as the damper does.
+    const double hands_off_rate = one_g_pitch_rate_rps(roll_rad, pitch_rad, in.velocity_mps);
+    const Nz_law_output law = nz_command_law(nz_cmd, nz_measured, in.dyn_pressure_pa,
+                                             pitch_rate_rad_s - hands_off_rate, dt, reset_filters);
 
     double pitch_command_total = law.command;
     pitch_command_total = apply_aoa_limiter(pitch_command_total, in, dt, reset_filters);
@@ -398,6 +385,11 @@ void update_pitch_mode_auto_inputs(double gear_down, bool air_refuel_door_open)
 {
     pitch_mode_gear_down = gear_down;
     pitch_mode_air_refuel_door_open = air_refuel_door_open;
+}
+
+bool pitch_autotrim_active()
+{
+    return !gear_is_down() && !pitch_mode_air_refuel_door_open;
 }
 
 double fcs_pitch_controller(const Pitch_inputs& in, double dt)

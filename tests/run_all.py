@@ -28,6 +28,7 @@ TESTS = [
     ("engine_start_regression.py", OUT_ONLY, None),
     ("lerx_vortex_regression.py", OUT_ONLY, None),
     ("paars_regression.py", OUT_ONLY, None),
+    ("pitch_trim_regression.py", OUT_ONLY, None),
     ("release_zone_regression.py", OUT_ONLY, None),
     ("simulation_state_regression.py", OUT_ONLY, None),
     ("jdam_envelope_regression.py", lambda n: [], None),

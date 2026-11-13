@@ -99,9 +99,9 @@ void resolve()
             GetProcAddress(h_w, "?registerToKill@wSimCalendar@@SAXPEAVSuicide@@@Z"));
     }
     s_resolved = s_create_laser_spot && s_set_point && s_register_to_kill && s_spot_suicide_vtbl;
-    log_format("WeaponsInterop: create_laser_spot=%p set_point=%p registerToKill=%p woSpot::Suicide vtbl=%p",
-               reinterpret_cast<void*>(s_create_laser_spot), reinterpret_cast<void*>(s_set_point),
-               reinterpret_cast<void*>(s_register_to_kill), s_spot_suicide_vtbl);
+    log_format("WeaponsInterop: create_laser_spot=%s set_point=%s registerToKill=%s woSpot::Suicide table=%s",
+               s_create_laser_spot ? "ok" : "missing", s_set_point ? "ok" : "missing",
+               s_register_to_kill ? "ok" : "missing", s_spot_suicide_vtbl ? "ok" : "missing");
 }
 
 Cockpit_interop::Cc_cockpit_context_layout* context()
@@ -224,8 +224,8 @@ bool resolve_tof()
         s_gbu_tof =
             reinterpret_cast<Pfn_gbu_tof>(GetProcAddress(h, "?getGBU24TOF@TOFEstimator@@QEAANNNNNN@Z"));
     }
-    log_format("WeaponsInterop: tof predictor ctor=%p call=%p", reinterpret_cast<void*>(s_tof_ctor),
-               reinterpret_cast<void*>(s_gbu_tof));
+    log_format("WeaponsInterop: tof predictor ctor=%s call=%s", s_tof_ctor ? "ok" : "missing",
+               s_gbu_tof ? "ok" : "missing");
     return s_tof_ctor && s_gbu_tof;
 }
 
@@ -267,8 +267,8 @@ bool resolve_jdam_tof()
         s_jdam_tof = reinterpret_cast<Pfn_jdam_tof>(
             GetProcAddress(h, "?getJDAMTOF@LARBuilder@@QEAANNNNNNNNNNNW4JDAM_Type@1@@Z"));
     }
-    log_format("WeaponsInterop: jdam tof predictor ctor=%p call=%p", reinterpret_cast<void*>(s_jdam_ctor),
-               reinterpret_cast<void*>(s_jdam_tof));
+    log_format("WeaponsInterop: jdam tof predictor ctor=%s call=%s", s_jdam_ctor ? "ok" : "missing",
+               s_jdam_tof ? "ok" : "missing");
     return s_jdam_ctor && s_jdam_tof;
 }
 
@@ -443,8 +443,8 @@ void update_laser(bool want_on, const double world_point[3], unsigned int code)
     }
     if (s_suicide_offset < 0)
         s_suicide_offset = find_suicide_offset(s_spot);
-    log_format("WeaponsInterop: laser spot %p created owner=%u code=%u suicideOffset=0x%llX", s_spot, owner_id, code,
-               static_cast<long long>(s_suicide_offset));
+    log_format("WeaponsInterop: laser spot created owner=%u code=%u expiry link=%s", owner_id, code,
+               s_suicide_offset >= 0 ? "ok" : "missing");
 }
 
 bool is_laser_firing()

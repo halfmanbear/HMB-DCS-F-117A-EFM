@@ -289,7 +289,7 @@ void ed_fm_set_command(int command, float value)
         if (handle(command))
             return;
     if (command == reset_trim)
-        F117::pitch_trim = F117::roll_trim = F117::yaw_trim = 0.0;
+        F117::pitch_trim_position = F117::roll_trim = F117::yaw_trim = 0.0;
 }
 
 bool ed_fm_change_mass(double& delta_mass, double& delta_mass_pos_x, double& delta_mass_pos_y, double& delta_mass_pos_z,
@@ -581,7 +581,9 @@ void reset_session_controls()
     F117::Flight_controls::reset_runtime_state();
     F117::alt_hold = F117::altroll_hold = F117::horiz_hold = 0;
     F117::air_refuel_door_open = false;
-    F117::pitch_trim = F117::roll_trim = F117::yaw_trim = 0.0;
+    F117::pitch_trim_position = F117::pitch_trim_elevon_deg = F117::autopilot_pitch_bias_deg = 0.0;
+    F117::roll_trim = F117::yaw_trim = 0.0;
+    F117::pitch_trim_direction = 0;
     F117::ped_input = F117::wheel_brake_command = 0.0;
     F117::nws_authority_held = false;
     F117::nose_wheel_yaw_range_rad = F117::nose_wheel_yaw_low_rad;

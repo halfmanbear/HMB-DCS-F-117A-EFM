@@ -3,7 +3,6 @@
 // Pilot command handlers (flight controls, engines, actuators, autopilot, A/T and PAARS) and their per-frame updates.
 
 inline constexpr double roll_trim_step = 0.02;
-inline constexpr double pitch_trim_step = 0.05;
 inline constexpr double yaw_trim_step = 0.05;
 inline constexpr double throttle_step = 0.5;
 // Fraction of wheel_brake_moment_max in FM/config.lua. Set by the landing distances in TO 1F-117A-1

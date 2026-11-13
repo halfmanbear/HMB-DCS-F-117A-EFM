@@ -35,6 +35,7 @@ constexpr int reset_trim = 97;
 constexpr int ruddertrim_left = 98;
 constexpr int ruddertrim_right = 99;
 constexpr int fbw_override = 121;
+constexpr int trim_stop = 215;  // Sent when any trim switch is released.
 
 // Engine switches and throttle steps.
 constexpr int engines_on = 309;
@@ -105,7 +106,8 @@ constexpr int irads_slew_right = 10111;
 constexpr int irads_slew_up = 10112;
 constexpr int irads_slew_down = 10113;
 constexpr int irads_slew_stop = 10114;
-constexpr int sensor_reset = 1635;  // iCommandSensorReset: undesignate and return the gimbal to its mounted forward axis
+// iCommandSensorReset: undesignate and return the gimbal to its mounted forward axis.
+constexpr int sensor_reset = 1635;
 constexpr int irads_slew_horizontal_axis = 10119;
 constexpr int irads_slew_vertical_axis = 10120;
 constexpr int irads_zoom_axis = 10121;
