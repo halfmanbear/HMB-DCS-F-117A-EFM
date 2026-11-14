@@ -40,13 +40,16 @@ code = r"""
 #include <cstdio>
 namespace F117 {
 double delta_time=0,alpha_deg=0,beta_deg=0,total_velocity_mps=0,ambient_density_kg_per_m3=1.225,altitude_m=0;
+double az=0,pitch_angle=0,roll_angle=0;
 bool weight_on_wheels=false;
 }
 """ + structs + lerx_unit + r"""
 
 const float kNoseX=10.02f,kLength=19.43f,kApexX=9.95f,kSemispan=0.418f,kTipX=-6.3f,kTeX=-7.0f;
 
-LERX_vortex fly(unsigned idx,double aoa,double v,double beta=0,double rho=1.225,double alt=0){
+// nz defaults to a hard pull; wings level, so the body acceleration is (nz - 1) g.
+LERX_vortex fly(unsigned idx,double aoa,double v,double beta=0,double rho=1.225,double alt=0,double nz=4){
+    F117::az=(nz-1)*9.80665;F117::pitch_angle=0;F117::roll_angle=0;
     F117::alpha_deg=aoa;F117::total_velocity_mps=v;F117::beta_deg=beta;
     F117::ambient_density_kg_per_m3=rho;F117::altitude_m=alt;F117::weight_on_wheels=false;
     LERX_vortex o;assert(ed_fm_LERX_vortex_update(idx,o));return o;
@@ -78,10 +81,14 @@ int main(){
     for(double aoa:{8.0,9.0,10.0}){
         for(unsigned idx:{0u,1u}){
             o=fly(idx,aoa,160);
-            assert(o.version==1&&o.spline_points_count==12&&o.opacity>0&&o.opacity<0.25f);
+            assert(o.version==1&&o.spline_points_count==20&&o.opacity>0&&o.opacity<=0.5f);
             const auto* p=o.spline;
             assert(p[0].pos[0]>8.0f&&p[0].opacity<0.01f);
-            assert(p[11].pos[0]<kTeX);
+            // Short, straight tail: ends within 1 m behind the tip trailing edge, faded
+            // out, with no bend up into the freestream.
+            const auto& tail=p[o.spline_points_count-1];
+            assert(tail.pos[0]<kTeX&&tail.pos[0]>kTeX-1.0f&&tail.opacity<0.01f);
+            assert(std::fabs(tail.vel[1])<1e-3f);
             for(unsigned i=0;i<o.spline_points_count;++i){
                 const float x=p[i].pos[0],z=p[i].pos[2]*(idx==0?-1.f:1.f);
                 const float s=kSemispan*(kApexX-std::max(x,kTipX));
@@ -96,20 +103,62 @@ int main(){
         }
     }
 
-    // The overwing vapour cloud takes over from 8 deg and is at full strength by
-    // 11.5 deg, so the vortices fade out over that range and are gone above it.
-    assert(fly(0,8,150).opacity>fly(0,10,150).opacity&&fly(0,10,150).opacity>fly(0,11,150).opacity);
-    for(double aoa:{11.5,15.0,20.0,30.0})
-        for(unsigned idx:{0u,1u})
-            assert(fly(idx,aoa,150).spline==nullptr);
     assert(burst_x(fly(0,10,150))<-9.0f);                  // far downstream, off the end of the spline
+
+    // Moderate pull: thin streaks. Hard, fast pull: a wide, billowing, denser tube
+    // whose radius is 15-22% of the local semispan, still clear of the skin.
+    auto mean_rel_radius=[](const LERX_vortex& o,float x_aft){
+        float sum=0;int n=0;
+        for(unsigned i=0;i<o.spline_points_count;++i){
+            const float x=o.spline[i].pos[0];
+            if(x>5.0f||x<x_aft)continue;
+            sum+=o.spline[i].radius/(kSemispan*(kApexX-std::max(x,kTipX)));++n;
+        }
+        return sum/n;
+    };
+    const LERX_vortex thin=fly(0,8.5,140);
+    const float thin_r=mean_rel_radius(thin,kTeX);
+    assert(thin_r>0.05f&&thin_r<0.09f);
+    // Near the AoA limit the overwing cloud replaces the vortices: they fade
+    // from 10 deg and are gone by 11 deg.
+    assert(fly(0,10,180).opacity>fly(0,10.5,180).opacity&&fly(0,10.5,180).spline!=nullptr);
+    for(double aoa:{11.0,11.5,12.6,14.0,20.0,30.0})
+        for(unsigned idx:{0u,1u})
+            assert(fly(idx,aoa,180).spline==nullptr);
+    // Below about 3 g (a slow, high-AoA pull, no overwing cloud) the vortices stay.
+    for(double aoa:{11.5,12.6,14.0})
+        assert(fly(0,aoa,130,0,1.225,0,2.5).spline!=nullptr&&fly(0,aoa,130,0,1.225,0,2.5).opacity>fly(0,10,130,0,1.225,0,2.5).opacity*0.9f);
+    assert(fly(0,12,130,0,1.225,0,3.0).opacity<fly(0,12,130,0,1.225,0,2.5).opacity);
+    assert(fly(0,12,130,0,1.225,0,3.3).spline==nullptr);
+    for(double t:{0.0,0.4,1.3,2.9}){
+        F117::delta_time=t;
+        const LERX_vortex hard=fly(0,9.8,175);
+        F117::delta_time=0;
+        const float bx=burst_x(hard);
+        const float hard_r=mean_rel_radius(hard,std::max(bx,kTeX));
+        assert(hard_r>0.15f&&hard_r<0.24f&&hard_r>2.0f*thin_r);
+        assert(hard.opacity>1.7f*thin.opacity&&hard.opacity<=0.5f);
+        float rmin=10,rmax=0;                                // billowing, not a smooth cone
+        for(unsigned i=0;i<hard.spline_points_count;++i){
+            const auto& q=hard.spline[i];
+            const float x=q.pos[0];
+            if(x>5.0f||x<std::max(bx,kTeX))continue;
+            const float rel=q.radius/(kSemispan*(kApexX-std::max(x,kTipX)));
+            rmin=std::min(rmin,rel);rmax=std::max(rmax,rel);
+            assert(q.pos[1]-q.radius>-0.26f);              // underside clear of the skin
+            const float z=-q.pos[2],s=kSemispan*(kApexX-std::max(x,kTipX));
+            assert(z>0.76f*s&&z<0.92f*s);
+            assert(q.opacity>0.3f);
+        }
+        assert(rmax>1.25f*rmin);
+    }
 
     // Vapour needs suction: a slow approach shows less than a fast, loaded turn.
     assert(fly(0,8,75).opacity<0.6f*fly(0,8,180).opacity);
     // The windward vortex is stronger and breaks down further forward.
     LERX_vortex wl=fly(0,9,150,4),wr=fly(1,9,150,4);
     assert(wr.opacity>wl.opacity&&burst_x(wr)>burst_x(wl));
-    std::puts("PASS: LE vortex path, surface clearance, opacity, condensation, cloud handover and sideslip asymmetry");
+    std::puts("PASS: LE vortex path, surface clearance, opacity, condensation, thin-to-billowing growth, cloud handover above 3 g and sideslip asymmetry");
 }
 """
 p = out / 'lerx_vortex_tests.cpp'
