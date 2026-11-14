@@ -111,20 +111,21 @@ int main() {
     ed_fm_set_internal_fuel(123);assert(ed_fm_get_internal_fuel()==123);
     ed_fm_set_external_fuel(1,50,1,2,3);assert(ed_fm_get_external_fuel()==0);
     assert(ed_fm_get_internal_fuel()==123);
-    // A small load sits in the feed tanks: one piece per tank, at the tank, with its own inertia.
+    // A small load sits in the feed tanks (4A to 4D, each split at its baffle): one piece per tank, at the tank, with its own inertia.
     {
         using namespace Fuel_tanks;
-        double total=0;int pieces=0;
+        double total=0;int pieces=0,first_feed=0;
+        while(tanks[first_feed].group!=left_feed)++first_feed;
         while(ed_fm_change_mass(x,px,py,pz,y,z,parameter)){
-            const Tank& t=tanks[left_feed+pieces];
-            assert(px==t.x&&py==t.y&&pz==t.z&&std::abs(x-61.5)<1e-9);
+            const Tank& t=tanks[first_feed+pieces];
+            assert((t.group==left_feed||t.group==right_feed)&&px==t.x&&py==t.y&&pz==t.z&&std::abs(x-123.0/8)<1e-9);
             assert(std::abs(y-x*own_roll_inertia_per_kg(t))<1e-9&&std::abs(parameter-x*own_pitch_inertia_per_kg(t))<1e-9);
             total+=x;++pieces;
         }
-        assert(pieces==2&&std::abs(total-123)<1e-9&&x==0&&px==0&&y==0);
+        assert(pieces==8&&std::abs(total-123)<1e-9&&x==0&&px==0&&y==0);
         ed_fm_refueling_add_fuel(10);assert(ed_fm_get_internal_fuel()==133);
         total=0;pieces=0;while(ed_fm_change_mass(x,px,py,pz,y,z,parameter)){total+=x;++pieces;}
-        assert(pieces==2&&std::abs(total-10)<1e-9);
+        assert(pieces==8&&std::abs(total-10)<1e-9);
     }
 
     assert(!handle_autopilot_command(-1));
