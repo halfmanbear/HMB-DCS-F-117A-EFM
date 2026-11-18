@@ -43,7 +43,7 @@ bool inject_irads_sensor_early()
         return false;
 
     Cc_cockpit_context_layout* ctx = as_context(*g_contexts_ptr_addr);
-    log_format("InjectIRADSSensor_Early: contexts_ptr value = %p", static_cast<void*>(ctx));
+    log_format("InjectIRADSSensor_Early: context %s", ctx ? "ok" : "missing");
     if (!ctx)
     {
         log_message("InjectIRADSSensor_Early: context NULL - too early, will retry in Late.");
@@ -79,7 +79,7 @@ bool inject_irads_sensor_early()
         }
         set_platform(mem, nullptr);  // native null-parent path establishes root=self
         g_av_tv_sensor_instance = mem;
-        log_format("InjectIRADSSensor_Early: avTVSensor constructed @ %p", mem);
+        log_message("InjectIRADSSensor_Early: avTVSensor constructed");
     }
 
     s_added = true;
@@ -135,8 +135,7 @@ static void select_flir_render_pass()
         return;
     }
     *effect = ir_screen_condition_flir;
-    log_format("InjectIRADSSensor_Late: preffered_IR_effect@%p set to %d", static_cast<void*>(effect),
-               ir_screen_condition_flir);
+    log_format("InjectIRADSSensor_Late: preffered_IR_effect set to %d", ir_screen_condition_flir);
 }
 
 // Zoom is motor-driven and has its own preset list. Initialize the native zoom motor, then
@@ -172,9 +171,7 @@ static void log_context_indicators(const char* label, Cc_cockpit_context_layout*
         log_format("InjectIRADSSensor_Late: %s ctx is NULL", label);
         return;
     }
-    log_format("InjectIRADSSensor_Late: %s ctx=%p indicators [%p .. %p] count=%zu children=%zu", label,
-               static_cast<void*>(context), static_cast<void*>(context->indicators.begin),
-               static_cast<void*>(context->indicators.end),
+    log_format("InjectIRADSSensor_Late: %s ctx indicators=%zu children=%zu", label,
                pointer_span(context->indicators.begin, context->indicators.end),
                pointer_span(context->child_contexts.begin, context->child_contexts.end));
 }
@@ -198,8 +195,8 @@ bool inject_irads_sensor_late()
 
     Cc_cockpit_context_layout* ctx = get_global_context();
     Cc_cockpit_context_layout* binding_ctx = get_binding_context();
-    log_format("InjectIRADSSensor_Late: global ctx=%p  binding ctx=%p", static_cast<void*>(ctx),
-               static_cast<void*>(binding_ctx));
+    log_format("InjectIRADSSensor_Late: global ctx=%s  binding ctx=%s", ctx ? "ok" : "missing",
+               binding_ctx ? "ok" : "missing");
     if (!ctx && !binding_ctx)
     {
         log_message("InjectIRADSSensor_Late: no cockpit context.");

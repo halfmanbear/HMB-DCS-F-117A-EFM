@@ -17,6 +17,7 @@ void reset_irads_session()
     s_irads_keyboard_horizontal = s_irads_keyboard_vertical = 0.0f;
     s_irads_horizontal_axis = 0.0f;
     s_irads_vertical_axis = 0.0f;
+    s_irads_homing = false;
     s_irads_zoom_level = 1;
     s_irads_power = true;
     reset_camera_bridge();

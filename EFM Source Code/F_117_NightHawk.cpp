@@ -26,6 +26,8 @@
 #include "Weapons/Ccrp.h"              // Release solution and cues
 #include "Weapons/ReleaseSequence.h"   // Bays, pickle and laser
 #include "Diagnostics/EngineLog.h"     // Engine and yaw debug CSV
+#include "Diagnostics/MassLog.h"       // Mass-state log
+#include "Systems/FuelTanks.h"         // Where the fuel is
 #include "FlightModel/AirData.h"       // Air-relative speed, Mach, dynamic pressure
 #include "FlightModel/ControlLaws.h"   // Control-law drive and actuators
 #include "Engine/Engine.h"             // Installed propulsion
@@ -215,6 +217,7 @@ void ed_fm_set_atmosphere(double altitude, double temperature, double, double de
 void ed_fm_set_current_mass_state(double mass_kg, double cg_x, double cg_y, double cg_z, double roll_inertia,
                                   double yaw_inertia, double pitch_inertia)
 {
+    mass_log_state(mass_kg, cg_x, cg_y, cg_z, roll_inertia, yaw_inertia, pitch_inertia);
     center_of_gravity = {cg_x, cg_y, cg_z};
     inertia = {roll_inertia, yaw_inertia, pitch_inertia};
     // Preserve the controller's calibrated mass-to-load scale during this source replacement.
@@ -289,30 +292,47 @@ void ed_fm_set_command(int command, float value)
         if (handle(command))
             return;
     if (command == reset_trim)
-        F117::pitch_trim = F117::roll_trim = F117::yaw_trim = 0.0;
+        F117::pitch_trim_position = F117::roll_trim = F117::yaw_trim = 0.0;
 }
 
 bool ed_fm_change_mass(double& delta_mass, double& delta_mass_pos_x, double& delta_mass_pos_y, double& delta_mass_pos_z,
                        double& delta_mass_moment_of_inertia_x, double& delta_mass_moment_of_inertia_y,
                        double& delta_mass_moment_of_inertia_z)
 {
-    // DCS repeatedly drains this callback. Acknowledge each fuel delta exactly once.
-    const double pending_kg = F117::internal_fuel - F117::fuel_mass_in_dcs;
-    const bool report = std::isfinite(pending_kg) && std::abs(pending_kg) >= 0.01;
-    delta_mass = report ? pending_kg : 0.0;
-    delta_mass_pos_x = 0.0;
-    delta_mass_pos_z = 0.0;
-    delta_mass_pos_y = report ? 0.1 : 0.0;  // Empty-aircraft CG in FM/config.lua.
-    delta_mass_moment_of_inertia_x = 0.0;
-    delta_mass_moment_of_inertia_y = 0.0;
-    delta_mass_moment_of_inertia_z = 0.0;
-    if (report)
-        F117::fuel_mass_in_dcs = F117::internal_fuel;
-    return report;
+    // DCS calls this until it returns false. Each call hands over one tank's change since the last report, at
+    // that tank's position with its own inertia, so DCS keeps the fuel's mass, CG and inertia; DCS adds the
+    // parallel-axis term itself. Fuel is only ever reported here, so each delta is acknowledged exactly once.
+    using namespace F117::Fuel_tanks;
+    delta_mass = delta_mass_pos_x = delta_mass_pos_y = delta_mass_pos_z = 0.0;
+    delta_mass_moment_of_inertia_x = delta_mass_moment_of_inertia_y = delta_mass_moment_of_inertia_z = 0.0;
+    if (!std::isfinite(F117::internal_fuel))
+        return false;
+    double contents[tank_count];
+    distribute(F117::internal_fuel, contents);
+    for (int i = 0; i < tank_count; ++i)
+    {
+        const double pending_kg = contents[i] - F117::fuel_in_dcs_kg[i];
+        if (std::abs(pending_kg) < 0.01)
+            continue;
+        const Tank& tank = tanks[i];
+        delta_mass = pending_kg;
+        delta_mass_pos_x = tank.x;
+        delta_mass_pos_y = tank.y;
+        delta_mass_pos_z = tank.z;
+        delta_mass_moment_of_inertia_x = pending_kg * own_roll_inertia_per_kg(tank);
+        delta_mass_moment_of_inertia_y = pending_kg * own_yaw_inertia_per_kg(tank);
+        delta_mass_moment_of_inertia_z = pending_kg * own_pitch_inertia_per_kg(tank);
+        F117::fuel_in_dcs_kg[i] = contents[i];
+        mass_log_piece(i, delta_mass, delta_mass_pos_x, delta_mass_pos_y, delta_mass_pos_z,
+                       delta_mass_moment_of_inertia_x, delta_mass_moment_of_inertia_y, delta_mass_moment_of_inertia_z);
+        return true;
+    }
+    return false;
 }
 
 void ed_fm_set_internal_fuel(double kilograms)
 {
+    mass_log_event("set_internal_fuel", kilograms);
     F117::internal_fuel = kilograms;
 }
 double ed_fm_get_internal_fuel()
@@ -581,14 +601,17 @@ void reset_session_controls()
     F117::Flight_controls::reset_runtime_state();
     F117::alt_hold = F117::altroll_hold = F117::horiz_hold = 0;
     F117::air_refuel_door_open = false;
-    F117::pitch_trim = F117::roll_trim = F117::yaw_trim = 0.0;
+    F117::pitch_trim_position = F117::pitch_trim_elevon_deg = F117::autopilot_pitch_bias_deg = 0.0;
+    F117::roll_trim = F117::yaw_trim = 0.0;
+    F117::pitch_trim_direction = 0;
     F117::ped_input = F117::wheel_brake_command = 0.0;
     F117::nws_authority_held = false;
     F117::nose_wheel_yaw_range_rad = F117::nose_wheel_yaw_low_rad;
     for (double* input : {&F117::Flight_controls::lat_stick_input, &F117::Flight_controls::long_stick_input,
                           &F117::Flight_controls::long_stick_force})
         *input = 0.0;
-    F117::throttle_input = F117::throttle_state = F117::thrust_n = 0.0;
+    set_throttle_levers(0.0);
+    F117::throttle_state = F117::thrust_n = 0.0;
     F117::engineswitch = false;
     g_engine_starts.reset(false);
     for (int side = 0; side < 2; ++side)
@@ -623,7 +646,7 @@ void apply_ground_start_state(bool engines_running)
     F117::gear_down = gear_command_down;
     F117::gear_command = gear_command_down;
     F117::weight_on_wheels = F117::wow_from_draw_args = true;
-    F117::throttle_input = 0.0;
+    set_throttle_levers(0.0);
     F117::engineswitch = engines_running;
     g_engine_starts.reset(engines_running);
     F117::rolling_friction = wheel_brake_off_friction;
@@ -639,7 +662,7 @@ void apply_air_start_state()
     F117::gear_down = gear_command_up;
     F117::gear_command = gear_command_up;
     F117::weight_on_wheels = F117::wow_from_draw_args = false;
-    F117::throttle_input = air_start_throttle;
+    set_throttle_levers(air_start_throttle);
     F117::throttle_state = air_start_throttle;
     g_engine_starts.reset(true);
     F117::engineswitch = g_engine_starts.any_running();
@@ -655,9 +678,12 @@ void apply_air_start_state()
 
 void ed_fm_release(void)
 {
+    mass_log_release(F117::internal_fuel);
     reset_session_controls();
     // DCS will collect the next aircraft's initial fuel mass afresh.
-    F117::fuel_mass_in_dcs = F117::delta_time = 0.0;
+    for (double& reported : F117::fuel_in_dcs_kg)
+        reported = 0.0;
+    F117::delta_time = 0.0;
     F117::gear_down = F117::gear_command = 0.0;
     F117::weight_on_wheels = F117::wow_from_draw_args = false;
     reset_damage_and_events();
@@ -698,6 +724,7 @@ void ed_fm_set_easy_flight(bool)
 // DCS hook for the unlimited-fuel option.
 void ed_fm_unlimited_fuel(bool enabled)
 {
+    mass_log_event("unlimited_fuel", enabled ? 1.0 : 0.0);
     F117::param_class.set_unlimited_fuel(enabled);
 }
 
@@ -706,6 +733,7 @@ void ed_fm_unlimited_fuel(bool enabled)
 void ed_fm_cold_start()
 {
     apply_ground_start_state(false);
+    mass_log_event("cold_start", F117::internal_fuel);
     log_damage_lifecycle_event("ed_fm_cold_start");
     Cockpit_interop::inject_irads_sensor_late();
 }
@@ -715,6 +743,7 @@ void ed_fm_cold_start()
 void ed_fm_hot_start()
 {
     apply_ground_start_state(true);
+    mass_log_event("hot_start", F117::internal_fuel);
     log_damage_lifecycle_event("ed_fm_hot_start");
     Cockpit_interop::inject_irads_sensor_late();
 }
@@ -724,6 +753,7 @@ void ed_fm_hot_start()
 void ed_fm_hot_start_in_air()
 {
     apply_air_start_state();
+    mass_log_event("hot_start_in_air", F117::internal_fuel);
     log_damage_lifecycle_event("ed_fm_hot_start_in_air");
     Cockpit_interop::inject_irads_sensor_late();
 }

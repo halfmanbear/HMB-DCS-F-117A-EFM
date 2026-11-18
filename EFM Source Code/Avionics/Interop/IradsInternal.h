@@ -92,6 +92,7 @@ inline bool s_irads_terrain_pending = false;
 inline unsigned s_irads_terrain_sequence = 0;
 inline double s_irads_terrain_wait = 0.0;
 inline bool s_irads_lock_valid = false;
+inline bool s_irads_homing = false;  // Sensor Reset: slew the gimbal back to its mounted forward axis
 inline double s_irads_lock_world[3] = {};
 inline double s_last_aircraft_pos[3] = {};
 
@@ -103,6 +104,7 @@ Cc_cockpit_context_layout* get_global_context();
 Cc_cockpit_context_layout* get_binding_context();
 bool ground_stabilize_irads();
 void clear_irads_lock();
+void service_irads_home(const double mount[16]);  // mount: aircraft-fixed sensor pose, forward/up/right columns
 bool aim_pose_at_world_point(double pose[16], const double target[3]);
 void reset_camera_bridge();
 

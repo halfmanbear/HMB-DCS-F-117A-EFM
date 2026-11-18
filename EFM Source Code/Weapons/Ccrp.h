@@ -88,7 +88,9 @@ constexpr double atmosphere_scale_height_m = 8500.0;
 constexpr double release_integration_step_seconds = 0.02;
 constexpr double release_integration_max_seconds = 180.0;
 constexpr double unguided_max_cross_track_meters = 30.0;  // farther off the line misses the target
-constexpr double glide_weapon_speed_mps = 200.0;          // JSOW mid-glide speed, for the laser/flight timer
+// JSOW average ground speed over the flight, for the flight timer. Measured on AGM-154A/B drops from 5.8 km above the
+// target at 23 km and 240 m/s (93-95 s); not checked at other ranges or heights.
+constexpr double glide_weapon_speed_mps = 246.0;
 constexpr double missile_average_speed_mps = 300.0;       // AGM-65 average speed, for the laser/flight timer
 
 constexpr double weapon_bay_open_threshold = 0.995;
@@ -118,6 +120,25 @@ constexpr char ccrp_profile_param_name[] = "F117_CCRP_PROFILE";
 // Release alignment from the last solution, read by the release sequence.
 extern bool g_release_alignment_valid;
 extern double g_release_min_range, g_release_max_range;
+
+// Release geometry from the last solution (height above the target, ground range, ground speed, climb rate).
+struct Release_snapshot
+{
+    bool valid;
+    double drop_meters;
+    double horiz_range;
+    double horiz_speed;
+    double vertical_speed;
+    double air_speed;
+    double free_fall_tof;  // gravity and drag only
+    double stock_tof;      // release-time estimate (stock JDAM, or LGB ballistic fall), 0 when not used
+};
+extern Release_snapshot g_release_snapshot;
+
+// At the moment of release: replaces the flight time with the stock GPS-bomb estimate (JDAM), which takes longer to
+// converge than a per-frame call allows, or with the char_time ballistic fall (laser-guided bombs). Leaves the time
+// unchanged when the estimate is unavailable.
+void refine_release_time_of_flight();
 
 void publish_weapon_release_gate_param();
 int get_ccrp_profile_index();

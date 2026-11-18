@@ -3,7 +3,6 @@
 // Pilot command handlers (flight controls, engines, actuators, autopilot, A/T and PAARS) and their per-frame updates.
 
 inline constexpr double roll_trim_step = 0.02;
-inline constexpr double pitch_trim_step = 0.05;
 inline constexpr double yaw_trim_step = 0.05;
 inline constexpr double throttle_step = 0.5;
 // Fraction of wheel_brake_moment_max in FM/config.lua. Set by the landing distances in TO 1F-117A-1
@@ -17,6 +16,8 @@ bool handle_roll_command(int command, float value);
 bool handle_pitch_command(int command, float value);
 bool handle_yaw_command(int command, float value);
 bool handle_engine_and_throttle_command(int command, float value);
+// Sets both engine throttle inputs and the combined lever to one position (percent).
+void set_throttle_levers(double percent);
 bool handle_actuator_toggle_command(int command);
 bool handle_autopilot_command(int command);
 bool engines_running();

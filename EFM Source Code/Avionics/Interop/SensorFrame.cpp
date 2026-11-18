@@ -180,6 +180,9 @@ void update_irads_sensor_frame(double dt, const Aircraft_pose& pose)
     g_av_tv_sensor_update(g_av_tv_sensor_instance, dt);
     if (g_av_tv_sensor_update_frame)
         g_av_tv_sensor_update_frame(g_av_tv_sensor_instance);
+    // The initial pose is the aircraft-fixed mount, re-seeded every frame above.
+    if (s_irads_homing)
+        service_irads_home(as_sensor(g_av_tv_sensor_instance)->platform_initial_world_pose.m);
     // Apply after all native motor/frame work. Do not change the initial mount,
     // target coordinate, optical zoom or free-slew state.
     if (s_irads_lock_valid)

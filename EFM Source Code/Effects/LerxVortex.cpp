@@ -30,6 +30,20 @@
 // Visible vapour also needs the pressure drop in the core to reach
 // condensation, so opacity scales with dynamic pressure times AoA and fades
 // with altitude.
+//
+// Photographs set the look at both ends. A moderate pull shows thin streaks
+// close to the leading edge. A hard, fast pull shows a wide, billowing tube
+// that runs from about the inlet to past the tip, with a radius of 15-20% of
+// the local semispan. The vapour grows from one look to the other with core
+// suction (dynamic pressure times AoA).
+//
+// Near the AoA limit (12.6 deg below M0.53, TO 1F-117A-1 Figure 5-7) photos
+// show one condensation cloud over the aft body instead of the vortex pair;
+// the two are not seen together. The vortices fade out from 10 deg and are
+// gone by 11 deg; the mod's overwing vapour effect draws the cloud from about
+// 11.5 deg (OpacityOverPower in Effects/f-117-nighthawk_overwingVapor.lua).
+// That cloud needs a hard, fast pull, so the handover applies only above about
+// 3 g; at lower load factor (a slow, high-AoA pull) the vortices stay.
 
 namespace
 {
@@ -50,13 +64,18 @@ constexpr float surface_90[surface_points] = {-0.22F, -0.18F, -0.16F, -0.10F, -0
 constexpr float surface_80[surface_points] = {-0.22F, -0.09F, 0.01F,  0.09F,  0.17F,  0.22F,  0.11F,  -0.03F, 0.00F,
                                               0.03F,  0.03F,  -0.01F, -0.05F, -0.09F, -0.15F, -0.23F, -0.27F};
 
-constexpr int path_points = 12;
+constexpr int path_points = 20;
 constexpr float path_first_x = 8.5F;
-constexpr float path_last_x = -9.0F;
-constexpr float opacity_max = 0.20F;
+constexpr float path_last_x = -7.6F;  // 0.6 m behind the tip trailing edge
+constexpr float opacity_max = 0.20F;          // thin streaks
+constexpr float opacity_max_extreme = 0.45F;  // hard, fast pull
+constexpr float fade_start_aoa = 10.0F;       // vortices start to fade
+constexpr float fade_end_aoa = 11.0F;         // vortices gone; overwing cloud follows from 11.5 deg
+constexpr float fade_start_nz = 2.75F;        // below this load factor the vortices stay at any AoA
+constexpr float fade_full_nz = 3.25F;         // full handover to the cloud from here
+constexpr float standard_gravity = 9.80665F;
 constexpr float min_airspeed_mps = 35.0F;
 constexpr float sea_level_density = 1.225F;
-constexpr float degrees_to_radians_f = 0.0174533F;
 
 // Clock shared by both sides: DCS calls once per side each frame, side 0 advances it.
 float vortex_time = 0.0F;
@@ -134,40 +153,52 @@ float humidity_factor_for(float rho, float alt_m)
     return clampf(humidity, 0.0F, 1.0F);
 }
 
+// Core suction scales with q * CL, and CL with AoA.
+float core_suction(float aoa, float vel, float rho)
+{
+    const float q = 0.5F * rho * vel * vel;
+    return q * clampf(aoa, 0.0F, 25.0F) / 12.0F;
+}
+
+// 0 for thin streaks (moderate pull), 1 for the wide, billowing tube of a hard,
+// fast pull just below the fade: about 8.5 deg at 140 m/s is near 0, 9.8 deg
+// at 175 m/s is near 1.
+float extreme_factor(float aoa, float vel, float rho)
+{
+    return smoothstep(7000.0F, 16000.0F, core_suction(aoa, vel, rho)) * smoothstep(7.5F, 10.0F, aoa);
+}
+
 // Overall vapour opacity for one side.
-float vapour_opacity(float vortex_strength, float aoa, float vel, float rho, float alt_m, float side_bias)
+float vapour_opacity(float vortex_strength, float aoa, float nz, float vel, float rho, float alt_m, float side_bias,
+                     float extreme)
 {
     const float humidity_factor = humidity_factor_for(rho, alt_m);
 
-    // Core suction scales with q * CL, and CL with AoA. A slow approach at
-    // 10 deg shows little vapour; a fast, loaded turn shows a lot.
-    const float q = 0.5F * rho * vel * vel;
-    const float suction = q * clampf(aoa, 0.0F, 25.0F) / 12.0F;
-    const float condensation = 0.25F + 0.75F * smoothstep(3000.0F, 12000.0F, suction);
+    // A slow approach at 10 deg shows little vapour; a fast, loaded turn shows a lot.
+    const float condensation = 0.25F + 0.75F * smoothstep(3000.0F, 12000.0F, core_suction(aoa, vel, rho));
 
     // Sideslip: the windward vortex is stronger and breaks down earlier.
     const float asym = clampf(1.0F + side_bias * 0.12F, 0.15F, 1.85F);
 
-    // Photographs of high-g passes show one condensation cloud over the aft
-    // body and no separate vortex tubes. The mod's overwing vapour effect
-    // draws that cloud from about 8 deg AoA and at full strength from 11.5 deg
-    // (OpacityOverPower in Effects/f-117-nighthawk_overwingVapor.lua), so the
-    // vortices fade out over the same range.
-    const float cloud_takeover = smoothstep(8.0F, 11.5F, aoa);
+    // Near the AoA limit in a hard pull the overwing cloud replaces the vortices.
+    const float cloud_takeover =
+        smoothstep(fade_start_aoa, fade_end_aoa, aoa) * smoothstep(fade_start_nz, fade_full_nz, nz);
 
-    return opacity_max * vortex_strength * condensation * humidity_factor * asym * (1.0F - cloud_takeover);
+    const float peak = opacity_max + (opacity_max_extreme - opacity_max) * extreme;
+    return peak * vortex_strength * condensation * humidity_factor * asym * (1.0F - cloud_takeover);
 }
 
 // Conical scaling with local semispan. At low AoA the core hugs the surface close to
 // the edge; with AoA it moves inboard, grows and lifts. Path runs from the apex region
-// to a short wake behind the tip.
-Vortex_path build_path(float aoa)
+// to just behind the tip trailing edge, straight on from the tip (no bend into the
+// freestream). The visible vapour widens with the extreme factor.
+Vortex_path build_path(float aoa, float extreme)
 {
     const float a = clampf(aoa, 0.0F, 35.0F);
-    const float f_core = 0.90F - 0.003F * a;                          // 0.87 s at 10 deg, 0.81 s at 30
-    const float radius_k = 0.045F + 0.0025F * a;                      // vapour radius / s
+    const float f_core = 0.90F - 0.003F * a;  // 0.87 s at 10 deg, 0.81 s at 30
+    // vapour radius / s: about 0.07 for thin streaks, 0.17 for a hard pull at 9.8 deg
+    const float radius_k = std::min(0.22F, (0.045F + 0.0025F * a) * (1.0F + 1.5F * extreme));
     const float gap_k = 0.0025F * a;                                  // core clearance / s
-    const float trail_slope = 0.5F * tanf(a * degrees_to_radians_f);  // wake rises toward the freestream
 
     Vortex_path path{};
     for (int i = 0; i < path_points; ++i)
@@ -182,7 +213,7 @@ Vortex_path build_path(float aoa)
         if (x < tip_x)
         {
             const float y_tip = std::max(surface_y(tip_x, f_core), surface_y(tip_x, f_core - radius_k)) + r + gap_k * s;
-            y = y_tip + (tip_x - x) * trail_slope;
+            y = y_tip;
         }
         path.x[i] = x;
         path.y[i] = y;
@@ -256,8 +287,9 @@ Breakdown find_breakdown(const Vortex_path& path, float aoa, float side_bias, fl
 
 // Displaces the path into spline points: precession before breakdown, a spiral or a
 // pulsing bubble after it, plus per-point opacity and the undisturbed tangent.
+// The extreme factor adds billowing puffs along the tube.
 void fill_spline(LERX_vortex_spline_point* sp, const Vortex_path& path, const Breakdown& burst, float time,
-                 unsigned idx)
+                 unsigned idx, float extreme)
 {
     const float zs = (idx == 0) ? -1.0F : 1.0F;
     const int last = path_points - 1;
@@ -271,11 +303,9 @@ void fill_spline(LERX_vortex_spline_point* sp, const Vortex_path& path, const Br
 
         // Radius: conical before breakdown, rapid wake-type growth after.
         float radius = path.radius[i];
-        float y = path.y[i];
         if (excess > 0.0F)
         {
             radius = std::min(1.8F, burst.radius + 0.35F * excess);
-            y += 0.12F * excess;
         }
 
         // Motion: slight core precession before breakdown; after it, a
@@ -294,13 +324,11 @@ void fill_spline(LERX_vortex_spline_point* sp, const Vortex_path& path, const Br
         // Opacity shape, 0..1, scaled by out.opacity.
         //   - fades in aft of the nose as suction builds (photos show vapour
         //     from about the inlet back);
-        //   - off the wing the pressure recovers and unburst vapour clears;
+        //   - fades out over the 0.6 m behind the tip trailing edge, where the
+        //     spline ends;
         //   - burst vapour turns to a thin haze.
         float shape = smoothstep(8.0F, 4.5F, path.x[i]);
-        if (path.x[i] < trailing_edge_x && excess <= 0.0F)
-        {
-            shape *= expf(-(trailing_edge_x - path.x[i]) / 1.5F);
-        }
+        shape *= smoothstep(path_last_x, trailing_edge_x, path.x[i]);
         shape *= 1.0F - post * 0.75F * (1.0F - expf(-excess / 2.0F));
 
         const float noise1 = sinf(t * 4.5F + time * 1.3F) * sinf(t * 7.2F - time * 0.9F);
@@ -310,7 +338,19 @@ void fill_spline(LERX_vortex_spline_point* sp, const Vortex_path& path, const Br
                                          post * 0.15F * sinf(time * 19.0F + fi * 3.3F),
                                      0.35F, 1.0F);
 
-        sp[i].radius = radius * (1.0F + 0.10F * noise1 + 0.05F * noise2);
+        // Puffs: slow-drifting lumps from point to point, so the tube billows
+        // instead of reading as a smooth cylinder.
+        const float puff = sinf(fi * 2.39F + time * 0.8F) * sinf(fi * 1.31F - time * 0.5F + 1.0F);
+        const float puff_side = sinf(fi * 1.77F - time * 0.6F + 2.0F);
+        radius *= 1.0F + 0.10F * noise1 + 0.05F * noise2 + extreme * (0.25F * puff + 0.08F * noise3);
+        jy += extreme * 0.10F * radius * puff_side;
+        jz += extreme * 0.12F * radius * puff;
+
+        // Growth lifts the centre, so the underside stays on the core path
+        // and clear of the skin.
+        const float y = path.y[i] + std::max(0.0F, radius - path.radius[i]);
+
+        sp[i].radius = radius;
         sp[i].opacity = clampf(shape * density, 0.0F, 1.0F);
         sp[i].pos[0] = path.x[i];
         sp[i].pos[1] = y + jy;
@@ -380,18 +420,24 @@ bool ed_fm_LERX_vortex_update(unsigned idx, LERX_vortex& out)
     }
 
     const float side_bias = (idx == 1) ? beta : -beta;
-    out.opacity = vapour_opacity(vortex_strength, aoa, vel, rho, static_cast<float>(F117::altitude_m), side_bias);
+    // Load factor: body normal acceleration plus the gravity component.
+    const float nz = static_cast<float>(F117::az) / standard_gravity +
+                     cosf(static_cast<float>(F117::roll_angle) * 0.0174533F) *
+                         cosf(static_cast<float>(F117::pitch_angle) * 0.0174533F);
+    const float extreme = extreme_factor(aoa, vel, rho);
+    out.opacity = vapour_opacity(vortex_strength, aoa, nz, vel, rho, static_cast<float>(F117::altitude_m), side_bias,
+                                 extreme);
     if (out.opacity < 0.004F)
     {
         return detach(out);
     }
 
-    const Vortex_path path = build_path(aoa);
+    const Vortex_path path = build_path(aoa, extreme);
     const Breakdown burst = find_breakdown(path, aoa, side_bias, time, idx);
     out.explosion_start = std::max(0.5F, burst.distance);
 
     LERX_vortex_spline_point* sp = vortex_buffers[idx];
-    fill_spline(sp, path, burst, time, idx);
+    fill_spline(sp, path, burst, time, idx, extreme);
 
     out.spline = sp;
     out.spline_points_count = path_points;

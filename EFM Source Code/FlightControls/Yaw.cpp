@@ -127,7 +127,7 @@ double fcs_yaw_controller_step(const Yaw_inputs& in, double dt, bool reset_filte
     const double inertia_coupling = cfg::inertia_coupling_gain * pitch_rate_rad_s * roll_rate_rad_s;
 
     // 6. Combine and pass through fin servo dynamics
-    const double combined_command = beta_feedback + yaw_damping + inertia_coupling;
+    const double combined_command = in.yaw_inertia_scale * (beta_feedback + yaw_damping) + inertia_coupling;
     const double yaw_surface_command = yaw_servo_filter.step(combined_command, reset_filters);
 
     Detail::Yaw_snapshot& snapshot = Detail::debug_snapshot.yaw;

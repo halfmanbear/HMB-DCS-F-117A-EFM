@@ -40,9 +40,9 @@ void update_fuel_system(double dt)
         double flow_kg_s = 0.0;
         if (start.running())
         {
-            const double specific_fuel = 0.9928 + 0.0911 * F117::mach +
-                                         0.0025 * F117::engines[side].thrust_fraction_of_max -
-                                         0.1221 * F117::altitude_m / 10000.0;  // kg / kgf / hour
+            const double specific_fuel = 1.0142 + 0.0650 * F117::mach +
+                                         0.0022 * F117::engines[side].thrust_fraction_of_max -
+                                         0.1169 * F117::altitude_m / 10000.0;  // kg / kgf / hour
             flow_kg_s = (std::max)(idle_fuel_flow_kg_s / 2.0, (std::max)(F117::engine_thrust_n[side], 0.0) /
                                                                   standard_gravity_mps2 * specific_fuel / 3600.0);
         }
@@ -144,7 +144,7 @@ void update_propulsion_and_control_effectiveness(double dt, double tail_integrit
         else
         {
             F117::engine_thrust_n[side] = F117::Engine::engine_dynamics(
-                engine, F117::throttle_input * integrity[side], F117::mach, F117::altitude_m, dt,
+                engine, F117::throttle_side_input[side] * integrity[side], F117::mach, F117::altitude_m, dt,
                 start.running() && can_run[side], F117::weight_on_wheels);
         }
         F117::thrust_n += F117::engine_thrust_n[side];

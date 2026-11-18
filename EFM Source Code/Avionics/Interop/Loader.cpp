@@ -51,7 +51,7 @@ template <typename Fn>
 static void load_export(HMODULE module, Fn& target, const char* name)
 {
     target = reinterpret_cast<Fn>(GetProcAddress(module, name));
-    log_format("Initialize: %-60s -> %p", name, reinterpret_cast<void*>(target));
+    log_format("Initialize: %-60s -> %s", name, target ? "ok" : "missing");
 }
 
 // The exports the sensor bridge cannot work without.
@@ -122,9 +122,9 @@ bool initialize()
     }
 
     load_sensor_exports(module);
-    log_format("Initialize: contexts_ptr addr=%p  *value=%p  binding_context=%p",
-               reinterpret_cast<void*>(g_contexts_ptr_addr), g_contexts_ptr_addr ? *g_contexts_ptr_addr : nullptr,
-               g_binding_context ? g_binding_context() : nullptr);
+    log_format("Initialize: contexts_ptr=%s  context=%s  binding_context=%s", g_contexts_ptr_addr ? "ok" : "missing",
+               g_contexts_ptr_addr && *g_contexts_ptr_addr ? "ok" : "missing",
+               g_binding_context && g_binding_context() ? "ok" : "missing");
 
     s_initialized = true;
 

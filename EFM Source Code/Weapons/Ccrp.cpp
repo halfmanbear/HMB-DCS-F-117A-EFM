@@ -9,6 +9,7 @@
 #include "../Avionics/Weapons_Interop.h"
 #include "../Cockpit/ParamBridge.h"
 #include "../FlightModel/State.h"
+#include "LgbBallistics.h"
 
 static void* g_weapon_release_gate_param = nullptr;
 static bool g_weapon_release_gate_param_initialized = false;
@@ -239,6 +240,7 @@ bool simulate_bomb_impact_point(const Ccrp_store_model& profile, const Vec3& rel
     return false;
 }
 
+Release_snapshot g_release_snapshot{};
 bool g_release_alignment_valid = false;
 double g_release_min_range = 0.0;
 double g_release_max_range = 0.0;
@@ -321,6 +323,7 @@ bool compute_release_geometry(const double target_world[3], const Ccrp_store_mod
     g.wind = get_world_wind_vector();
     const double air_x = g.velocity.x - g.wind.x, air_y = g.velocity.y - g.wind.y, air_z = g.velocity.z - g.wind.z;
     g.air_speed = std::sqrt(air_x * air_x + air_y * air_y + air_z * air_z);
+    g_release_snapshot = {true, g.drop_meters, g.horiz_range, g.horiz_speed, g.velocity.y, g.air_speed};
     return true;
 }
 
@@ -336,6 +339,8 @@ bool predict_ballistic_release(const Ccrp_store_model& profile, const Release_ge
         return false;
     }
     F117::ccrp_time_of_flight = impact_time;
+    g_release_snapshot.free_fall_tof = impact_time;
+    g_release_snapshot.stock_tof = 0.0;
     const Vec3 impact_delta{impact_pos.x - position_world_cs.x, impact_pos.y - position_world_cs.y,
                             impact_pos.z - position_world_cs.z};
     result.impact_along_track = (impact_delta.x * g.vx) + (impact_delta.z * g.vz);
@@ -431,6 +436,55 @@ void log_release_zone(const Release_geometry& g, const Zone_result& zone)
     }
 }
 }  // namespace
+
+// Laser-guided bombs: the store's char_time-calibrated ballistic fall from the release state, plus the glide beyond
+// the ballistic range (LgbBallistics.h).
+static void refine_laser_bomb_time_of_flight(const Ccrp_store_model& profile)
+{
+    const Release_snapshot& s = g_release_snapshot;
+    const double release_alt = position_world_cs.y;
+    Lgb_ballistics::Atmosphere air = Lgb_ballistics::standard_atmosphere;
+    if (F117::ambient_temperature_deg_k > 150.0 && F117::ambient_density_kg_per_m3 > 0.01)
+        air = {release_alt, F117::ambient_temperature_deg_k, F117::ambient_density_kg_per_m3};
+    const double vertical = s.vertical_speed;  // wind is horizontal
+    const double horizontal = std::sqrt(std::max(0.0, s.air_speed * s.air_speed - vertical * vertical));
+    const double tof =
+        Lgb_ballistics::time_of_flight(Lgb_ballistics::find_store(profile.name), air, release_alt,
+                                       release_alt - s.drop_meters, horizontal, vertical, s.horiz_range,
+                                       s.horiz_speed - horizontal);
+    if (std::isfinite(tof) && tof > 0.0)
+    {
+        F117::ccrp_time_of_flight = tof;
+        g_release_snapshot.stock_tof = tof;
+    }
+}
+
+void refine_release_time_of_flight()
+{
+    const Ccrp_store_model& profile = get_ccrp_profile();
+    if (!g_release_snapshot.valid)
+        return;
+    if (profile.kind == Store_kind::lgb)
+        return refine_laser_bomb_time_of_flight(profile);
+    if (profile.kind != Store_kind::jdam)
+        return;
+    // The stock estimator's weapon variants, by this store's envelope: the variant whose flight times matched
+    // measured GBU-31 (V1), GBU-31 (V3) and GBU-32 drops. The GBU-32 match is the closest available (+3 s).
+    static const int stock_type_for_envelope[] = {2, 1, 2};
+    if (profile.envelope < 0 || profile.envelope >= static_cast<int>(sizeof(stock_type_for_envelope) / sizeof(int)))
+        return;
+    const Release_snapshot& s = g_release_snapshot;
+    const double speed = std::sqrt(s.horiz_speed * s.horiz_speed + s.vertical_speed * s.vertical_speed);
+    const double pitch = std::atan2(s.vertical_speed, std::max(s.horiz_speed, 1.0));
+    double stock = 0.0;
+    if (Weapons_interop::stock_jdam_tof(stock_type_for_envelope[profile.envelope], s.drop_meters, speed, pitch, 0.0,
+                                        s.horiz_range, &stock) &&
+        std::isfinite(stock) && stock > 0.0)
+    {
+        F117::ccrp_time_of_flight = stock;
+        g_release_snapshot.stock_tof = stock;
+    }
+}
 
 bool compute_release_solution(double* out_error_meters, double* out_time_to_go_seconds, double* out_range_meters,
                               bool* out_in_zone)

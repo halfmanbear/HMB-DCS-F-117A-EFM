@@ -33,6 +33,8 @@ int get_ccrp_profile_index(){return profile_index;}
 const Ccrp_store_model& get_ccrp_profile(){return ccrp_store_models[profile_index];}
 bool g_release_alignment_valid=false;
 double g_release_min_range=0,g_release_max_range=0;
+'''+extract('struct Release_snapshot')+r''';
+Release_snapshot g_release_snapshot{};
 '''+ '\n'.join(extract(n)+(';' if n.startswith('struct') else '') for n in ['Vec3 get_world_wind_vector()','bool simulate_bomb_impact_point(','bool guided_release_in_zone(','struct Release_geometry','struct Zone_result','bool compute_release_geometry(','bool predict_ballistic_release(','bool evaluate_tabled_zone(','void evaluate_unguided_zone(','void evaluate_missile_zone(','void evaluate_guided_zone(','void log_release_zone(','bool compute_release_solution('])+r'''
 bool solve(bool expectedSolution,bool expectedZone) {
  double error=0,ttg=0,range=0;bool zone=false;

@@ -97,6 +97,13 @@ int main() {
     assert(!at.accept_axis(71) && at.accept_axis(73) && at.accept_axis(73.5));
     at.engage(300, 50, true, true); at.pilot_throttle_step(); assert(!at.engaged() && at.accept_axis(73.6));
 
+    // Left and right axes keep separate references; either one overpowers an engaged A/T.
+    at.reset(); assert(at.accept_axis(40, 1) && at.accept_axis(60, 2));
+    at.engage(300, 50, true, true);
+    assert(!at.accept_axis(42, 1) && !at.accept_axis(62, 2) && at.engaged());
+    assert(at.accept_axis(70, 2) && !at.engaged());
+    assert(!at.accept_axis(50, 3) && !at.accept_axis(50, -1));
+
     for (double alt : {0.0, 7620.0}) {
         // Bumpless engage and steady hold.
         at.reset(); Sim s = trimmed(alt, 300, at);

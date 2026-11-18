@@ -9,6 +9,7 @@
 #include "../Avionics/Paars.h"
 #include "../Engine/EngineStart.h"
 #include "../param_functions.h"
+#include "../Systems/FuelTanks.h"
 #include "../include/Cockpit/CockpitAPI_Declare.h"
 
 // Totals from the last aerodynamic update, with gear, chute, bay and ground effect included.
@@ -76,7 +77,10 @@ inline constexpr double mean_chord_m = 6.422;
 
 // Pilot requests, commanded surfaces and actual surface feedback.
 inline constexpr double aileron_full_scale_deg = 25.5;  // Aileron deflection that aileron_PCT = 1 stands for.
-inline double pitch_trim{};
+inline double pitch_trim_position{};       // Pilot pitch trim: -1 full nose-down to +1 full nose-up.
+inline int pitch_trim_direction{};         // Trim switch held: +1 nose-up, -1 nose-down, 0 released.
+inline double pitch_trim_elevon_deg{};     // Elevon bias from pilot trim while autotrim is off.
+inline double autopilot_pitch_bias_deg{};  // Autopilot hold output, elevon degrees added after the pitch law.
 inline double roll_trim{};
 inline double yaw_trim{};
 inline double roll_cmd{};
@@ -129,14 +133,17 @@ inline float bay_state[weapon_bay_count]{};
 // Engine telemetry and the fuel mass already acknowledged by DCS.
 inline bool engineswitch{true};
 inline double throttle_state{0.1};
+// Combined lever position (mean of the two sides), used by the autothrottle and the cockpit lever. Each engine
+// is driven by its own side input.
 inline double throttle_input{0.1};
+inline double throttle_side_input[2]{0.1, 0.1};
 inline double thrust_n{};
 inline Engine::Engine_state engines[2]{};
 inline double engine_thrust_n[2]{};
 inline double engine_fuel_flow_kg_s[2]{};
 inline double engine_egt_c[2]{};
 inline double engine_oil_psi[2]{};
-inline double fuel_mass_in_dcs{};
+inline double fuel_in_dcs_kg[Fuel_tanks::tank_count]{};  // each tank as last reported to DCS
 inline double internal_fuel{};
 inline double external_fuel{};
 inline EDPARAM cockpit_api{};

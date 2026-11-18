@@ -62,6 +62,7 @@ Cc_cockpit_context_layout* as_context(void* p){return static_cast<Cc_cockpit_con
 bool s_irads_power=true,s_irads_lock_valid=true;
 bool s_irads_ray_valid=false,s_irads_terrain_pending=false;double s_irads_render_ray[6]{},s_irads_request_ray[6]{};unsigned s_irads_terrain_sequence=0;double s_irads_terrain_wait=0,s_irads_ray_age=1e9;
 bool s_carrier_link_disabled_logged=false;
+bool s_irads_homing=false;void service_irads_home(const double*){}
 void* s_our_ind=nullptr;
 double s_irads_lock_world[3]={10000,0,2000};float s_irads_horizontal_axis=0,s_irads_vertical_axis=0;
 void log_message(const char*){}template<class...T>void log_format(const char*,T...){}

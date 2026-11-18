@@ -1,9 +1,21 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
+
+#include "../EfmMath.h"
+
 namespace F117
 {
 namespace Flight_controls
 {
+// Pitch rate the hands-off 1 g turns the flight path at in this attitude: none wings level, about 2 g
+// worth inverted. The pitch damping leaves it out (TO 1F-117A-1 page 6-1: 1 g auto pitch trim).
+inline double one_g_pitch_rate_rps(double roll_rad, double pitch_rad, double speed_mps)
+{
+    return standard_gravity_mps2 * (1.0 - std::cos(roll_rad) * std::cos(pitch_rad)) / (std::max)(speed_mps, 30.0);
+}
+
 struct Aero_snapshot
 {
     double cy_delta_rudder{};
@@ -27,13 +39,16 @@ struct Yaw_inputs
     double pitch_rate;
     double aoa_filtered;
     double dyn_pressure_pa;
+    // Yaw inertia DCS reports over the inertia the gains were tuned with. The feedback scales with it, so the
+    // loop keeps its bandwidth and damping when the inertia changes with fuel, or with FM/config.lua.
+    double yaw_inertia_scale;
     bool gear_down;
 };
 
 struct Pitch_inputs
 {
     double long_stick_input_command;
-    double pitch_trim;
+    double trim_nz;  // Pilot trim bias on the 1 g reference (0 when autotrim is off).
     double angle_of_attack_ind;
     double pitch_rate_deg_s;
     double az;
@@ -72,6 +87,8 @@ extern double lat_stick_input;
 
 void reset_runtime_state();
 void update_pitch_mode_auto_inputs(double gear_down, bool air_refuel_door_open);
+// Gear up and A/R door closed: the 1 g auto pitch trim mode, where pilot trim biases the load factor.
+bool pitch_autotrim_active();
 void update_ground_contact(bool wheel_on_ground, double dt);
 void set_recovery_nz_command(bool active, double nz);
 void update_yaw_debug_snapshot(double beta_deg, double yaw_rate_rps, double rudder_deg_commanded, double rudder_deg,

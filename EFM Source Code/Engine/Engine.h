@@ -32,8 +32,8 @@ constexpr double shutdown_n2_threshold = 0.5;
 constexpr double ground_idle_thrust_n = 3000.0;
 // Net thrust at flight idle, fitted to the idle deceleration in TO 1F-117A-1 Figure A9-11. That data stops at 30,000
 // ft.
-constexpr double flight_idle_thrust_sea_level_n = 935.3;
-constexpr double flight_idle_thrust_per_10_km_n = 4777.0;
+constexpr double flight_idle_thrust_sea_level_n = 962.3;
+constexpr double flight_idle_thrust_per_10_km_n = 5004.6;
 constexpr double flight_idle_thrust_altitude_cap_m = 9144.0;
 constexpr double max_thrust_limit_n = 94000.0;  // Two F404s at about 47 kN each.
 // Installed maximum thrust of both engines, fitted by tools/fm_bench/fit_performance.py in the mod repository
@@ -43,11 +43,11 @@ constexpr int thrust_table_machs = 5;
 constexpr double thrust_table_altitude_m[thrust_table_altitudes] = {0.0, 3048.0, 6096.0, 9144.0, 12192.0};
 constexpr double thrust_table_mach[thrust_table_machs] = {0.30, 0.50, 0.70, 0.80, 0.90};
 constexpr double thrust_table_n[thrust_table_altitudes][thrust_table_machs] = {
-    {80268.0, 82454.0, 82689.0, 81440.0, 80000.0},
-    {59398.0, 60031.0, 62792.0, 62681.0, 62365.0},
-    {39344.0, 39434.0, 43246.0, 44643.0, 45700.0},
-    {25533.0, 25580.0, 27304.0, 28407.0, 29522.0},
-    {16563.0, 16576.0, 16845.0, 17096.0, 17504.0}};
+    {80069.0, 81678.0, 82486.0, 81163.0, 79692.0},
+    {59127.0, 59621.0, 62421.0, 62231.0, 61682.0},
+    {39557.0, 39628.0, 43201.0, 44521.0, 45303.0},
+    {25702.0, 25669.0, 27053.0, 28154.0, 29287.0},
+    {16669.0, 16640.0, 16721.0, 16926.0, 17368.0}};
 // Below the table's lowest Mach, thrust rises towards this much extra at a standstill, up to the engines' rating.
 // The manual's in-flight data doesn't reach those speeds, so this comes from the takeoff example on TO 1F-117A-1
 // page A3-4 (4,700 ft ground run at 46,000 lb).
