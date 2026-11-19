@@ -36,6 +36,7 @@ TESTS = [
     ("irads_input_regression.py", MOD_OUT, "F117_MOD_DIR"),
     ("irads_tracking_store_regression.py", MOD_OUT, "F117_MOD_DIR"),
     ("terrain_lock_regression.py", MOD_OUT, "F117_MOD_DIR"),
+    ("replay_designate_regression.py", OUT_ONLY, None),
     ("weapon_delivery_regression.py", MOD_OUT, "F117_MOD_DIR"),
     ("standalone_provenance.py", lambda n: [api, str(out / n)], "F117_API_DIR"),
 ]

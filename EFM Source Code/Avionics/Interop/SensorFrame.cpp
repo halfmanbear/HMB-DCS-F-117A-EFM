@@ -1,11 +1,89 @@
 // Per-frame update of the injected sensor: world pose from the aircraft, native tick, locked aim.
 #include "stdafx.h"
 #include "IradsInternal.h"
+#include "../../Cockpit/ParamBridge.h"
 #include <cmath>
 #include <cstring>
 
 namespace Cockpit_interop
 {
+// Projectors have a native collection power state, independent of EDM draw arguments.
+// Drive it from the Lua switch/gear interlock instead of the FC3 near/far/off cycle.
+static void update_gear_light_power()
+{
+    static void* ready_handle = nullptr;
+    double ready = 0;
+    if (!read_named_param(ready_handle, "F117_LIGHT_CONTROL_READY", ready) || ready < 0.5)
+        return;
+    using Get_lights = void*(__cdecl*)();
+    using Get_child = void*(__cdecl*)(void*, unsigned);
+    using Set_power = void(__cdecl*)(void*, double);
+    using Get_power = double(__cdecl*)(void*);
+    static auto get_lights = reinterpret_cast<Get_lights>(
+        resolve_cockpit_base_export("ed_cockpit_external_lights_get_reference"));
+    static auto get_child = reinterpret_cast<Get_child>(
+        resolve_cockpit_base_export("ed_cockpit_external_lights_get_child"));
+    static auto set_power = reinterpret_cast<Set_power>(
+        resolve_cockpit_base_export("ed_cockpit_set_external_lights_power"));
+    static auto get_power = reinterpret_cast<Get_power>(
+        resolve_cockpit_base_export("ed_cockpit_get_external_lights_power"));
+    if (!get_lights || !get_child || !set_power || !get_power)
+        return;
+    void* root = get_lights();
+    if (!root)
+        return;
+    // Native child indices are zero-based; Lua WOLALIGHT indices are one-based.
+    static void* handles[2] = {};
+    static void* feedback[2] = {};
+    static double last_request[2] = {-1, -1};
+    const char* names[2] = {"F117_LIGHT_LANDING", "F117_LIGHT_TAXI"};
+    const char* power_names[2] = {"F117_LIGHT_LANDING_POWER", "F117_LIGHT_TAXI_POWER"};
+    const unsigned indices[2] = {1, 5};
+    for (unsigned i = 0; i < 2; ++i)
+    {
+        double requested = 0;
+        if (!read_named_param(handles[i], names[i], requested))
+            continue;
+        void* light = get_child(root, indices[i]);
+        if (!light)
+            continue;
+        set_power(light, requested > 0.5 ? 1.0 : 0.0);
+        const double actual = get_power(light);
+        publish_named_param(feedback[i], power_names[i], actual);
+        if (last_request[i] != requested)
+        {
+            log_format("Gear projector: %s child=%u requested=%.0f nativePower=%.2f",
+                       names[i], indices[i], requested, actual);
+            last_request[i] = requested;
+        }
+    }
+}
+
+// The authored 903 key rotates 129.44 degrees about the housing's lateral axis.
+// Lens normals put argument 0 at about +44.2 degrees and argument 1 at -85.24.
+static double irads_housing_target(const double los[16], const double mount[16])
+{
+    double forward = 0, up = 0, right = 0;
+    for (int i = 0; i < 3; ++i)
+    {
+        forward += los[i] * mount[i];
+        up += los[i] * mount[4 + i];
+        right += los[i] * mount[8 + i];
+    }
+    if (!std::isfinite(forward) || !std::isfinite(up) || !std::isfinite(right))
+        return 0;
+    const double elevation = std::atan2(up, std::sqrt(forward * forward + right * right)) * rad_to_deg;
+    const double argument = (44.2 - elevation) / 129.44;
+    return argument < 0 ? 0 : (argument > 1 ? 1 : argument);
+}
+
+static void publish_irads_housing(bool powered)
+{
+    static void* handle = nullptr;
+    const double argument = powered ? irads_housing_target(sensor_world_pose(), sensor_mount_pose()) : 0;
+    publish_named_param(handle, "F117_IRADS_HOUSING_TARGET", argument);
+}
+
 static bool s_pose_seed_logged = false;
 static bool s_carrier_link_disabled_logged = false;
 
@@ -130,13 +208,19 @@ bool aim_pose_at_world_point(double pose[16], const double target[3])
 
 void update_irads_sensor_frame(double dt, const Aircraft_pose& pose)
 {
+    update_gear_light_power();
     if (std::isfinite(dt) && dt > 0)
         s_irads_ray_age += dt;
     if (!g_av_tv_sensor_instance || !g_av_tv_sensor_update)
+    {
+        publish_irads_housing(false);
         return;
+    }
     if (!is_irads_powered())
     {
+        publish_irads_housing(false);
         s_irads_ray_valid = false;
+        s_irads_sensor_ray_valid = false;
         s_irads_homing = false;
         s_irads_analog_horizontal = s_irads_analog_vertical = 0.0f;
         s_irads_keyboard_horizontal = s_irads_keyboard_vertical = 0.0f;
@@ -193,6 +277,17 @@ void update_irads_sensor_frame(double dt, const Aircraft_pose& pose)
     // target coordinate, optical zoom or free-slew state.
     if (s_irads_lock_valid)
         aim_pose_at_world_point(sensor_world_pose(), s_irads_lock_world);
+    publish_irads_housing(true);
+    // Keep this frame's line of sight (column 0) and eye (row 3) for designating without a render.
+    const double* sensor_pose = sensor_world_pose();
+    s_irads_sensor_ray_valid = true;
+    for (int i = 0; i < 3; ++i)
+    {
+        s_irads_sensor_ray[i] = sensor_pose[12 + i];
+        s_irads_sensor_ray[i + 3] = sensor_pose[i];
+        if (!std::isfinite(sensor_pose[12 + i]) || !std::isfinite(sensor_pose[i]))
+            s_irads_sensor_ray_valid = false;
+    }
 
     static double diagnostic_time = 0;
     static unsigned int diagnostic_count = 0;

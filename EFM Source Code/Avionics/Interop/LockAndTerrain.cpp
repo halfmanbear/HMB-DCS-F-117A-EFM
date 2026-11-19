@@ -2,6 +2,7 @@
 // terrain trace) and the reply becomes the world-space lock the weapon code reads.
 #include "stdafx.h"
 #include "IradsInternal.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -14,32 +15,59 @@ static constexpr double min_ray_alignment = 0.99999999;  // cosine between reque
 static constexpr unsigned terrain_sequence_wrap = 10000000;
 static constexpr double min_ray_norm_sq = 0.5;
 
-bool ground_stabilize_irads()
+// A usable ray: finite eye and direction, direction not near zero. Returns the direction length.
+static double ray_direction_length(const double ray[6])
 {
-    if (!g_av_tv_sensor_instance || !is_irads_powered() || !s_irads_ray_valid)
-        return false;
     double norm = 0;
     for (int i = 0; i < 6; ++i)
-        if (!std::isfinite(s_irads_render_ray[i]))
-            return false;
+        if (!std::isfinite(ray[i]))
+            return 0.0;
     for (int i = 3; i < 6; ++i)
-        norm += s_irads_render_ray[i] * s_irads_render_ray[i];
+        norm += ray[i] * ray[i];
     if (!std::isfinite(norm) || norm < min_ray_norm_sq)
+        return 0.0;
+    return std::sqrt(norm);
+}
+
+bool ground_stabilize_irads()
+{
+    if (!g_av_tv_sensor_instance || !is_irads_powered())
         return false;
-    norm = std::sqrt(norm);
+    // Prefer the ray the camera last drew. When the camera has not rendered recently (the IRADS
+    // picture is off screen, e.g. a replay watched from outside) that ray is frozen where it was
+    // last drawn, so use the sensor pose from the latest simulation frame instead.
+    const bool render_fresh = s_irads_ray_valid && s_irads_ray_age <= irads_ray_max_age;
+    const double* ray = render_fresh ? s_irads_render_ray : (s_irads_sensor_ray_valid ? s_irads_sensor_ray : nullptr);
+    if (!ray)
+        return false;
+    const double norm = ray_direction_length(ray);
+    if (norm <= 0.0)
+        return false;
     for (int i = 0; i < 3; ++i)
     {
-        s_irads_request_ray[i] = s_irads_render_ray[i];
-        s_irads_request_ray[i + 3] = s_irads_render_ray[i + 3] / norm;
+        s_irads_request_ray[i] = ray[i];
+        s_irads_request_ray[i + 3] = ray[i + 3] / norm;
+    }
+    // Diagnostic: how far the rendered and simulated rays disagree when both exist.
+    double sensor_offset_deg = -1.0;
+    const double sensor_norm = s_irads_sensor_ray_valid ? ray_direction_length(s_irads_sensor_ray) : 0.0;
+    if (render_fresh && sensor_norm > 0.0)
+    {
+        double dot = 0.0;
+        for (int i = 0; i < 3; ++i)
+            dot += s_irads_request_ray[i + 3] * s_irads_sensor_ray[i + 3] / sensor_norm;
+        sensor_offset_deg = std::acos((std::max)(-1.0, (std::min)(1.0, dot))) * rad_to_deg;
     }
     s_irads_lock_valid = false;
     s_irads_terrain_pending = true;
     s_irads_terrain_wait = 0;
     if (++s_irads_terrain_sequence > terrain_sequence_wrap)
         s_irads_terrain_sequence = 1;
-    log_format("IRADS terrain request: id=%u eye=(%.3f,%.3f,%.3f) direction=(%.8f,%.8f,%.8f)", s_irads_terrain_sequence,
-               s_irads_request_ray[0], s_irads_request_ray[1], s_irads_request_ray[2], s_irads_request_ray[3],
-               s_irads_request_ray[4], s_irads_request_ray[5]);
+    log_format("IRADS terrain request: id=%u source=%s eye=(%.3f,%.3f,%.3f) direction=(%.8f,%.8f,%.8f) "
+               "sensorOffsetDeg=%.4f",
+               s_irads_terrain_sequence, render_fresh ? "render" : "sensor", s_irads_request_ray[0],
+               s_irads_request_ray[1], s_irads_request_ray[2], s_irads_request_ray[3], s_irads_request_ray[4],
+               s_irads_request_ray[5], sensor_offset_deg);
     return true;
 }
 

@@ -6,7 +6,7 @@
 
 namespace Cockpit_interop
 {
-inline constexpr const char* irads_build_marker = "2026-11-02-thrust-table-v25";
+inline constexpr const char* irads_build_marker = "2026-11-19-exterior-irads-v28";
 
 // Seconds since the IRADS camera last rendered; its ray is stale past this age.
 inline constexpr double irads_ray_max_age = 0.5;
@@ -30,6 +30,7 @@ using Pfn_binding_context = void* (*)();
 using Pfn_platform_pose = double*(__fastcall*)(void* self);
 // Rebuilds the root pose from the mount and gimbal angles and stamps it with the current
 // model time, so camera reads in the same model time use the stored pose.
+using Pfn_platform_motor = void*(__fastcall*)(void* self);
 using Pfn_platform_update = void(__fastcall*)(void* self);
 using Pfn_sensor_flag = bool(__fastcall*)(const void* self);
 using Pfn_sensor_value = double(__fastcall*)(const void* self);
@@ -62,6 +63,9 @@ extern Pfn_binding_context g_binding_context;
 extern Pfn_platform_pose g_platform_position;          // current line-of-sight pose
 extern Pfn_platform_pose g_platform_initial_position;  // aircraft-fixed mount pose
 extern Pfn_platform_update g_platform_update_position;
+extern Pfn_platform_motor g_platform_h_axis;
+extern Pfn_platform_motor g_platform_v_axis;
+extern Pfn_av_tv_sensor_void_method g_sensor_slew_rebase;
 extern Pfn_sensor_flag g_av_tv_sensor_caged;
 extern Pfn_sensor_value g_av_tv_sensor_zoom;         // current optical zoom factor
 extern Pfn_sensor_value g_av_tv_sensor_default_fov;  // full field of view at zoom 1, radians
@@ -104,11 +108,20 @@ inline bool s_irads_ray_valid = false;
 inline double s_irads_render_ray[6] = {};  // eye xyz, unit direction xyz
 inline double s_irads_request_ray[6] = {};
 inline double s_irads_ray_age = 1e9;
+// The same line of sight taken from the sensor pose at the end of each simulation frame. The
+// designation falls back to it when the camera has not rendered recently, e.g. a track replay
+// watched from an external view.
+inline bool s_irads_sensor_ray_valid = false;
+inline double s_irads_sensor_ray[6] = {};  // eye xyz, direction xyz
+// Designate switch state as last seen by the EFM. Only a press edge designates: a track replay
+// delivers the cockpit's relayed designate command twice, once recorded and once re-sent.
+inline bool s_irads_designate_held = false;
 inline bool s_irads_terrain_pending = false;
 inline unsigned s_irads_terrain_sequence = 0;
 inline double s_irads_terrain_wait = 0.0;
 inline bool s_irads_lock_valid = false;
-inline bool s_irads_homing = false;  // Sensor Reset: slew the gimbal back to its mounted forward axis
+inline bool s_irads_home_arrived = false;
+inline bool s_irads_homing = false;  // Scan return: seek home, then hold the mounted forward axis
 inline double s_irads_lock_world[3] = {};
 inline double s_last_aircraft_pos[3] = {};
 

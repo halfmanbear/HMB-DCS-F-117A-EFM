@@ -141,6 +141,11 @@ static void* __fastcall irads_get_camera(void* indicator)
         g_platform_update_position(g_av_tv_sensor_instance);
         locked = aim_pose_at_world_point(sensor_world_pose(), s_irads_lock_world);
     }
+    if (s_irads_homing && s_irads_home_arrived)
+    {
+        g_platform_update_position(g_av_tv_sensor_instance);
+        service_irads_home(sensor_mount_pose());
+    }
     s_sensor_fill_camera(g_av_tv_sensor_instance, camera);
     // Read the same pose the camera was just filled from.
     double pose[16];

@@ -13,11 +13,14 @@ void reset_irads_session()
     clear_irads_lock();
     s_irads_ray_valid = false;
     s_irads_ray_age = 1e9;
+    s_irads_sensor_ray_valid = false;
+    s_irads_designate_held = false;
     s_irads_analog_horizontal = s_irads_analog_vertical = 0.0f;
     s_irads_keyboard_horizontal = s_irads_keyboard_vertical = 0.0f;
     s_irads_horizontal_axis = 0.0f;
     s_irads_vertical_axis = 0.0f;
     s_irads_homing = false;
+    s_irads_home_arrived = false;
     s_irads_zoom_level = 1;
     s_irads_power = false;
     reset_camera_bridge();

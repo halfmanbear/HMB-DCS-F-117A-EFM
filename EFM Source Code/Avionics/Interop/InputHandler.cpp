@@ -238,6 +238,7 @@ static void stop_slew_and_designate(bool active)
         g_av_tv_sensor_slew_stop(g_av_tv_sensor_instance);
     if (!active)
         return;
+    s_irads_homing = false; // designation releases the forward-axis hold
     // One switch designates and undesignates: pressing it with a lock held (or one pending) removes the lock.
     if (s_irads_lock_valid || s_irads_terrain_pending)
     {
@@ -247,7 +248,7 @@ static void stop_slew_and_designate(bool active)
         return;
     }
     const bool queued = ground_stabilize_irads();
-    log_message(queued ? "IRADS terrain designation queued" : "IRADS designation unavailable: no rendered ray");
+    log_message(queued ? "IRADS terrain designation queued" : "IRADS designation unavailable: no IRADS ray");
 }
 
 // Sensor Reset: drop the lock and slew the gimbal back to its mounted forward axis.
@@ -259,6 +260,7 @@ static void reset_sensor()
     if (g_av_tv_sensor_slew_stop)
         g_av_tv_sensor_slew_stop(g_av_tv_sensor_instance);
     s_irads_homing = true;
+    s_irads_home_arrived = false;
     log_message("IRADS sensor reset: undesignated, returning to home");
 }
 
@@ -280,6 +282,24 @@ void service_irads_home(const double mount[16])
     }
     if (!g_av_tv_sensor_instance)
         return;
+    if (s_irads_home_arrived)
+    {
+        // Reset the native platform motors AND its inertial slew cache. Writing only
+        // the rendered matrix leaves the previous angles waiting for the next TDC input.
+        if (!g_platform_h_axis || !g_platform_v_axis || !g_motor_force || !g_motor_stop || !g_sensor_slew_rebase)
+            return;
+        void* horizontal = g_platform_h_axis(g_av_tv_sensor_instance);
+        void* vertical = g_platform_v_axis(g_av_tv_sensor_instance);
+        if (!horizontal || !vertical)
+            return;
+        g_motor_force(horizontal, 0.0); g_motor_stop(horizontal);
+        g_motor_force(vertical, 0.0); g_motor_stop(vertical);
+        g_sensor_slew_rebase(g_av_tv_sensor_instance);
+        double* pose = sensor_world_pose();
+        for (int i = 0; i < 12; ++i)
+            pose[i] = mount[i];
+        return;
+    }
     const double* los = sensor_world_pose();
     const double ahead = dot3(los, mount);
     const double los_up = dot3(los, mount + 4);
@@ -309,8 +329,9 @@ void service_irads_home(const double mount[16])
     s_vertical_state = v_dir;
     if (h_dir == 0 && v_dir == 0)
     {
-        s_irads_homing = false;
-        log_message("IRADS sensor reset: home reached");
+        s_irads_home_arrived = true;
+        service_irads_home(mount);
+        log_message("IRADS sensor reset: home reached, native motors rebased");
         return;
     }
     const auto home_rate = [](double error_deg)
@@ -399,6 +420,14 @@ bool handle_irads_command(int command, float value)
             dispatch_vertical();
             return true;
         case irads_slew_stop:
+            if (active && s_irads_designate_held)
+            {
+                // A second press with no release between: a replayed track sends the cockpit's
+                // relayed press twice, and acting on both would designate then undesignate.
+                log_message("IRADS designate: repeated press ignored");
+                return true;
+            }
+            s_irads_designate_held = active;
             stop_slew_and_designate(active);
             return true;
         case tv_sensor_zoom_in:
