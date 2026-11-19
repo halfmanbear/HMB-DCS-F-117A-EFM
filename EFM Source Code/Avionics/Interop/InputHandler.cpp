@@ -78,7 +78,7 @@ static bool is_slew_command(int command)
 // optical zoom values.
 static double slew_rate_scale()
 {
-    double zoom = as_sensor(g_av_tv_sensor_instance)->current_zoom;
+    double zoom = g_av_tv_sensor_zoom(g_av_tv_sensor_instance);
     if (!std::isfinite(zoom))
         zoom = min_zoom;
     zoom = (zoom < min_zoom) ? min_zoom : ((zoom > max_zoom) ? max_zoom : zoom);
@@ -159,14 +159,14 @@ static bool dispatch_vertical()
 static void set_zoom_level(int level)
 {
     s_irads_zoom_level = level;
-    auto* sensor = as_sensor(g_av_tv_sensor_instance);
-    sensor->current_zoom = zoom_preset[level - 1];
-    sensor->target_zoom = sensor->current_zoom;
+    if (!set_optical_zoom(zoom_preset[level - 1]))
+        return;
     // Reapply a held direction immediately at the new optical rate.
     apply_horizontal();
     apply_vertical();
-    log_format("IRADS optical zoom: level=%d zoom=%.2f fullFovDeg=%.3f", level, sensor->current_zoom,
-               sensor->base_fov / sensor->current_zoom * rad_to_deg);
+    log_format("IRADS optical zoom: level=%d zoom=%.2f fullFovDeg=%.3f", level,
+               g_av_tv_sensor_zoom(g_av_tv_sensor_instance),
+               g_av_tv_sensor_view_angle(g_av_tv_sensor_instance) * rad_to_deg);
 }
 
 // Hysteresis avoids repeated zoom steps at the detent boundaries.
@@ -224,7 +224,7 @@ static void log_slew_key(const char* name, float value, float axis)
     static unsigned int slew_logs = 0;
     if (slew_logs++ < slew_log_limit)
     {
-        const int caged = *(reinterpret_cast<uint8_t*>(g_av_tv_sensor_instance) + sensor_caged_byte_offset);
+        const int caged = g_av_tv_sensor_caged(g_av_tv_sensor_instance) ? 1 : 0;
         log_format("HandleIRADSCommand: %s value=%.2f axis=%.2f caged=%d", name, value, axis, caged);
     }
 }
@@ -279,7 +279,7 @@ void service_irads_home(const double mount[16])
     }
     if (!g_av_tv_sensor_instance)
         return;
-    const double* los = as_sensor(g_av_tv_sensor_instance)->platform_world_pose.m;
+    const double* los = sensor_world_pose();
     const double ahead = dot3(los, mount);
     const double los_up = dot3(los, mount + 4);
     const double los_right = dot3(los, mount + 8);

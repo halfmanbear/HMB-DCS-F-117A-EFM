@@ -52,19 +52,13 @@ static void seed_injected_sensor_pose(const Aircraft_pose& pose)
     if (!g_av_tv_sensor_instance)
         return;
 
-    Av_tv_sensor_layout* sensor = as_sensor(g_av_tv_sensor_instance);
-    Av_platform_layout* root = as_platform(sensor->platform_root ? sensor->platform_root : g_av_tv_sensor_instance);
     double world_pose[16] = {};
 
     build_world_pose_from_aircraft(world_pose, pose);
 
-    std::memcpy(sensor->platform_world_pose.m, world_pose, sizeof(world_pose));
-    std::memcpy(sensor->platform_initial_world_pose.m, world_pose, sizeof(world_pose));
-    if (root)
-    {
-        std::memcpy(root->platform_world_pose.m, world_pose, sizeof(world_pose));
-        std::memcpy(root->platform_initial_world_pose.m, world_pose, sizeof(world_pose));
-    }
+    // The accessors resolve the root platform, which is the sensor itself.
+    std::memcpy(sensor_world_pose(), world_pose, sizeof(world_pose));
+    std::memcpy(sensor_mount_pose(), world_pose, sizeof(world_pose));
 
     s_last_aircraft_pos[0] = pose.x;
     s_last_aircraft_pos[1] = pose.y;
@@ -140,7 +134,7 @@ void update_irads_sensor_frame(double dt, const Aircraft_pose& pose)
         s_irads_ray_age += dt;
     if (!g_av_tv_sensor_instance || !g_av_tv_sensor_update)
         return;
-    if (as_sensor(g_av_tv_sensor_instance)->active_flag == 0 || !s_irads_power)
+    if (!s_sensor_initialized || !s_irads_power)
         return;
 
     if (s_irads_terrain_pending)
@@ -182,11 +176,11 @@ void update_irads_sensor_frame(double dt, const Aircraft_pose& pose)
         g_av_tv_sensor_update_frame(g_av_tv_sensor_instance);
     // The initial pose is the aircraft-fixed mount, re-seeded every frame above.
     if (s_irads_homing)
-        service_irads_home(as_sensor(g_av_tv_sensor_instance)->platform_initial_world_pose.m);
+        service_irads_home(sensor_mount_pose());
     // Apply after all native motor/frame work. Do not change the initial mount,
     // target coordinate, optical zoom or free-slew state.
     if (s_irads_lock_valid)
-        aim_pose_at_world_point(as_sensor(g_av_tv_sensor_instance)->platform_world_pose.m, s_irads_lock_world);
+        aim_pose_at_world_point(sensor_world_pose(), s_irads_lock_world);
 
     static double diagnostic_time = 0;
     static unsigned int diagnostic_count = 0;
@@ -195,10 +189,11 @@ void update_irads_sensor_frame(double dt, const Aircraft_pose& pose)
     {
         diagnostic_time = 0;
         ++diagnostic_count;
-        const auto* sensor = as_sensor(g_av_tv_sensor_instance);
+        const double* los = sensor_world_pose();
         log_format("IRADS camera state: bridged=%d zoom=%.3f targetZoom=%.3f LOS=(%.4f,%.4f,%.4f) axes=(%.3f,%.3f)",
-                   s_our_ind != nullptr, sensor->current_zoom, sensor->target_zoom, sensor->platform_world_pose.m[0],
-                   sensor->platform_world_pose.m[1], sensor->platform_world_pose.m[2], s_irads_horizontal_axis,
+                   s_our_ind != nullptr, g_av_tv_sensor_zoom(g_av_tv_sensor_instance), optical_zoom_target(), los[0],
+                   los[1], los[2],
+                   s_irads_horizontal_axis,
                    s_irads_vertical_axis);
     }
 }

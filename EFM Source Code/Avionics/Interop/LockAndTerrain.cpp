@@ -80,10 +80,11 @@ bool complete_irads_terrain_request(unsigned sequence, bool hit, const double po
     if (!std::isfinite(range) || range < min_lock_range_m || range >= max_lock_range_m ||
         dot / range < min_ray_alignment)
         return false;
+    double* cached_point = g_av_tv_sensor_reference_point(g_av_tv_sensor_instance);
     for (int i = 0; i < 3; ++i)
     {
         s_irads_lock_world[i] = point[i];
-        as_sensor(g_av_tv_sensor_instance)->cached_tracked_point[i] = point[i];
+        cached_point[i] = point[i];
     }
     s_irads_lock_valid = true;
     log_format("IRADS terrain lock accepted: id=%u world=(%.3f,%.3f,%.3f) range=%.2f", sequence, point[0], point[1],

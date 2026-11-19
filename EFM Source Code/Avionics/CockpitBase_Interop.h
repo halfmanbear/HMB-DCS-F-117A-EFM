@@ -10,8 +10,6 @@
 namespace Cockpit_interop
 {
 static constexpr int ir_screen_condition_flir = 11;
-static constexpr int ir_camera_condition_on = 1;
-static constexpr size_t avtvsensor_alloc_size = 0x800;
 
 // F-117A DLIR belly position in model-local coordinates (metres).
 // X = forward from CG, Y = right, Z = up.
@@ -35,6 +33,10 @@ struct Aircraft_pose
 extern HMODULE g_h_dll;             // this module; set by DllMain, used for the log path
 extern void** g_contexts_ptr_addr;  // address of the cockpit context table
 
+// The one export of module whose decorated name starts with prefix, such as
+// "?method@class@namespace@@", whatever its return or parameter types. Null if none or several.
+// If name is given, it receives the export's full decorated name.
+FARPROC unique_export(HMODULE module, const char* prefix, const char** name = nullptr);
 void log_message(const char* msg);
 void log_vformat(const char* fmt, va_list args);
 void log_format(const char* fmt, ...);

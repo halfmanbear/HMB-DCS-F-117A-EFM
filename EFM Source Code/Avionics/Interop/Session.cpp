@@ -23,6 +23,7 @@ void reset_irads_session()
     reset_camera_bridge();
     g_av_tv_sensor_instance = nullptr;
     s_added = false;
+    s_sensor_initialized = false;
     log_message("ResetIRADSSession: IRADS session state cleared");
 }
 }  // namespace Cockpit_interop

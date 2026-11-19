@@ -13,9 +13,6 @@ inline constexpr double irads_ray_max_age = 0.5;
 
 inline constexpr double rad_to_deg = 57.295779513;
 
-// Byte offset of the sensor's caged flag, cleared every frame so the gimbal can slew.
-inline constexpr size_t sensor_caged_byte_offset = 938;
-
 // -- Native entry points resolved from CockpitBase.dll by Initialize() ------
 using Pfn_av_tv_sensor_ctor = void*(__cdecl*)(void* self);
 using Pfn_av_tv_sensor_initialize = void(__fastcall*)(void* self);
@@ -28,6 +25,20 @@ using Pfn_av_tv_sensor_set_external_designation = void(__fastcall*)(void* self, 
 using Pfn_av_tv_sensor_stabilize_on_ground = void(__fastcall*)(void* self, char intersect_terrain);
 using Pfn_av_tv_sensor_void_method = void(__fastcall*)(void* self);
 using Pfn_binding_context = void* (*)();
+// avPlatform pose accessors. The injected sensor is its own root platform, so each returns
+// the sensor's 4x4 pose by reference: elements 0-2 forward axis, 12-14 position.
+using Pfn_platform_pose = double*(__fastcall*)(void* self);
+// Rebuilds the root pose from the mount and gimbal angles and stamps it with the current
+// model time, so camera reads in the same model time use the stored pose.
+using Pfn_platform_update = void(__fastcall*)(void* self);
+using Pfn_sensor_flag = bool(__fastcall*)(const void* self);
+using Pfn_sensor_value = double(__fastcall*)(const void* self);
+// Returns the sensor's cached designated point by reference; read by the native tracked-point query.
+using Pfn_sensor_point = double*(__fastcall*)(const void* self);
+// avMotor accessors, used on the sensor's zoom motor.
+using Pfn_motor_value = double(__fastcall*)(const void* motor);
+using Pfn_motor_force = void(__fastcall*)(void* motor, double value);
+using Pfn_motor_stop = void(__fastcall*)(void* motor);  // target = current position
 
 extern Pfn_av_tv_sensor_ctor g_av_tv_sensor_ctor;
 extern Pfn_av_tv_sensor_initialize g_av_tv_sensor_initialize;
@@ -48,29 +59,34 @@ extern Pfn_av_tv_sensor_void_method g_av_tv_sensor_slew_stop;
 extern Pfn_av_tv_sensor_void_method g_av_tv_sensor_zoom_in;
 extern Pfn_av_tv_sensor_void_method g_av_tv_sensor_zoom_out;
 extern Pfn_binding_context g_binding_context;
+extern Pfn_platform_pose g_platform_position;          // current line-of-sight pose
+extern Pfn_platform_pose g_platform_initial_position;  // aircraft-fixed mount pose
+extern Pfn_platform_update g_platform_update_position;
+extern Pfn_sensor_flag g_av_tv_sensor_caged;
+extern Pfn_sensor_value g_av_tv_sensor_zoom;         // current optical zoom factor
+extern Pfn_sensor_value g_av_tv_sensor_default_fov;  // full field of view at zoom 1, radians
+extern Pfn_sensor_value g_av_tv_sensor_view_angle;   // full field of view at the current zoom, radians
+extern Pfn_sensor_point g_av_tv_sensor_reference_point;
+extern Pfn_motor_value g_motor_get;
+extern Pfn_motor_value g_motor_get_target;
+extern Pfn_motor_force g_motor_force;
+extern Pfn_motor_stop g_motor_stop;
 extern void* g_av_tv_sensor_instance;  // our standalone sensor; null until injected
 
-inline Av_tv_sensor_layout* as_sensor(void* sensor)
+inline double* sensor_world_pose()
 {
-    return static_cast<Av_tv_sensor_layout*>(sensor);
+    return g_platform_position(g_av_tv_sensor_instance);
 }
-inline Cc_cockpit_context_layout* as_context(void* context)
+inline double* sensor_mount_pose()
 {
-    return static_cast<Cc_cockpit_context_layout*>(context);
-}
-inline Cc_indicator_layout* as_indicator(void* indicator)
-{
-    return static_cast<Cc_indicator_layout*>(indicator);
-}
-inline Av_platform_layout* as_platform(void* platform)
-{
-    return static_cast<Av_platform_layout*>(platform);
+    return g_platform_initial_position(g_av_tv_sensor_instance);
 }
 
 // -- Session state ---------------------------------------------------------
 // Written by the input handler, the per-frame update and the camera callback; cleared by
 // ResetIRADSSession.
-inline bool s_added = false;  // sensor constructed and registered
+inline bool s_added = false;              // sensor constructed and registered
+inline bool s_sensor_initialized = false;  // native initialize() has run on our sensor
 inline bool s_irads_power = true;
 inline int s_irads_zoom_level = 1;
 
@@ -100,8 +116,15 @@ inline void* s_our_ind = nullptr;  // cached DLIR indicator (owned by DCS)
 
 // -- Cross-unit functions --------------------------------------------------
 FARPROC resolve_cockpit_base_export(const char* name);
-Cc_cockpit_context_layout* get_global_context();
-Cc_cockpit_context_layout* get_binding_context();
+// Positions of members DCS exports no accessor for, read from the exported functions that use
+// them. Zero if those functions disagree or do not match the expected form.
+size_t screen_condition_offset();
+size_t zoom_motor_offset();
+void* get_global_context();
+void* get_binding_context();
+// Sets the optical zoom factor, current and target together. False if the zoom motor is unconfirmed.
+bool set_optical_zoom(double zoom);
+double optical_zoom_target();  // NaN if the zoom motor is unconfirmed
 bool ground_stabilize_irads();
 void clear_irads_lock();
 void service_irads_home(const double mount[16]);  // mount: aircraft-fixed sensor pose, forward/up/right columns
@@ -112,8 +135,6 @@ void reset_camera_bridge();
 // so the cage flag is cleared at start-up and again every frame.
 inline void uncage_sensor()
 {
-    *(reinterpret_cast<uint8_t*>(g_av_tv_sensor_instance) + sensor_caged_byte_offset) = 0;
-    if (g_av_tv_sensor_uncage)
-        g_av_tv_sensor_uncage(g_av_tv_sensor_instance);
+    g_av_tv_sensor_uncage(g_av_tv_sensor_instance);
 }
 }  // namespace Cockpit_interop
