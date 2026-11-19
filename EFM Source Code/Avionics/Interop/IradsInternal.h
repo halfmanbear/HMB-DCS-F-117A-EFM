@@ -87,7 +87,7 @@ inline double* sensor_mount_pose()
 // ResetIRADSSession.
 inline bool s_added = false;              // sensor constructed and registered
 inline bool s_sensor_initialized = false;  // native initialize() has run on our sensor
-inline bool s_irads_power = true;
+inline bool s_irads_power = false; // pilot selection; is_irads_powered also checks electrical/BIT readiness
 inline int s_irads_zoom_level = 1;
 
 // Slew demand. Keyboard input takes priority over a centred analog axis.

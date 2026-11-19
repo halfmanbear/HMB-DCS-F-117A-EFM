@@ -16,7 +16,7 @@ static constexpr double min_ray_norm_sq = 0.5;
 
 bool ground_stabilize_irads()
 {
-    if (!g_av_tv_sensor_instance || !s_irads_power || !s_irads_ray_valid)
+    if (!g_av_tv_sensor_instance || !is_irads_powered() || !s_irads_ray_valid)
         return false;
     double norm = 0;
     for (int i = 0; i < 6; ++i)
@@ -64,7 +64,7 @@ bool complete_irads_terrain_request(unsigned sequence, bool hit, const double po
     if (!s_irads_terrain_pending || sequence != s_irads_terrain_sequence)
         return false;
     s_irads_terrain_pending = false;
-    if (!hit || !point || !s_irads_power || !g_av_tv_sensor_instance)
+    if (!hit || !point || !is_irads_powered() || !g_av_tv_sensor_instance)
         return false;
     double distance_sq = 0;
     double dot = 0;
@@ -109,7 +109,7 @@ bool get_irads_lock_world_point(double out_point[3])
 
 bool get_irads_line_of_sight(double out_direction[3])
 {
-    if (!out_direction || !s_irads_power || !s_irads_ray_valid || s_irads_ray_age > irads_ray_max_age)
+    if (!out_direction || !is_irads_powered() || !s_irads_ray_valid || s_irads_ray_age > irads_ray_max_age)
         return false;
     double norm = 0;
     for (int i = 0; i < 3; ++i)

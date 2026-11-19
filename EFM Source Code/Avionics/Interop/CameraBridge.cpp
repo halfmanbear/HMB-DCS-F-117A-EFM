@@ -149,7 +149,7 @@ static void* __fastcall irads_get_camera(void* indicator)
     const double* eye = pose + 12;
     // Snapshot the visible ray. Terrain tracing must use this optical eye,
     // not a native cached target or a newly recomputed aircraft-forward ray.
-    if (s_irads_power)
+    if (is_irads_powered())
     {
         s_irads_ray_valid = true;
         for (int i = 0; i < 3; ++i)
@@ -293,14 +293,14 @@ void force_irads_indicator_active()
             return;
         // Powered: mark the camera target in use so the indicator reports FLIR this frame.
         // Unpowered: no mark, so the next final draw pass leaves it off.
-        if (s_irads_power)
+        if (is_irads_powered())
             s_increase_render_target_counter(nullptr, s_our_ind, nullptr);
         static int s_logged_condition = -1;
         static unsigned s_condition_logs = 0;
         const int condition = s_get_screen_condition(s_our_ind);
         if (condition != s_logged_condition && s_condition_logs < 40)
         {
-            log_format("IRADS screen condition: %d (power=%d)", condition, s_irads_power ? 1 : 0);
+            log_format("IRADS screen condition: %d (power=%d)", condition, is_irads_powered() ? 1 : 0);
             s_logged_condition = condition;
             ++s_condition_logs;
         }

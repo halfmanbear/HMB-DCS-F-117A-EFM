@@ -134,7 +134,19 @@ void update_irads_sensor_frame(double dt, const Aircraft_pose& pose)
         s_irads_ray_age += dt;
     if (!g_av_tv_sensor_instance || !g_av_tv_sensor_update)
         return;
-    if (!s_sensor_initialized || !s_irads_power)
+    if (!is_irads_powered())
+    {
+        s_irads_ray_valid = false;
+        s_irads_homing = false;
+        s_irads_analog_horizontal = s_irads_analog_vertical = 0.0f;
+        s_irads_keyboard_horizontal = s_irads_keyboard_vertical = 0.0f;
+        s_irads_horizontal_axis = s_irads_vertical_axis = 0.0f;
+        clear_irads_lock();
+        if (g_av_tv_sensor_slew_stop)
+            g_av_tv_sensor_slew_stop(g_av_tv_sensor_instance);
+        return;
+    }
+    if (!s_sensor_initialized)
         return;
 
     if (s_irads_terrain_pending)

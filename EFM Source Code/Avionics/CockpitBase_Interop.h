@@ -46,6 +46,7 @@ bool inject_irads_sensor_late();   // Phase B: ed_fm_start - ensure init + camer
 bool handle_irads_command(int command, float value);
 int get_irads_zoom_level();
 bool is_irads_powered();
+void set_irads_power_selected(bool selected); // spawn selection; Electrical.lua gates boot readiness
 void update_irads_sensor_frame(double dt, const Aircraft_pose& pose);
 void force_irads_indicator_active();  // Phase C: called every frame from ed_fm_simulate to keep
                                       // screenCondition/cameraCondition live

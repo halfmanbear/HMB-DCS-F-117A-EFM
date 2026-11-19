@@ -2,6 +2,7 @@
 #include "stdafx.h"
 #include "IradsInternal.h"
 #include "../../Inputs.h"
+#include "../../Cockpit/ParamBridge.h"
 #include <cmath>
 
 namespace Cockpit_interop
@@ -190,13 +191,13 @@ static void clear_slew_demand()
     s_irads_vertical_axis = 0.0f;
 }
 
-static void toggle_power()
+void set_irads_power_selected(bool selected)
 {
-    s_irads_power = !s_irads_power;
+    s_irads_power = selected;
     s_irads_homing = false;
     clear_slew_demand();
     clear_irads_lock();
-    if (g_av_tv_sensor_slew_stop)
+    if (g_av_tv_sensor_instance && g_av_tv_sensor_slew_stop)
         g_av_tv_sensor_slew_stop(g_av_tv_sensor_instance);
     log_format("IRADS power: %s", s_irads_power ? "ON" : "OFF");
 }
@@ -331,6 +332,11 @@ void service_irads_home(const double mount[16])
 bool handle_irads_command(int command, float value)
 {
     log_command(command, value);
+    if (command == plane_eos_on_off && std::isfinite(value))
+    {
+        set_irads_power_selected(!s_irads_power);
+        return true;
+    }
     if (!g_av_tv_sensor_instance)
         return false;
 
@@ -340,7 +346,7 @@ bool handle_irads_command(int command, float value)
     const bool active = value > axis_deadzone || value < -axis_deadzone;
     const float axis_magnitude = (value < 0.0f) ? -value : value;
 
-    if (!s_irads_power && command != plane_eos_on_off)
+    if (!is_irads_powered() && command != plane_eos_on_off)
         return false;
 
     if (is_slew_command(command) && active && (s_irads_lock_valid || s_irads_terrain_pending))
@@ -350,9 +356,6 @@ bool handle_irads_command(int command, float value)
 
     switch (command)
     {
-        case plane_eos_on_off:
-            toggle_power();
-            return true;
         case slew_horizontal_axis_legacy:
         case slew_horizontal_axis_prior:
         case irads_slew_horizontal_axis:
@@ -420,7 +423,9 @@ bool handle_irads_command(int command, float value)
 
 bool is_irads_powered()
 {
-    return s_irads_power;
+    static void* ready_param = nullptr;
+    double ready = 0.0;
+    return s_irads_power && read_named_param(ready_param, "F117_ON_IRADS", ready) && ready > 0.5;
 }
 
 int get_irads_zoom_level()

@@ -733,6 +733,7 @@ void ed_fm_unlimited_fuel(bool enabled)
 void ed_fm_cold_start()
 {
     apply_ground_start_state(false);
+    Cockpit_interop::set_irads_power_selected(false);
     mass_log_event("cold_start", F117::internal_fuel);
     log_damage_lifecycle_event("ed_fm_cold_start");
     Cockpit_interop::inject_irads_sensor_late();
@@ -743,6 +744,7 @@ void ed_fm_cold_start()
 void ed_fm_hot_start()
 {
     apply_ground_start_state(true);
+    Cockpit_interop::set_irads_power_selected(true);
     mass_log_event("hot_start", F117::internal_fuel);
     log_damage_lifecycle_event("ed_fm_hot_start");
     Cockpit_interop::inject_irads_sensor_late();
@@ -753,6 +755,7 @@ void ed_fm_hot_start()
 void ed_fm_hot_start_in_air()
 {
     apply_air_start_state();
+    Cockpit_interop::set_irads_power_selected(true);
     mass_log_event("hot_start_in_air", F117::internal_fuel);
     log_damage_lifecycle_event("ed_fm_hot_start_in_air");
     Cockpit_interop::inject_irads_sensor_late();
