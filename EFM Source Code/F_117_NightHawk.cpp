@@ -58,11 +58,12 @@ constexpr int right_elevator_arg = 16;
 constexpr int left_rudder_arg = 17;
 constexpr int right_rudder_arg = 18;
 constexpr int tailhook_arg = 25;
-constexpr int weapon_bay_args[F117::weapon_bay_count] = {27, 28};  // left, right; each moves its door, then its trapeze
-// The standard bay argument. Nothing in the model is animated by it, but DCS draws the stores only while it is
-// open, so it reads open while either bay is. Without it the store of a bay that is open vanishes while the
-// other bay is shut.
+constexpr int weapon_bay_args[F117::weapon_bay_count] = {904, 905};  // left, right: door, then trapeze
+// DCS drives 26 for AI and uses it to show internal stores. The model also animates both bays from it.
+// When the EFM supplies individual positions, 906 cancels the shared motion before applying 904/905.
+// With only 26 supplied (AI or legacy replay), the model retains paired bay motion.
 constexpr int weapon_bay_any_arg = 26;
+constexpr int weapon_bay_cancel_arg = 906;
 constexpr int drag_chute_arg = 35;
 constexpr int mirrored_gear_arg_nose = 611;
 constexpr int mirrored_gear_arg_left = 614;
@@ -397,10 +398,13 @@ void update_misc_draw_args(float* drawargs, size_t size)
     for (int bay = 0; bay < F117::weapon_bay_count; ++bay)
     {
         const float position = static_cast<float>(limit(F117::bay_state[bay], 0.0, 1.0));
-        drawargs[weapon_bay_args[bay]] = position;
+        if (size > weapon_bay_cancel_arg)
+            drawargs[weapon_bay_args[bay]] = position;
         any_open = position > any_open ? position : any_open;
     }
     drawargs[weapon_bay_any_arg] = any_open;
+    if (size > weapon_bay_cancel_arg)
+        drawargs[weapon_bay_cancel_arg] = any_open;
 
     if (size > mirrored_gear_draw_arg_required_size)
     {
