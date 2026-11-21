@@ -278,14 +278,21 @@ void update_irads_sensor_frame(double dt, const Aircraft_pose& pose)
     if (s_irads_lock_valid)
         aim_pose_at_world_point(sensor_world_pose(), s_irads_lock_world);
     publish_irads_housing(true);
-    // Keep this frame's line of sight (column 0) and eye (row 3) for designating without a render.
-    const double* sensor_pose = sensor_world_pose();
-    s_irads_sensor_ray_valid = true;
+    // Sample the native optical pose every simulation frame, even when the cockpit is not
+    // rendered. The raw platform pose omits camera/motor extrapolation and gives a different
+    // designation in external-view track replay. Use the same calculation as fill_camera.
+    using Get_camera_position = double*(__fastcall*)(const void*, double*);
+    static auto get_camera_position = reinterpret_cast<Get_camera_position>(
+        unique_export(GetModuleHandleA("CockpitBase.dll"), "?get_camera_position@avTVSensor@cockpit@@"));
+    double optical_pose[16] = {};
+    s_irads_sensor_ray_valid = get_camera_position != nullptr;
+    if (get_camera_position)
+        get_camera_position(g_av_tv_sensor_instance, optical_pose);
     for (int i = 0; i < 3; ++i)
     {
-        s_irads_sensor_ray[i] = sensor_pose[12 + i];
-        s_irads_sensor_ray[i + 3] = sensor_pose[i];
-        if (!std::isfinite(sensor_pose[12 + i]) || !std::isfinite(sensor_pose[i]))
+        s_irads_sensor_ray[i] = optical_pose[12 + i];
+        s_irads_sensor_ray[i + 3] = optical_pose[i];
+        if (!std::isfinite(optical_pose[12 + i]) || !std::isfinite(optical_pose[i]))
             s_irads_sensor_ray_valid = false;
     }
 

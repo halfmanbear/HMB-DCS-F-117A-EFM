@@ -1,4 +1,4 @@
-// IRADS ground designation: the rendered ray goes out as a terrain request (answered by the Lua
+// IRADS ground designation: the simulation optical ray goes out as a terrain request (answered by the Lua
 // terrain trace) and the reply becomes the world-space lock the weapon code reads.
 #include "stdafx.h"
 #include "IradsInternal.h"
@@ -33,11 +33,9 @@ bool ground_stabilize_irads()
 {
     if (!g_av_tv_sensor_instance || !is_irads_powered())
         return false;
-    // Prefer the ray the camera last drew. When the camera has not rendered recently (the IRADS
-    // picture is off screen, e.g. a replay watched from outside) that ray is frozen where it was
-    // last drawn, so use the sensor pose from the latest simulation frame instead.
-    const bool render_fresh = s_irads_ray_valid && s_irads_ray_age <= irads_ray_max_age;
-    const double* ray = render_fresh ? s_irads_render_ray : (s_irads_sensor_ray_valid ? s_irads_sensor_ray : nullptr);
+    // Designation is simulation state. Always use the optical ray sampled by SensorFrame,
+    // never a render callback whose timing depends on view, frame rate and track speed.
+    const double* ray = s_irads_sensor_ray_valid ? s_irads_sensor_ray : nullptr;
     if (!ray)
         return false;
     const double norm = ray_direction_length(ray);
@@ -51,11 +49,11 @@ bool ground_stabilize_irads()
     // Diagnostic: how far the rendered and simulated rays disagree when both exist.
     double sensor_offset_deg = -1.0;
     const double sensor_norm = s_irads_sensor_ray_valid ? ray_direction_length(s_irads_sensor_ray) : 0.0;
-    if (render_fresh && sensor_norm > 0.0)
+    if (s_irads_ray_valid && s_irads_ray_age <= irads_ray_max_age && sensor_norm > 0.0)
     {
         double dot = 0.0;
         for (int i = 0; i < 3; ++i)
-            dot += s_irads_request_ray[i + 3] * s_irads_sensor_ray[i + 3] / sensor_norm;
+            dot += s_irads_render_ray[i + 3] * s_irads_sensor_ray[i + 3] / sensor_norm;
         sensor_offset_deg = std::acos((std::max)(-1.0, (std::min)(1.0, dot))) * rad_to_deg;
     }
     s_irads_lock_valid = false;
@@ -65,7 +63,7 @@ bool ground_stabilize_irads()
         s_irads_terrain_sequence = 1;
     log_format("IRADS terrain request: id=%u source=%s eye=(%.3f,%.3f,%.3f) direction=(%.8f,%.8f,%.8f) "
                "sensorOffsetDeg=%.4f",
-               s_irads_terrain_sequence, render_fresh ? "render" : "sensor", s_irads_request_ray[0],
+               s_irads_terrain_sequence, "optical-sim", s_irads_request_ray[0],
                s_irads_request_ray[1], s_irads_request_ray[2], s_irads_request_ray[3], s_irads_request_ray[4],
                s_irads_request_ray[5], sensor_offset_deg);
     return true;
